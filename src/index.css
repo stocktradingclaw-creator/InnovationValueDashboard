@@ -429,6 +429,11 @@ select {
   color: var(--accent);
 }
 
+.cx-low { background: rgba(76, 195, 138, 0.15); color: var(--accent); }
+.cx-medium { background: rgba(255, 171, 112, 0.15); color: #ffab70; }
+.cx-high { background: rgba(229, 83, 75, 0.15); color: #ff8a84; }
+.cx-very_high { background: rgba(229, 83, 75, 0.3); color: #ff6b63; }
+
 .quad-quick_win { background: rgba(76, 195, 138, 0.18); color: var(--accent); }
 .quad-strategic_bet { background: rgba(121, 184, 255, 0.15); color: #79b8ff; }
 .quad-fill_in { background: rgba(255, 171, 112, 0.15); color: #ffab70; }

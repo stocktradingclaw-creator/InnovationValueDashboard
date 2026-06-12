@@ -25,12 +25,20 @@ const QUADRANT_LABELS: Record<Quadrant, string> = {
   deprioritize: 'Deprioritize',
 }
 
+const COMPLEXITY_LABELS: Record<string, string> = {
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  very_high: 'very high',
+}
+
 function WeightSliders({ weights, onChange }: { weights: Weights; onChange: (w: Weights) => void }) {
-  const total = weights.value + weights.efficiency + weights.speed || 1
+  const total = weights.value + weights.efficiency + weights.speed + weights.simplicity || 1
   const rows: { key: keyof Weights; label: string; hint: string }[] = [
     { key: 'value', label: 'Value', hint: 'size of prize (risk-adjusted savings)' },
     { key: 'efficiency', label: 'Efficiency', hint: 'payback ratio (savings vs. cost)' },
     { key: 'speed', label: 'Speed', hint: 'time to value' },
+    { key: 'simplicity', label: 'Simplicity', hint: 'penalize coordination-heavy, risky change' },
   ]
   return (
     <div className="card weights-card">
@@ -173,6 +181,7 @@ export default function Opportunities({
             <th>Opportunity</th>
             <th className="num">Est. savings/yr</th>
             <th className="num">Payback</th>
+            <th>Complexity</th>
             <th>Quadrant</th>
           </tr>
         </thead>
@@ -198,6 +207,11 @@ export default function Opportunities({
                   {o.priority.payback_months != null ? `${o.priority.payback_months} mo` : '—'}
                 </td>
                 <td>
+                  <span className={`pill cx-${o.complexity}`}>
+                    {COMPLEXITY_LABELS[o.complexity]}
+                  </span>
+                </td>
+                <td>
                   <span className={`pill quad-${o.priority.quadrant}`}>
                     {QUADRANT_LABELS[o.priority.quadrant]}
                   </span>
@@ -205,7 +219,7 @@ export default function Opportunities({
               </tr>
               {expanded === o.id && (
                 <tr key={`${o.id}-detail`} className="detail-row">
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <p>{o.description}</p>
                     <div className="metrics-row">
                       <div className="metric">
@@ -236,8 +250,13 @@ export default function Opportunities({
                     <p className="muted small">
                       Score components — value {o.priority.components.value} · efficiency{' '}
                       {o.priority.components.efficiency} · speed {o.priority.components.speed} ·
-                      effort <span className={`pill pill-${o.effort}`}>{o.effort}</span> ·
-                      confidence <span className={`pill pill-${o.confidence}`}>{o.confidence}</span>
+                      simplicity {o.priority.components.simplicity} · effort{' '}
+                      <span className={`pill pill-${o.effort}`}>{o.effort}</span> · confidence{' '}
+                      <span className={`pill pill-${o.confidence}`}>{o.confidence}</span> ·
+                      complexity{' '}
+                      <span className={`pill cx-${o.complexity}`}>
+                        {COMPLEXITY_LABELS[o.complexity]}
+                      </span>
                     </p>
                     <p className="muted small">
                       Affected ({o.affected_count}): {o.affected_items.join(', ')}

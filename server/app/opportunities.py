@@ -12,6 +12,18 @@ from typing import Any, Dict, List
 
 COST_PER_TICKET = 22.0  # blended handling cost assumption per ITSM ticket
 
+# Complexity is distinct from effort: effort approximates labor/cost, complexity
+# approximates coordination burden and delivery risk (stakeholders, migrations,
+# org change, root-cause uncertainty). Rules assign the intrinsic complexity of
+# the play; scale bumps it because big blast radii mean more coordination.
+_COMPLEXITY_LEVELS = ["low", "medium", "high", "very_high"]
+
+
+def _scale_complexity(base: str, affected_count: int) -> str:
+    bump = 2 if affected_count >= 75 else 1 if affected_count >= 15 else 0
+    idx = min(_COMPLEXITY_LEVELS.index(base) + bump, len(_COMPLEXITY_LEVELS) - 1)
+    return _COMPLEXITY_LEVELS[idx]
+
 
 def _opportunity(
     source: str,
@@ -22,6 +34,7 @@ def _opportunity(
     effort: str,
     affected: List[str],
     confidence: str,
+    complexity: str = "medium",
 ) -> Dict[str, Any]:
     # Deterministic ID so business cases can link to an opportunity and the
     # link survives server restarts and re-analysis.
@@ -35,6 +48,7 @@ def _opportunity(
         "estimated_annual_savings": round(savings, 2),
         "effort": effort,
         "confidence": confidence,
+        "complexity": _scale_complexity(complexity, len(affected)),
         "affected_items": affected[:25],
         "affected_count": len(affected),
     }
@@ -61,7 +75,7 @@ def _cmdb_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             f"Decommission {len(idle)} idle servers (<5% CPU)",
             "Servers running below 5% average CPU are candidates for decommissioning "
             "or consolidation. Savings assume full retirement of the asset.",
-            savings, "medium", [r["ci_name"] for r in idle], "high",
+            savings, "medium", [r["ci_name"] for r in idle], "high", complexity="medium",
         ))
 
     today = date.today()
@@ -77,7 +91,7 @@ def _cmdb_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             f"Replace or retire {len(eol)} past-EOL assets",
             "Assets past their end-of-life date incur extended-support premiums and "
             "security exposure. Savings estimate the support premium avoided (~30% of run cost).",
-            savings, "high", [r["ci_name"] for r in eol], "medium",
+            savings, "high", [r["ci_name"] for r in eol], "medium", complexity="high",
         ))
 
     by_app_category: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -95,7 +109,7 @@ def _cmdb_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     f"Consolidate {len(apps)} overlapping '{cat}' applications",
                     f"{len(apps)} applications serve the '{cat}' capability. Consolidating to "
                     "one or two platforms removes duplicate licensing and support effort.",
-                    savings, "high", [a["ci_name"] for a in apps], "medium",
+                    savings, "high", [a["ci_name"] for a in apps], "medium", complexity="high",
                 ))
 
     nonprod = [
@@ -110,7 +124,7 @@ def _cmdb_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             f"Rightsize {len(nonprod)} high-cost non-production systems",
             "Non-production systems costing >$10k/yr can usually be downsized or "
             "scheduled (off outside business hours) for ~40% savings.",
-            savings, "low", [r["ci_name"] for r in nonprod], "medium",
+            savings, "low", [r["ci_name"] for r in nonprod], "medium", complexity="low",
         ))
     return opps
 
@@ -138,7 +152,7 @@ def _erp_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             f"Recover {len(dupes)} probable duplicate invoices",
             "Invoices with the same vendor and amount within 10 days are likely "
             "duplicates. Savings equal the full recoverable amount.",
-            savings, "low", [r["invoice_id"] for r in dupes], "high",
+            savings, "low", [r["invoice_id"] for r in dupes], "high", complexity="low",
         ))
 
     # Vendor consolidation: categories with 4+ vendors
@@ -154,7 +168,7 @@ def _erp_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 f"Consolidate {len(vendors)} vendors in '{cat}'",
                 f"Spend of ${spend:,.0f} in '{cat}' is split across {len(vendors)} vendors. "
                 "Consolidating to preferred vendors typically yields ~5% via volume pricing.",
-                savings, "medium", sorted(vendors), "medium",
+                savings, "medium", sorted(vendors), "medium", complexity="high",
             ))
 
     # Maverick spend: invoices with no PO
@@ -167,7 +181,7 @@ def _erp_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 f"Bring {len(no_po)} off-PO invoices under procurement control",
                 f"${spend:,.0f} was invoiced without a purchase order. Routing this through "
                 "procurement typically saves ~3% via negotiated rates and approval control.",
-                spend * 0.03, "medium", [r["invoice_id"] for r in no_po], "medium",
+                spend * 0.03, "medium", [r["invoice_id"] for r in no_po], "medium", complexity="medium",
             ))
     return opps
 
@@ -190,7 +204,7 @@ def _cloud_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             f"Terminate {len(idle)} idle cloud resources (<5% CPU)",
             "Running resources averaging under 5% CPU are doing no useful work. "
             "Savings assume termination.",
-            savings, "low", [r["resource_id"] for r in idle], "high",
+            savings, "low", [r["resource_id"] for r in idle], "high", complexity="low",
         ))
 
     oversized = [
@@ -205,7 +219,7 @@ def _cloud_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             f"Downsize {len(oversized)} over-provisioned instances",
             "Resources at 5-20% CPU can usually drop one or two instance sizes "
             "(~40% of cost).",
-            savings, "low", [r["resource_id"] for r in oversized], "high",
+            savings, "low", [r["resource_id"] for r in oversized], "high", complexity="low",
         ))
 
     unattached = [
@@ -220,7 +234,7 @@ def _cloud_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             f"Delete {len(unattached)} unattached volumes/IPs",
             "Unattached volumes and idle allocations bill continuously with no consumer. "
             "Snapshot then delete.",
-            savings, "low", [r["resource_id"] for r in unattached], "high",
+            savings, "low", [r["resource_id"] for r in unattached], "high", complexity="low",
         ))
 
     stopped_billed = [
@@ -234,7 +248,7 @@ def _cloud_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             f"Clean up {len(stopped_billed)} stopped resources still accruing cost",
             "Stopped instances still bill for attached storage and reservations. "
             "Deallocate or delete after review.",
-            savings, "low", [r["resource_id"] for r in stopped_billed], "medium",
+            savings, "low", [r["resource_id"] for r in stopped_billed], "medium", complexity="low",
         ))
     return opps
 
@@ -261,7 +275,7 @@ def _itsm_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     f"'{cat}' requests resolve in ~{avg_res:.0f} min on average — repetitive, "
                     "low-complexity work suited to self-service automation. Savings assume "
                     f"${COST_PER_TICKET:.0f}/ticket handling cost, annualized.",
-                    annualized * 0.8, "medium", [t["ticket_id"] for t in tickets], "medium",
+                    annualized * 0.8, "medium", [t["ticket_id"] for t in tickets], "medium", complexity="medium",
                 ))
 
     incidents_by_ci: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -278,7 +292,7 @@ def _itsm_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             f"{total} incidents in the period trace to {len(hotspots)} configuration items: "
             f"{', '.join(sorted(hotspots))}. Root-cause remediation removes the recurring "
             "handling cost and downtime.",
-            res_costs * 0.7, "high", sorted(hotspots), "medium",
+            res_costs * 0.7, "high", sorted(hotspots), "medium", complexity="high",
         ))
     return opps
 

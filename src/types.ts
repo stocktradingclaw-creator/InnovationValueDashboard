@@ -9,6 +9,8 @@ export interface SourceStatus {
 
 export type Quadrant = 'quick_win' | 'strategic_bet' | 'fill_in' | 'deprioritize'
 
+export type Complexity = 'low' | 'medium' | 'high' | 'very_high'
+
 export interface Priority {
   score: number
   rank: number
@@ -20,7 +22,7 @@ export interface Priority {
   first_year_net: number
   three_year_net: number
   payback_ratio: number
-  components: { value: number; efficiency: number; speed: number }
+  components: { value: number; efficiency: number; speed: number; simplicity: number }
 }
 
 export interface Opportunity {
@@ -32,6 +34,7 @@ export interface Opportunity {
   estimated_annual_savings: number
   effort: 'low' | 'medium' | 'high'
   confidence: 'low' | 'medium' | 'high'
+  complexity: Complexity
   affected_items: string[]
   affected_count: number
   priority: Priority
@@ -41,6 +44,7 @@ export interface Weights {
   value: number
   efficiency: number
   speed: number
+  simplicity: number
 }
 
 export interface PrioritizationSummary {

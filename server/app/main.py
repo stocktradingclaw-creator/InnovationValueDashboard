@@ -154,10 +154,11 @@ def get_opportunities(
     value_weight: Optional[float] = Query(None, description="Weight for size of prize"),
     efficiency_weight: Optional[float] = Query(None, description="Weight for payback ratio"),
     speed_weight: Optional[float] = Query(None, description="Weight for time to value"),
+    simplicity_weight: Optional[float] = Query(None, description="Weight for low complexity"),
 ) -> Dict[str, Any]:
     try:
         weights = prioritization.normalize_weights(
-            value_weight, efficiency_weight, speed_weight
+            value_weight, efficiency_weight, speed_weight, simplicity_weight
         )
     except prioritization.WeightError as exc:
         raise HTTPException(400, str(exc))

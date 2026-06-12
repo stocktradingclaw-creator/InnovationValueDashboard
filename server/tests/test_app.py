@@ -229,11 +229,11 @@ def test_sap_odata_sync(monkeypatch, client):
 from app.prioritization import normalize_weights, prioritize, WeightError
 
 
-def _opp(savings, effort, confidence, n=10, title="t"):
+def _opp(savings, effort, confidence, n=10, title="t", complexity="medium"):
     return {
         "id": f"OPP-{title}", "source": "cmdb", "category": "c", "title": title,
         "description": "d", "estimated_annual_savings": savings,
-        "effort": effort, "confidence": confidence,
+        "effort": effort, "confidence": confidence, "complexity": complexity,
         "affected_items": [], "affected_count": n,
     }
 
@@ -276,7 +276,7 @@ def test_invalid_weights_rejected():
     with pytest.raises(WeightError):
         normalize_weights(-1, 0.5, 0.5)
     with pytest.raises(WeightError):
-        normalize_weights(0, 0, 0)
+        normalize_weights(0, 0, 0, 0)
 
 
 def test_opportunities_endpoint_prioritized(client):
@@ -289,8 +289,41 @@ def test_opportunities_endpoint_prioritized(client):
     assert scores == sorted(scores, reverse=True)
     assert opps[0]["priority"]["rank"] == 1
     assert body["prioritization"]["summary"]["count_for_80_pct_of_value"] >= 1
-    assert set(body["prioritization"]["weights"]) == {"value", "efficiency", "speed"}
+    assert set(body["prioritization"]["weights"]) == {"value", "efficiency", "speed", "simplicity"}
 
     # custom weights are accepted; bad weights rejected
     assert client.get("/api/opportunities?value_weight=1&efficiency_weight=0&speed_weight=0").status_code == 200
     assert client.get("/api/opportunities?value_weight=-1").status_code == 400
+
+
+def test_complexity_scales_with_blast_radius():
+    from app.opportunities import _scale_complexity
+    assert _scale_complexity("medium", 5) == "medium"
+    assert _scale_complexity("medium", 20) == "high"
+    assert _scale_complexity("medium", 80) == "very_high"
+    assert _scale_complexity("very_high", 200) == "very_high"  # capped
+
+
+def test_simplicity_weight_prefers_low_complexity():
+    # identical economics, only complexity differs
+    simple = _opp(50000, "medium", "high", title="simple", complexity="low")
+    tangled = _opp(50000, "medium", "high", title="tangled", complexity="very_high")
+    ranked = prioritize([simple, tangled])["opportunities"]
+    assert ranked[0]["title"] == "simple"
+    assert ranked[0]["priority"]["components"]["simplicity"] == 1.0
+    assert ranked[1]["priority"]["components"]["simplicity"] == 0.15
+
+    # with simplicity weight zeroed, they tie on score
+    flat = prioritize([simple, tangled], normalize_weights(0.4, 0.35, 0.25, 0))["opportunities"]
+    assert flat[0]["priority"]["score"] == flat[1]["priority"]["score"]
+
+
+def test_opportunities_carry_complexity(client):
+    client.post("/api/datasets/load-samples")
+    opps = client.get("/api/opportunities").json()["opportunities"]
+    assert all(o["complexity"] in ("low", "medium", "high", "very_high") for o in opps)
+    assert all("simplicity" in o["priority"]["components"] for o in opps)
+    # rules disagree: app rationalization must be rated more complex than orphaned storage
+    by_cat = {o["category"]: o["complexity"] for o in opps}
+    assert by_cat["Application rationalization"] == "high"
+    assert by_cat["Orphaned storage"] == "low"

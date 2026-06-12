@@ -14,7 +14,7 @@ import type {
 
 type Tab = 'sources' | 'opportunities' | 'cases' | 'tracking'
 
-const DEFAULT_WEIGHTS: Weights = { value: 40, efficiency: 35, speed: 25 }
+const DEFAULT_WEIGHTS: Weights = { value: 35, efficiency: 30, speed: 15, simplicity: 20 }
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('sources')

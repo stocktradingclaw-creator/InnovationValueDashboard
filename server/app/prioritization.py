@@ -9,6 +9,9 @@ each opportunity 0-100 from three normalized components:
   efficiency — payback ratio (risk-adjusted savings / estimated implementation
                cost), capped so trivial items can't dominate
   speed      — time-to-value implied by the effort rating
+  simplicity — inverse of the opportunity's complexity rating (coordination
+               burden and delivery risk: stakeholders, migrations, org change).
+               Distinct from effort, which approximates labor/cost.
 
 Weights are configurable per request so a customer can tilt toward quick wins
 (efficiency/speed) or size-of-prize (value). Each opportunity also gets a
@@ -20,7 +23,7 @@ import math
 from statistics import median
 from typing import Any, Dict, List, Optional
 
-DEFAULT_WEIGHTS = {"value": 0.40, "efficiency": 0.35, "speed": 0.25}
+DEFAULT_WEIGHTS = {"value": 0.35, "efficiency": 0.30, "speed": 0.15, "simplicity": 0.20}
 
 # Detection confidence -> probability the savings materialize as estimated
 CONFIDENCE_FACTOR = {"high": 0.9, "medium": 0.6, "low": 0.35}
@@ -38,6 +41,9 @@ TIME_TO_VALUE_MONTHS = {"low": 1, "medium": 3, "high": 9}
 # Effort rating -> fixed speed component (faster = higher)
 SPEED_SCORE = {"low": 1.0, "medium": 0.6, "high": 0.2}
 
+# Complexity rating -> fixed simplicity component (simpler = higher)
+SIMPLICITY_SCORE = {"low": 1.0, "medium": 0.7, "high": 0.4, "very_high": 0.15}
+
 PAYBACK_RATIO_CAP = 10.0  # beyond 10x annual return, more ratio isn't more signal
 
 
@@ -46,14 +52,18 @@ class WeightError(ValueError):
 
 
 def normalize_weights(
-    value: Optional[float], efficiency: Optional[float], speed: Optional[float]
+    value: Optional[float],
+    efficiency: Optional[float],
+    speed: Optional[float],
+    simplicity: Optional[float] = None,
 ) -> Dict[str, float]:
-    if value is None and efficiency is None and speed is None:
+    if value is None and efficiency is None and speed is None and simplicity is None:
         return dict(DEFAULT_WEIGHTS)
     weights = {
         "value": DEFAULT_WEIGHTS["value"] if value is None else value,
         "efficiency": DEFAULT_WEIGHTS["efficiency"] if efficiency is None else efficiency,
         "speed": DEFAULT_WEIGHTS["speed"] if speed is None else speed,
+        "simplicity": DEFAULT_WEIGHTS["simplicity"] if simplicity is None else simplicity,
     }
     if any(w < 0 for w in weights.values()):
         raise WeightError("weights must be >= 0")
@@ -129,11 +139,13 @@ def prioritize(
             if max_ratio > 0 else 0.0
         )
         speed_score = SPEED_SCORE.get(opp["effort"], 0.6)
+        simplicity_score = SIMPLICITY_SCORE.get(opp.get("complexity", "medium"), 0.7)
 
         score = 100 * (
             weights["value"] * value_score
             + weights["efficiency"] * efficiency_score
             + weights["speed"] * speed_score
+            + weights["simplicity"] * simplicity_score
         )
 
         annotated = dict(opp)
@@ -149,6 +161,7 @@ def prioritize(
                 "value": round(value_score, 3),
                 "efficiency": round(efficiency_score, 3),
                 "speed": round(speed_score, 3),
+                "simplicity": round(simplicity_score, 3),
             },
         }
         ranked.append(annotated)
