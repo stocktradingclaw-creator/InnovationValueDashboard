@@ -119,7 +119,12 @@ def _template_plan(title: str, description: str, estimated_cost: Optional[float]
     )
 
 
-def generate_roi_plan(title: str, description: str, estimated_cost: Optional[float]) -> dict:
+def generate_roi_plan(
+    title: str,
+    description: str,
+    estimated_cost: Optional[float],
+    opportunity_context: Optional[dict] = None,
+) -> dict:
     """Returns {'plan': ROIPlan-as-dict, 'generated_by': 'claude'|'template', 'note': ...}."""
     if not os.environ.get("ANTHROPIC_API_KEY"):
         plan = _template_plan(title, description, estimated_cost)
@@ -132,9 +137,21 @@ def generate_roi_plan(title: str, description: str, estimated_cost: Optional[flo
     import anthropic
 
     cost_line = f"\nEstimated implementation cost: ${estimated_cost:,.0f}" if estimated_cost else ""
+    opp_block = ""
+    if opportunity_context:
+        opp_block = (
+            "\n\nThis business case addresses an opportunity detected from the customer's "
+            "own data — anchor the baseline and KPIs to it:\n"
+            f"- Opportunity: {opportunity_context.get('title')}\n"
+            f"- Category: {opportunity_context.get('category')} "
+            f"(source system: {opportunity_context.get('source')})\n"
+            f"- Detected estimated annual savings: "
+            f"${opportunity_context.get('estimated_annual_savings', 0):,.0f}\n"
+            f"- Detection logic: {opportunity_context.get('description')}"
+        )
     user_message = (
         f"Business case title: {title}\n"
-        f"Business case description:\n{description}{cost_line}\n\n"
+        f"Business case description:\n{description}{cost_line}{opp_block}\n\n"
         "Digest this business case and produce the ROI measurement plan."
     )
 

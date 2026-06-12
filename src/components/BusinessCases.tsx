@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { money, submitBusinessCase } from '../api'
-import type { BusinessCase, ROIPlan } from '../types'
+import type { BusinessCase, Opportunity, ROIPlan } from '../types'
 
 interface Props {
   cases: BusinessCase[]
+  opportunities: Opportunity[]
   onChanged: () => void
 }
 
@@ -85,10 +86,11 @@ function PlanView({ plan }: { plan: ROIPlan }) {
   )
 }
 
-export default function BusinessCases({ cases, onChanged }: Props) {
+export default function BusinessCases({ cases, opportunities, onChanged }: Props) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [cost, setCost] = useState('')
+  const [linkedOpp, setLinkedOpp] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -101,10 +103,12 @@ export default function BusinessCases({ cases, onChanged }: Props) {
         title,
         description,
         estimated_cost: cost ? Number(cost) : null,
+        linked_opportunity_id: linkedOpp || null,
       })
       setTitle('')
       setDescription('')
       setCost('')
+      setLinkedOpp('')
       setExpanded(created.id)
       onChanged()
     } catch (e) {
@@ -134,6 +138,14 @@ export default function BusinessCases({ cases, onChanged }: Props) {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
+        <select value={linkedOpp} onChange={(e) => setLinkedOpp(e.target.value)}>
+          <option value="">No linked opportunity (standalone idea)</option>
+          {opportunities.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.title} — {money(o.estimated_annual_savings)}/yr detected
+            </option>
+          ))}
+        </select>
         <div className="row">
           <input
             type="number"
@@ -160,11 +172,18 @@ export default function BusinessCases({ cases, onChanged }: Props) {
               {c.estimated_cost != null && (
                 <span className="muted">{money(c.estimated_cost)} est. cost</span>
               )}
+              {c.status === 'implemented' && <span className="badge badge-ok">implemented</span>}
               <span className={c.generated_by === 'claude' ? 'badge badge-ok' : 'badge'}>
                 {c.generated_by === 'claude' ? 'AI plan' : 'template plan'}
               </span>
             </div>
           </div>
+          {c.linked_opportunity && (
+            <p className="muted small">
+              Linked opportunity: <strong>{c.linked_opportunity.title}</strong> (
+              {money(c.linked_opportunity.estimated_annual_savings)}/yr detected)
+            </p>
+          )}
           {c.note && <p className="muted small">{c.note}</p>}
           {expanded === c.id && <PlanView plan={c.roi_plan} />}
         </div>

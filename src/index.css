@@ -309,7 +309,8 @@ td {
 }
 
 input,
-textarea {
+textarea,
+select {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -320,9 +321,74 @@ textarea {
   width: 100%;
 }
 
-.bc-form .row input {
+.bc-form .row input,
+.row input,
+.row select {
   width: auto;
   flex: 1;
+  min-width: 140px;
+}
+
+.success {
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.subsection {
+  margin-top: 2rem;
+}
+
+.connector-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.metrics-row {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin: 0.8rem 0;
+}
+
+.metric strong {
+  display: block;
+  font-size: 1.2rem;
+}
+
+.metric .pos {
+  color: var(--accent);
+}
+
+.metric .neg {
+  color: var(--error);
+}
+
+.progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.progress {
+  flex: 1;
+  height: 10px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.kpi-track {
+  margin: 0.8rem 0;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
 }
 
 textarea {

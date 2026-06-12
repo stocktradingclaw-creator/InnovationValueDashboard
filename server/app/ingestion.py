@@ -9,10 +9,12 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 
-def _to_float(value: str) -> Optional[float]:
+def _to_float(value: Any) -> Optional[float]:
     if value is None:
         return None
-    cleaned = value.strip().replace("$", "").replace(",", "")
+    if isinstance(value, (int, float)):
+        return float(value)
+    cleaned = str(value).strip().replace("$", "").replace(",", "")
     if cleaned == "":
         return None
     try:
@@ -21,19 +23,28 @@ def _to_float(value: str) -> Optional[float]:
         return None
 
 
-def _to_date(value: str) -> Optional[date]:
-    if not value or not value.strip():
+def _to_date(value: Any) -> Optional[date]:
+    if value is None:
         return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    # tolerate datetime strings like "2026-01-02 03:04:05" / ISO timestamps
+    text = text.split("T")[0].split(" ")[0]
     for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d-%b-%Y"):
         try:
-            return datetime.strptime(value.strip(), fmt).date()
+            return datetime.strptime(text, fmt).date()
         except ValueError:
             continue
     return None
 
 
-def _to_str(value: str) -> str:
-    return (value or "").strip()
+def _to_str(value: Any) -> str:
+    return ("" if value is None else str(value)).strip()
 
 
 SOURCE_TYPES: Dict[str, Dict[str, Any]] = {
@@ -76,6 +87,21 @@ SOURCE_TYPES: Dict[str, Dict[str, Any]] = {
 
 class IngestionError(ValueError):
     pass
+
+
+def normalize_rows(source_type: str, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Coerce typed columns on rows that didn't come through parse_csv —
+    rows loaded back from the database (dates are ISO strings there) or
+    produced by a live connector."""
+    spec = SOURCE_TYPES[source_type]
+    normalized = []
+    for row in rows:
+        out = dict(row)
+        for col, coercer in spec["coerce"].items():
+            if col in out:
+                out[col] = coercer(out[col])
+        normalized.append(out)
+    return normalized
 
 
 def parse_csv(source_type: str, raw: bytes) -> List[Dict[str, Any]]:

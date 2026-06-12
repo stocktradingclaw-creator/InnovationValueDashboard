@@ -3,9 +3,10 @@ import { getBusinessCases, getDatasets, getOpportunities } from './api'
 import BusinessCases from './components/BusinessCases'
 import DataSources from './components/DataSources'
 import Opportunities from './components/Opportunities'
+import Tracking from './components/Tracking'
 import type { BusinessCase, Opportunity, SourceStatus } from './types'
 
-type Tab = 'sources' | 'opportunities' | 'cases'
+type Tab = 'sources' | 'opportunities' | 'cases' | 'tracking'
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('sources')
@@ -57,6 +58,9 @@ export default function App() {
           <button className={tab === 'cases' ? 'active' : ''} onClick={() => setTab('cases')}>
             Business Cases{cases.length > 0 && ` (${cases.length})`}
           </button>
+          <button className={tab === 'tracking' ? 'active' : ''} onClick={() => setTab('tracking')}>
+            ROI Tracking
+          </button>
         </nav>
       </header>
 
@@ -72,7 +76,10 @@ export default function App() {
         {tab === 'opportunities' && (
           <Opportunities opportunities={opportunities} total={total} hasData={hasData} />
         )}
-        {tab === 'cases' && <BusinessCases cases={cases} onChanged={refresh} />}
+        {tab === 'cases' && (
+          <BusinessCases cases={cases} opportunities={opportunities} onChanged={refresh} />
+        )}
+        {tab === 'tracking' && <Tracking cases={cases} onChanged={refresh} />}
       </main>
     </div>
   )

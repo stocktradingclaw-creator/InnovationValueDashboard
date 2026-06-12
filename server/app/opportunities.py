@@ -5,11 +5,10 @@ estimated annual savings figure. Estimates are deliberately conservative
 heuristics — they rank and size opportunities for investigation, they are
 not a financial commitment.
 """
+import hashlib
 from collections import defaultdict
 from datetime import date, timedelta
 from typing import Any, Dict, List
-
-from . import store
 
 COST_PER_TICKET = 22.0  # blended handling cost assumption per ITSM ticket
 
@@ -24,8 +23,11 @@ def _opportunity(
     affected: List[str],
     confidence: str,
 ) -> Dict[str, Any]:
+    # Deterministic ID so business cases can link to an opportunity and the
+    # link survives server restarts and re-analysis.
+    digest = hashlib.sha1(f"{source}|{category}|{title}".encode()).hexdigest()[:10]
     return {
-        "id": store.next_id("OPP"),
+        "id": f"OPP-{digest}",
         "source": source,
         "category": category,
         "title": title,
@@ -42,7 +44,10 @@ def _opportunity(
 
 def _cmdb_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     opps = []
-    active = [r for r in rows if r.get("status", "").lower() in ("active", "operational", "in use")]
+    active = [
+        r for r in rows
+        if r.get("status", "").lower() in ("active", "operational", "in use", "installed", "live")
+    ]
 
     idle = [
         r for r in active
@@ -286,9 +291,9 @@ RULES = {
 }
 
 
-def analyze() -> List[Dict[str, Any]]:
+def analyze(datasets: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     opportunities: List[Dict[str, Any]] = []
-    for source_type, rows in store.datasets.items():
+    for source_type, rows in datasets.items():
         rule = RULES.get(source_type)
         if rule and rows:
             opportunities.extend(rule(rows))

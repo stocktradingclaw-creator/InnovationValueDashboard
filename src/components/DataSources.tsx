@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { clearDataset, loadSamples, uploadDataset } from '../api'
 import type { SourceStatus } from '../types'
+import Connectors from './Connectors'
 
 interface Props {
   sources: SourceStatus[]
@@ -31,7 +32,9 @@ function SourceCard({ source, onChanged }: { source: SourceStatus; onChanged: ()
       <div className="card-header">
         <h3>{source.label}</h3>
         <span className={source.rows_loaded > 0 ? 'badge badge-ok' : 'badge'}>
-          {source.rows_loaded > 0 ? `${source.rows_loaded} rows` : 'no data'}
+          {source.rows_loaded > 0
+            ? `${source.rows_loaded} rows${source.origin ? ` · ${source.origin}` : ''}`
+            : 'no data'}
         </span>
       </div>
       <p className="muted">
@@ -97,6 +100,7 @@ export default function DataSources({ sources, onChanged }: Props) {
           <SourceCard key={s.source_type} source={s} onChanged={onChanged} />
         ))}
       </div>
+      <Connectors onChanged={onChanged} />
     </section>
   )
 }
