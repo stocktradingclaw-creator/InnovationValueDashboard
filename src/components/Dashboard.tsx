@@ -1,87 +1,11 @@
 import { money } from '../api'
-import type { DashboardData, Quadrant, TimelineMonth } from '../types'
+import type { DashboardData, Decision, Quadrant, TimelineMonth } from '../types'
 
-function ValueOverTime({ months, breakEven }: { months: TimelineMonth[]; breakEven: string | null }) {
-  if (months.length < 2) return null
-  const W = 660
-  const H = 230
-  const PAD = { l: 56, r: 12, t: 12, b: 26 }
-  const maxY = Math.max(
-    ...months.map((m) => Math.max(m.cumulative_cost, m.cumulative_verified, m.cumulative_claimed)),
-    1,
-  )
-  const x = (i: number) => PAD.l + (i / (months.length - 1)) * (W - PAD.l - PAD.r)
-  const y = (v: number) => H - PAD.b - (v / maxY) * (H - PAD.t - PAD.b)
-  const path = (key: 'cumulative_cost' | 'cumulative_verified' | 'cumulative_claimed', filter: (m: TimelineMonth) => boolean) =>
-    months
-      .map((m, i) => ({ m, i }))
-      .filter(({ m }) => filter(m))
-      .map(({ m, i }, idx) => `${idx === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(m[key]).toFixed(1)}`)
-      .join(' ')
-
-  const lastActualIdx = months.reduce((acc, m, i) => (m.projected ? acc : i), 0)
-  const actual = (m: TimelineMonth) => !m.projected
-  const projectedPlus = (m: TimelineMonth, i: number) => m.projected || i === lastActualIdx
-  const breakEvenIdx = breakEven ? months.findIndex((m) => m.month === breakEven) : -1
-  const ticks = [0, 0.5, 1].map((f) => Math.round(maxY * f))
-
-  return (
-    <div className="card">
-      <h3>
-        Value against time{' '}
-        <span className="muted small">cumulative · dashed = projected at current run-rate</span>
-      </h3>
-      <svg viewBox={`0 0 ${W} ${H}`} className="timeline-chart" role="img">
-        {ticks.map((t) => (
-          <g key={t}>
-            <line x1={PAD.l} x2={W - PAD.r} y1={y(t)} y2={y(t)} className="chart-grid" />
-            <text x={PAD.l - 6} y={y(t) + 4} className="chart-tick" textAnchor="end">
-              {t >= 1000 ? `$${Math.round(t / 1000)}k` : `$${t}`}
-            </text>
-          </g>
-        ))}
-        <path d={path('cumulative_cost', actual)} className="line line-cost" />
-        <path d={path('cumulative_claimed', actual)} className="line line-claimed" />
-        <path d={path('cumulative_verified', actual)} className="line line-verified" />
-        <path
-          d={months
-            .map((m, i) => ({ m, i }))
-            .filter(({ m, i }) => projectedPlus(m, i))
-            .map(({ m, i }, idx) => `${idx === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(m.cumulative_verified).toFixed(1)}`)
-            .join(' ')}
-          className="line line-verified projected"
-        />
-        {breakEvenIdx >= 0 && (
-          <g>
-            <line
-              x1={x(breakEvenIdx)} x2={x(breakEvenIdx)}
-              y1={PAD.t} y2={H - PAD.b} className="chart-breakeven"
-            />
-            <text x={x(breakEvenIdx) + 4} y={PAD.t + 10} className="chart-tick">
-              break-even
-            </text>
-          </g>
-        )}
-        {months.map((m, i) =>
-          i % Math.ceil(months.length / 8) === 0 ? (
-            <text key={m.month} x={x(i)} y={H - 8} className="chart-tick" textAnchor="middle">
-              {m.month.slice(2)}
-            </text>
-          ) : null,
-        )}
-      </svg>
-      <div className="chart-legend muted small">
-        <span><i className="swatch sw-verified" /> verified value</span>
-        <span><i className="swatch sw-claimed" /> claimed value</span>
-        <span><i className="swatch sw-cost" /> invested cost</span>
-      </div>
-    </div>
-  )
-}
+type NavTab = 'sources' | 'opportunities' | 'cases' | 'tracking' | 'portfolio'
 
 interface Props {
   data: DashboardData | null
-  onNavigate: (tab: 'sources' | 'opportunities' | 'cases' | 'tracking') => void
+  onNavigate: (tab: NavTab) => void
 }
 
 const QUADRANT_LABELS: Record<string, string> = {
@@ -93,57 +17,123 @@ const QUADRANT_LABELS: Record<string, string> = {
 
 const QUADRANT_ORDER: Quadrant[] = ['quick_win', 'strategic_bet', 'fill_in', 'deprioritize']
 
-function Funnel({ data }: { data: DashboardData }) {
-  const f = data.funnel
-  const max = Math.max(f.identified_annual_savings, 1)
-  const stages = [
-    {
-      label: 'Identified',
-      value: f.identified_annual_savings,
-      hint: 'headline estimate across all detected opportunities',
-      cls: 'stage-identified',
-    },
-    {
-      label: 'Risk-adjusted',
-      value: f.risk_adjusted_annual_savings,
-      hint: 'after detection confidence and learned realization rates',
-      cls: 'stage-adjusted',
-    },
-    {
-      label: 'Committed',
-      value: f.committed_annual_savings,
-      hint: 'opportunities with a business case behind them',
-      cls: 'stage-committed',
-    },
-    {
-      label: 'Verified',
-      value: f.measured_annual_savings,
-      hint: 'measured from data via frozen-baseline metric bindings',
-      cls: 'stage-verified',
-    },
-  ]
+const ACTION_LABELS: Record<Decision['action'], string> = {
+  approve: 'Approve',
+  fund: 'Fund',
+  verify: 'Verify',
+  intervene: 'Intervene',
+}
+
+const compactMoney = (n: number) =>
+  n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `$${Math.round(n / 1000)}K` : `$${Math.round(n)}`
+
+function ValueOverTime({ months, breakEven }: { months: TimelineMonth[]; breakEven: string | null }) {
+  if (months.length < 2) return null
+  const W = 920
+  const H = 280
+  const PAD = { l: 64, r: 110, t: 16, b: 30 }
+  const maxY = Math.max(
+    ...months.map((m) => Math.max(m.cumulative_cost, m.cumulative_verified, m.cumulative_claimed)),
+    1,
+  )
+  const x = (i: number) => PAD.l + (i / (months.length - 1)) * (W - PAD.l - PAD.r)
+  const y = (v: number) => H - PAD.b - (v / maxY) * (H - PAD.t - PAD.b)
+
+  const linePath = (
+    key: 'cumulative_cost' | 'cumulative_verified' | 'cumulative_claimed',
+    points: { m: TimelineMonth; i: number }[],
+  ) =>
+    points
+      .map(({ m, i }, idx) => `${idx === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(m[key]).toFixed(1)}`)
+      .join(' ')
+
+  const indexed = months.map((m, i) => ({ m, i }))
+  const actuals = indexed.filter(({ m }) => !m.projected)
+  const lastActualIdx = actuals.length ? actuals[actuals.length - 1].i : 0
+  const projection = indexed.filter(({ m, i }) => m.projected || i === lastActualIdx)
+  const breakEvenIdx = breakEven ? months.findIndex((m) => m.month === breakEven) : -1
+  const last = months[months.length - 1]
+  const lastActual = months[lastActualIdx]
+
+  const areaPath =
+    linePath('cumulative_verified', actuals) +
+    ` L${x(lastActualIdx).toFixed(1)},${y(0).toFixed(1)} L${x(0).toFixed(1)},${y(0).toFixed(1)} Z`
+
   return (
-    <div className="card">
-      <h3>Value funnel <span className="muted small">annual run-rate</span></h3>
-      {stages.map((s) => (
-        <div key={s.label} className="funnel-row">
-          <span className="funnel-label">{s.label}</span>
-          <div className="funnel-track">
-            <div
-              className={`funnel-bar ${s.cls}`}
-              style={{ width: `${Math.max((s.value / max) * 100, s.value > 0 ? 2 : 0)}%` }}
-            />
+    <div className="card chart-card">
+      <div className="card-header">
+        <h3>Value trajectory</h3>
+        <div className="chart-legend muted small">
+          <span><i className="swatch sw-verified" /> verified savings</span>
+          <span><i className="swatch sw-claimed" /> claimed</span>
+          <span><i className="swatch sw-cost" /> invested</span>
+          <span><i className="swatch sw-proj" /> projection</span>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="timeline-chart" role="img">
+        {[0.25, 0.5, 0.75, 1].map((f) => (
+          <g key={f}>
+            <line x1={PAD.l} x2={W - PAD.r} y1={y(maxY * f)} y2={y(maxY * f)} className="chart-grid" />
+            <text x={PAD.l - 8} y={y(maxY * f) + 4} className="chart-tick" textAnchor="end">
+              {compactMoney(maxY * f)}
+            </text>
+          </g>
+        ))}
+        <path d={areaPath} className="area-verified" />
+        <path d={linePath('cumulative_cost', actuals)} className="line line-cost" />
+        <path d={linePath('cumulative_claimed', actuals)} className="line line-claimed" />
+        <path d={linePath('cumulative_verified', actuals)} className="line line-verified" />
+        <path d={linePath('cumulative_verified', projection)} className="line line-verified projected" />
+        {breakEvenIdx >= 0 && (
+          <g>
+            <line x1={x(breakEvenIdx)} x2={x(breakEvenIdx)} y1={PAD.t} y2={H - PAD.b} className="chart-breakeven" />
+            <text x={x(breakEvenIdx)} y={PAD.t + 2} className="chart-tick" textAnchor="middle">
+              break-even
+            </text>
+          </g>
+        )}
+        {/* end-of-line value labels */}
+        <text x={x(months.length - 1) + 8} y={y(last.cumulative_verified) + 4} className="chart-label label-verified">
+          {compactMoney(last.cumulative_verified)} verified{last.projected ? ' (proj.)' : ''}
+        </text>
+        <text x={x(lastActualIdx) + 8} y={y(lastActual.cumulative_cost) - 6} className="chart-label label-cost">
+          {compactMoney(lastActual.cumulative_cost)} invested
+        </text>
+        {months.map((m, i) =>
+          i % Math.ceil(months.length / 9) === 0 ? (
+            <text key={m.month} x={x(i)} y={H - 8} className="chart-tick" textAnchor="middle">
+              {m.month.slice(2)}
+            </text>
+          ) : null,
+        )}
+      </svg>
+    </div>
+  )
+}
+
+function DecisionQueue({ decisions, onNavigate }: { decisions: Decision[]; onNavigate: (t: NavTab) => void }) {
+  if (decisions.length === 0) return null
+  return (
+    <div className="card decision-card">
+      <h3>Decisions on the table</h3>
+      <p className="muted small">
+        Ranked by annual value at stake — generated from the current analysis, pipeline, and
+        portfolio diagnostic.
+      </p>
+      {decisions.map((d) => (
+        <div key={`${d.action}-${d.title}`} className="decision-row" onClick={() => onNavigate(d.nav)}>
+          <span className={`action-chip act-${d.action}`}>{ACTION_LABELS[d.action]}</span>
+          <div className="decision-body">
+            <strong>{d.title}</strong>
+            <div className="muted small">{d.detail}</div>
           </div>
-          <span className="funnel-value">{money(s.value)}</span>
-          <span className="muted small funnel-hint">{s.hint}</span>
+          <div className="decision-value">
+            <strong>{money(d.annual_value)}</strong>
+            <span className="muted small">/yr at stake</span>
+          </div>
+          <span className="decision-go">→</span>
         </div>
       ))}
-      {f.claimed_savings_to_date > 0 && (
-        <p className="muted small">
-          Plus {money(f.claimed_savings_to_date)} claimed savings to date (self-reported — kept
-          separate from verified).
-        </p>
-      )}
     </div>
   )
 }
@@ -158,152 +148,163 @@ export default function Dashboard({ data, onNavigate }: Props) {
         <h2>Overview</h2>
         <p className="muted">
           No customer data loaded yet. Start in{' '}
-          <button className="linklike" onClick={() => onNavigate('sources')}>
-            Data Sources
-          </button>{' '}
+          <button className="linklike" onClick={() => onNavigate('sources')}>Data Sources</button>{' '}
           — upload exports, sync a connector, or load the sample data.
         </p>
       </section>
     )
   }
 
-  const implemented = data.pipeline.filter((p) => p.status === 'implemented')
-  const calCategories = Object.entries(data.calibration.categories)
+  const ts = data.timeline.summary
+  const f = data.funnel
+  const returnMultiple =
+    ts && ts.total_invested > 0 ? ts.verified_value_to_date / ts.total_invested : null
+  const maxFunnel = Math.max(f.identified_annual_savings, 1)
 
   return (
-    <section>
-      <div className="metrics-row headline-row">
-        <div className="metric headline">
-          <span className="muted small">Identified /yr</span>
-          <strong>{money(data.funnel.identified_annual_savings)}</strong>
-        </div>
-        <div className="metric headline">
-          <span className="muted small">Risk-adjusted /yr</span>
-          <strong>{money(data.funnel.risk_adjusted_annual_savings)}</strong>
-        </div>
-        <div className="metric headline">
-          <span className="muted small">Committed /yr</span>
-          <strong>{money(data.funnel.committed_annual_savings)}</strong>
-        </div>
-        <div className="metric headline verified">
-          <span className="muted small">Verified /yr</span>
-          <strong>{money(data.funnel.measured_annual_savings)}</strong>
-        </div>
-        <div className="metric headline">
-          <span className="muted small">Opportunities</span>
-          <strong>{data.opportunities.count}</strong>
-        </div>
+    <section className="exec">
+      <p className="headline-sentence">{data.headline}</p>
+
+      <div className="hero-band">
+        {ts && ts.verified_run_rate > 0 ? (
+          <>
+            <div className="hero-stat verified">
+              <span className="hero-label">Verified savings run-rate</span>
+              <strong>{money(ts.verified_run_rate)}<em>/yr</em></strong>
+              <span className="muted small">computed from source data, not self-reported</span>
+            </div>
+            <div className="hero-stat">
+              <span className="hero-label">Invested to date</span>
+              <strong>{money(ts.total_invested)}</strong>
+              <span className="muted small">implementation cost of live initiatives</span>
+            </div>
+            <div className="hero-stat">
+              <span className="hero-label">Return to date</span>
+              <strong className={returnMultiple != null && returnMultiple >= 1 ? 'pos' : ''}>
+                {returnMultiple != null ? `${returnMultiple.toFixed(1)}x` : '—'}
+              </strong>
+              <span className="muted small">{money(ts.verified_value_to_date)} verified vs. invested</span>
+            </div>
+            <div className="hero-stat">
+              <span className="hero-label">Break-even</span>
+              <strong>{ts.break_even_month ?? '—'}</strong>
+              <span className="muted small">
+                {ts.break_even_projected ? 'projected at current run-rate' : ts.break_even_month ? 'reached' : 'not yet projectable'}
+              </span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="hero-stat verified">
+              <span className="hero-label">Opportunity identified</span>
+              <strong>{money(f.identified_annual_savings)}<em>/yr</em></strong>
+              <span className="muted small">{data.opportunities.count} opportunities across loaded sources</span>
+            </div>
+            <div className="hero-stat">
+              <span className="hero-label">Risk-adjusted</span>
+              <strong>{money(f.risk_adjusted_annual_savings)}</strong>
+              <span className="muted small">after confidence and calibration</span>
+            </div>
+            <div className="hero-stat">
+              <span className="hero-label">Committed</span>
+              <strong>{money(f.committed_annual_savings)}</strong>
+              <span className="muted small">backed by a business case</span>
+            </div>
+            <div className="hero-stat">
+              <span className="hero-label">Verified</span>
+              <strong>{money(f.measured_annual_savings)}</strong>
+              <span className="muted small">proven from data</span>
+            </div>
+          </>
+        )}
+        {data.portfolio_health != null && (
+          <div className="hero-stat">
+            <span className="hero-label">Portfolio health</span>
+            <strong className={data.portfolio_health >= 70 ? 'pos' : data.portfolio_health >= 40 ? 'warn' : 'neg'}>
+              {data.portfolio_health}<em>/100</em>
+            </strong>
+            <span className="muted small">existing initiative portfolio</span>
+          </div>
+        )}
       </div>
 
-      <Funnel data={data} />
+      <DecisionQueue decisions={data.decisions} onNavigate={onNavigate} />
 
-      {data.timeline.summary && (
-        <>
-          <div className="metrics-row headline-row">
-            <div className="metric headline">
-              <span className="muted small">Total invested</span>
-              <strong>{money(data.timeline.summary.total_invested)}</strong>
-            </div>
-            <div className="metric headline verified">
-              <span className="muted small">Verified value to date</span>
-              <strong>{money(data.timeline.summary.verified_value_to_date)}</strong>
-            </div>
-            <div className="metric headline">
-              <span className="muted small">Portfolio ROI (verified)</span>
-              <strong
-                className={
-                  (data.timeline.summary.portfolio_roi_pct ?? 0) >= 0 ? 'pos' : 'neg'
-                }
-              >
-                {data.timeline.summary.portfolio_roi_pct != null
-                  ? `${data.timeline.summary.portfolio_roi_pct}%`
-                  : '—'}
-              </strong>
-            </div>
-            <div className="metric headline">
-              <span className="muted small">Break-even</span>
-              <strong>
-                {data.timeline.summary.break_even_month ?? '—'}
-                {data.timeline.summary.break_even_projected && (
-                  <span className="muted small"> (proj.)</span>
-                )}
-              </strong>
-            </div>
-          </div>
-          <ValueOverTime
-            months={data.timeline.months}
-            breakEven={data.timeline.summary.break_even_month}
-          />
-        </>
-      )}
+      {ts && <ValueOverTime months={data.timeline.months} breakEven={ts.break_even_month} />}
 
       <div className="dash-grid">
         <div className="card">
-          <h3>
-            Top opportunities{' '}
-            <button className="linklike small" onClick={() => onNavigate('opportunities')}>
-              view all →
-            </button>
-          </h3>
+          <h3>Value conversion</h3>
           <p className="muted small">
-            Top {data.opportunities.count_for_80_pct_of_value} capture 80% of risk-adjusted value.
+            How identified opportunity converts to verified value — each stage is a harder
+            standard of proof.
           </p>
-          {data.opportunities.top.map((o, i) => (
-            <div key={o.id} className="top-opp">
-              <span className="muted">{i + 1}.</span>
-              <div className="top-opp-body">
-                <strong>{o.title}</strong>
-                <div className="row">
-                  <span className={`pill quad-${o.quadrant}`}>{QUADRANT_LABELS[o.quadrant]}</span>
-                  <span className="muted small">score {o.score}</span>
-                  <span className="savings small">{money(o.estimated_annual_savings)}/yr</span>
-                </div>
+          {[
+            { label: 'Identified', value: f.identified_annual_savings, cls: 'stage-identified' },
+            { label: 'Risk-adjusted', value: f.risk_adjusted_annual_savings, cls: 'stage-adjusted' },
+            { label: 'Committed', value: f.committed_annual_savings, cls: 'stage-committed' },
+            { label: 'Verified', value: f.measured_annual_savings, cls: 'stage-verified' },
+          ].map((s) => (
+            <div key={s.label} className="funnel-row">
+              <span className="funnel-label">{s.label}</span>
+              <div className="funnel-track">
+                <div
+                  className={`funnel-bar ${s.cls}`}
+                  style={{ width: `${Math.max((s.value / maxFunnel) * 100, s.value > 0 ? 2 : 0)}%` }}
+                />
               </div>
+              <span className="funnel-value">{money(s.value)}</span>
             </div>
           ))}
-        </div>
+          <p className="muted small">
+            {f.identified_annual_savings > 0 && f.measured_annual_savings > 0
+              ? `${Math.round((f.measured_annual_savings / f.identified_annual_savings) * 100)}% of identified value is now verified.`
+              : 'Verified value appears here once implemented work is measured against its frozen baseline.'}
+          </p>
 
-        <div className="card">
-          <h3>Portfolio mix</h3>
+          <h3 className="spaced">Where the next value is</h3>
           {QUADRANT_ORDER.map((q) => {
             const bucket = data.opportunities.quadrants[q]
             if (!bucket) return null
-            const maxVal = Math.max(
-              ...Object.values(data.opportunities.quadrants).map((b) => b.value), 1,
-            )
+            const maxVal = Math.max(...Object.values(data.opportunities.quadrants).map((b) => b.value), 1)
             return (
               <div key={q} className="funnel-row">
                 <span className="funnel-label">{QUADRANT_LABELS[q]}</span>
                 <div className="funnel-track">
-                  <div
-                    className={`funnel-bar mix-${q}`}
-                    style={{ width: `${(bucket.value / maxVal) * 100}%` }}
-                  />
+                  <div className={`funnel-bar mix-${q}`} style={{ width: `${(bucket.value / maxVal) * 100}%` }} />
                 </div>
-                <span className="funnel-value">
-                  {bucket.count} · {money(bucket.value)}
-                </span>
+                <span className="funnel-value">{bucket.count} · {money(bucket.value)}</span>
               </div>
             )
           })}
+        </div>
 
-          <h3 className="spaced">
-            Estimate calibration{' '}
-            <span className="muted small">({data.calibration.cases_observed} cases observed)</span>
-          </h3>
-          {calCategories.length === 0 ? (
-            <p className="muted small">
-              No implemented cases with actuals yet — forecasts are taken at face value. As
-              tracking data lands, realization rates will discount or boost each category
-              automatically.
-            </p>
-          ) : (
+        <div className="card">
+          <h3>Confidence in these numbers</h3>
+          <ul className="confidence-list">
+            <li>
+              <strong>Verified ≠ claimed.</strong> {money(f.measured_annual_savings)}/yr is computed
+              from source data against frozen baselines; {money(f.claimed_savings_to_date)} of
+              self-reported savings is tracked separately and never blended in.
+            </li>
+            <li>
+              <strong>Estimates are calibrated.</strong>{' '}
+              {data.calibration.cases_observed > 0
+                ? `Forecasts are corrected by realization rates measured on ${data.calibration.cases_observed} completed case${data.calibration.cases_observed > 1 ? 's' : ''}.`
+                : 'Realization rates will automatically correct forecasts as implemented cases report actuals.'}
+            </li>
+            <li>
+              <strong>Soft claims are flagged.</strong> Business-case claims that no data source
+              can verify are listed on each case, not silently counted.
+            </li>
+          </ul>
+          {Object.keys(data.calibration.categories).length > 0 && (
             <table className="kpi-table">
               <thead>
-                <tr><th>Category</th><th className="num">Forecast</th><th className="num">Actual</th><th className="num">Realization</th></tr>
+                <tr><th>Category</th><th className="num">Forecast</th><th className="num">Actual</th><th className="num">Realized</th></tr>
               </thead>
               <tbody>
-                {calCategories.map(([cat, s]) => (
+                {Object.entries(data.calibration.categories).map(([cat, s]) => (
                   <tr key={cat}>
                     <td>{cat}</td>
                     <td className="num">{money(s.forecast_annual_savings)}</td>
@@ -316,93 +317,41 @@ export default function Dashboard({ data, onNavigate }: Props) {
               </tbody>
             </table>
           )}
-        </div>
-      </div>
 
-      <div className="dash-grid">
-        <div className="card">
-          <h3>
-            Case pipeline{' '}
-            <button className="linklike small" onClick={() => onNavigate('tracking')}>
-              tracking →
-            </button>
-          </h3>
+          <h3 className="spaced">Delivery pipeline</h3>
           {data.pipeline.length === 0 ? (
-            <p className="muted small">
-              No business cases yet — link one to a top opportunity to start the value record.
-            </p>
+            <p className="muted small">No business cases yet — the decision queue above suggests where to start.</p>
           ) : (
             <table className="kpi-table">
               <thead>
-                <tr>
-                  <th>Case</th><th>Status</th><th className="num">Forecast /yr</th>
-                  <th className="num">Verified /yr</th><th className="num">Payback</th>
-                </tr>
+                <tr><th>Case</th><th>Status</th><th className="num">Forecast /yr</th><th className="num">Verified /yr</th></tr>
               </thead>
               <tbody>
                 {data.pipeline.map((p) => (
                   <tr key={p.id}>
                     <td><strong>{p.title}</strong></td>
                     <td>
-                      <span className={p.status === 'implemented' ? 'badge badge-ok' : 'badge'}>
-                        {p.status}
-                      </span>
+                      <span className={p.status === 'implemented' ? 'badge badge-ok' : 'badge'}>{p.status}</span>
                     </td>
-                    <td className="num">
-                      {p.forecast_annual_savings != null ? money(p.forecast_annual_savings) : '—'}
-                    </td>
-                    <td className="num savings">
-                      {p.measured_annual_savings ? money(p.measured_annual_savings) : '—'}
-                    </td>
-                    <td className="num">
-                      {p.payback_progress_pct != null ? (
-                        <div className="progress inline-progress" title={`${p.payback_progress_pct}%`}>
-                          <div className="progress-bar" style={{ width: `${p.payback_progress_pct}%` }} />
-                        </div>
-                      ) : '—'}
-                    </td>
+                    <td className="num">{p.forecast_annual_savings != null ? money(p.forecast_annual_savings) : '—'}</td>
+                    <td className="num savings">{p.measured_annual_savings ? money(p.measured_annual_savings) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
-          {implemented.length > 0 && (
-            <p className="muted small">
-              {implemented.length} implemented · verified value updates when datasets are
-              refreshed and bindings re-observed.
-            </p>
-          )}
         </div>
+      </div>
 
-        <div className="card">
-          <h3>
-            Data freshness{' '}
-            <button className="linklike small" onClick={() => onNavigate('sources')}>
-              sources →
-            </button>
-          </h3>
-          <table className="kpi-table">
-            <thead>
-              <tr><th>Source</th><th className="num">Rows</th><th>Origin</th><th>Updated</th></tr>
-            </thead>
-            <tbody>
-              {data.sources.map((s) => (
-                <tr key={s.source_type}>
-                  <td>{s.source_type.toUpperCase()}</td>
-                  <td className="num">{s.rows_loaded || '—'}</td>
-                  <td className="muted">{s.origin ?? '—'}</td>
-                  <td className="muted small">
-                    {s.updated_at ? s.updated_at.slice(0, 10) : 'never'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="muted small">
-            Verified value is only as fresh as the data behind it — re-sync connectors before
-            re-observing bindings.
-          </p>
-        </div>
+      <div className="source-strip muted small">
+        Data:{' '}
+        {data.sources.map((s) => (
+          <span key={s.source_type} className="badge">
+            {s.source_type.toUpperCase()}{' '}
+            {s.rows_loaded > 0 ? `${s.rows_loaded} rows · ${s.updated_at?.slice(0, 10) ?? ''}` : 'not loaded'}
+          </span>
+        ))}
+        <button className="linklike" onClick={() => onNavigate('sources')}>manage sources →</button>
       </div>
     </section>
   )

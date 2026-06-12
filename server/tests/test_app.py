@@ -533,3 +533,41 @@ def test_portfolio_diagnostic(client):
 
     unverified = next(f for f in report["findings"] if f["category"] == "Unverified benefits")
     assert "ERP modernization" in unverified["affected_initiatives"]
+
+
+# --------------------------------------------------------- executive dashboard
+
+def test_dashboard_headline_and_decisions(client):
+    client.post("/api/datasets/load-samples")
+    dash = client.get("/api/dashboard").json()
+
+    # plain-English headline reflects the no-cases-yet state
+    assert "quick wins" in dash["headline"]
+    assert dash["portfolio_health"] is not None  # sample portfolio loaded
+
+    decisions = dash["decisions"]
+    assert 0 < len(decisions) <= 6
+    actions = {d["action"] for d in decisions}
+    assert "approve" in actions          # unaddressed quick wins
+    assert "intervene" in actions        # high-severity portfolio findings
+    values = [d["annual_value"] for d in decisions]
+    assert values == sorted(values, reverse=True)
+    assert all(d["nav"] in ("opportunities", "cases", "tracking", "portfolio")
+               for d in decisions)
+
+    # linking a case removes that opportunity from the approve queue,
+    # and an unverified implemented case produces a verify decision
+    top_approve = next(d for d in decisions if d["action"] == "approve")
+    opps = client.get("/api/opportunities").json()["opportunities"]
+    opp = next(o for o in opps if o["title"] == top_approve["title"])
+    case = client.post("/api/business-cases", json={
+        "title": "x", "description": "y", "estimated_cost": 1000,
+        "linked_opportunity_id": opp["id"],
+    }).json()
+    client.post(f"/api/business-cases/{case['id']}/implement",
+                json={"go_live_date": "2026-05-01"})
+
+    dash = client.get("/api/dashboard").json()
+    approve_titles = [d["title"] for d in dash["decisions"] if d["action"] == "approve"]
+    assert opp["title"] not in approve_titles
+    assert any(d["action"] == "verify" for d in dash["decisions"])

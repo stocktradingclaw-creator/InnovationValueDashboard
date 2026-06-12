@@ -152,7 +152,18 @@ export interface CalibrationReport {
   cases_observed: number
 }
 
+export interface Decision {
+  action: 'approve' | 'fund' | 'verify' | 'intervene'
+  title: string
+  detail: string
+  annual_value: number
+  nav: 'opportunities' | 'cases' | 'tracking' | 'portfolio'
+}
+
 export interface DashboardData {
+  headline: string
+  decisions: Decision[]
+  portfolio_health: number | null
   funnel: {
     identified_annual_savings: number
     risk_adjusted_annual_savings: number

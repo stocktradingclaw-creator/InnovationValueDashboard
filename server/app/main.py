@@ -335,15 +335,126 @@ def portfolio_diagnostic() -> Dict[str, Any]:
     return portfolio.diagnose(rows)
 
 
+def _fmt_money(value: float) -> str:
+    return f"${value:,.0f}"
+
+
+def _headline(funnel: Dict[str, float], ts: Optional[Dict[str, Any]], opps: List[Dict[str, Any]]) -> str:
+    if ts and ts["verified_run_rate"] > 0:
+        invested = ts["total_invested"]
+        run_rate = ts["verified_run_rate"]
+        base = (
+            f"Innovation investments are returning {_fmt_money(run_rate)}/yr of verified "
+            f"savings on {_fmt_money(invested)} invested"
+            if invested > 0
+            else f"Verified savings are running at {_fmt_money(run_rate)}/yr"
+        )
+        if ts["break_even_month"]:
+            when = ts["break_even_month"]
+            qualifier = "projected " if ts["break_even_projected"] else "reached "
+            return f"{base}; break-even {qualifier}{when}."
+        return f"{base}."
+    if funnel["committed_annual_savings"] > 0:
+        return (
+            f"{_fmt_money(funnel['committed_annual_savings'])}/yr of savings is committed "
+            "to business cases; first verified evidence is pending measurement."
+        )
+    if funnel["identified_annual_savings"] > 0:
+        quick = [o for o in opps if o["priority"]["quadrant"] == "quick_win"]
+        quick_value = sum(o["estimated_annual_savings"] for o in quick)
+        return (
+            f"{_fmt_money(funnel['identified_annual_savings'])}/yr of cost-reduction "
+            f"opportunity identified — {len(quick)} quick wins worth "
+            f"{_fmt_money(quick_value)}/yr are ready for approval."
+        )
+    return "Connect customer data sources to begin identifying value."
+
+
+def _decision_queue(
+    opps: List[Dict[str, Any]],
+    cases: List[Dict[str, Any]],
+    portfolio_report: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Frame the dashboard around decisions, not data: what should the
+    executive approve, fund, verify, or intervene on — ranked by value."""
+    linked_ids = {(c["linked_opportunity"] or {}).get("id") for c in cases}
+    decisions: List[Dict[str, Any]] = []
+
+    for o in opps:
+        if o["id"] in linked_ids or o["priority"]["quadrant"] != "quick_win":
+            continue
+        p = o["priority"]
+        decisions.append({
+            "action": "approve",
+            "title": o["title"],
+            "detail": (
+                f"~{_fmt_money(p['est_implementation_cost'])} to implement · "
+                f"payback {p['payback_months']} mo · {o['complexity']} complexity"
+            ),
+            "annual_value": o["estimated_annual_savings"],
+            "nav": "opportunities",
+        })
+        if sum(1 for d in decisions if d["action"] == "approve") >= 3:
+            break
+
+    bet = next(
+        (o for o in opps
+         if o["id"] not in linked_ids and o["priority"]["quadrant"] == "strategic_bet"),
+        None,
+    )
+    if bet:
+        decisions.append({
+            "action": "fund",
+            "title": f"Develop business case: {bet['title']}",
+            "detail": (
+                f"largest strategic bet · ~{_fmt_money(bet['priority']['est_implementation_cost'])} "
+                f"to implement · {bet['complexity']} complexity"
+            ),
+            "annual_value": bet["estimated_annual_savings"],
+            "nav": "cases",
+        })
+
+    for c in cases:
+        if c["status"] == "implemented" and not (c["tracking"] or {}).get("measured_annual_savings"):
+            forecast = (c["linked_opportunity"] or {}).get("estimated_annual_savings") or 0
+            decisions.append({
+                "action": "verify",
+                "title": f"No verified evidence yet: {c['title']}",
+                "detail": "refresh source data and re-observe the metric bindings",
+                "annual_value": forecast,
+                "nav": "tracking",
+            })
+
+    if portfolio_report:
+        for f in portfolio_report["findings"]:
+            if f["severity"] == "high":
+                decisions.append({
+                    "action": "intervene",
+                    "title": f["title"],
+                    "detail": f["category"].lower() + " in the existing initiative portfolio",
+                    "annual_value": f["value_impact"],
+                    "nav": "portfolio",
+                })
+
+    decisions.sort(key=lambda d: d["annual_value"], reverse=True)
+    return decisions[:6]
+
+
 @app.get("/api/dashboard")
 def dashboard() -> Dict[str, Any]:
-    """Everything an executive overview needs, in one call: the value funnel
-    (identified -> risk-adjusted -> committed -> verified), opportunity mix,
-    case pipeline, calibration quality, and data freshness."""
+    """Everything an executive overview needs, in one call: a plain-English
+    headline, the value funnel, a ranked decision queue, trajectory, case
+    pipeline, calibration quality, and data freshness."""
     result = prioritization.prioritize(_analyze(), None, calibration.factors())
     opps = result["opportunities"]
     cases = db.list_business_cases()
     meta = db.dataset_meta()
+
+    portfolio_rows = db.load_dataset("portfolio")
+    portfolio_report = (
+        portfolio.diagnose(normalize_rows("portfolio", portfolio_rows))
+        if portfolio_rows else None
+    )
 
     identified = sum(o["estimated_annual_savings"] for o in opps)
     risk_adjusted = sum(o["priority"]["risk_adjusted_annual_savings"] for o in opps)
@@ -366,14 +477,20 @@ def dashboard() -> Dict[str, Any]:
     for bucket in quadrants.values():
         bucket["value"] = round(bucket["value"], 2)
 
+    funnel = {
+        "identified_annual_savings": round(identified, 2),
+        "risk_adjusted_annual_savings": round(risk_adjusted, 2),
+        "committed_annual_savings": round(committed, 2),
+        "measured_annual_savings": round(measured, 2),
+        "claimed_savings_to_date": round(claimed, 2),
+    }
+    timeline_data = timeline.build(cases)
+
     return {
-        "funnel": {
-            "identified_annual_savings": round(identified, 2),
-            "risk_adjusted_annual_savings": round(risk_adjusted, 2),
-            "committed_annual_savings": round(committed, 2),
-            "measured_annual_savings": round(measured, 2),
-            "claimed_savings_to_date": round(claimed, 2),
-        },
+        "headline": _headline(funnel, timeline_data["summary"], opps),
+        "decisions": _decision_queue(opps, cases, portfolio_report),
+        "portfolio_health": portfolio_report["health_score"] if portfolio_report else None,
+        "funnel": funnel,
         "opportunities": {
             "count": len(opps),
             "quadrants": quadrants,
@@ -407,7 +524,7 @@ def dashboard() -> Dict[str, Any]:
             }
             for c in cases
         ],
-        "timeline": timeline.build(cases),
+        "timeline": timeline_data,
         "calibration": calibration.report(),
         "sources": [
             {

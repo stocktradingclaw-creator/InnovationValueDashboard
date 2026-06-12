@@ -68,9 +68,12 @@ formula to apply after implementation.
     and severity-ranked findings with value impact
     (`app/portfolio.py`, `GET /api/portfolio/diagnostic`)
 - `src/` — React + TypeScript frontend (Vite)
-  - **Overview** — executive dashboard: value funnel (identified →
-    risk-adjusted → committed → verified), portfolio mix, top opportunities,
-    case pipeline, estimate calibration, and data freshness in one view
+  - **Overview** — board-grade dashboard: a plain-English headline, hero
+    stats (verified run-rate, invested, return multiple, break-even,
+    portfolio health), a ranked **decision queue** (approve / fund / verify /
+    intervene, by annual value at stake), the value trajectory chart with
+    projection, value conversion funnel, a "confidence in these numbers"
+    panel, delivery pipeline, and a data-freshness strip
   - **Data Sources** — upload CSVs, load sample data, or sync live connectors
   - **Opportunities** — score-ranked table with weight sliders, a
     value-vs-effort quadrant matrix, and per-opportunity economics drill-down
