@@ -7,6 +7,22 @@ export interface SourceStatus {
   updated_at: string | null
 }
 
+export type Quadrant = 'quick_win' | 'strategic_bet' | 'fill_in' | 'deprioritize'
+
+export interface Priority {
+  score: number
+  rank: number
+  quadrant: Quadrant
+  risk_adjusted_annual_savings: number
+  est_implementation_cost: number
+  time_to_value_months: number
+  payback_months: number | null
+  first_year_net: number
+  three_year_net: number
+  payback_ratio: number
+  components: { value: number; efficiency: number; speed: number }
+}
+
 export interface Opportunity {
   id: string
   source: string
@@ -18,6 +34,19 @@ export interface Opportunity {
   confidence: 'low' | 'medium' | 'high'
   affected_items: string[]
   affected_count: number
+  priority: Priority
+}
+
+export interface Weights {
+  value: number
+  efficiency: number
+  speed: number
+}
+
+export interface PrioritizationSummary {
+  total_risk_adjusted_annual_savings: number
+  count_for_80_pct_of_value: number
+  quadrant_counts: Partial<Record<Quadrant, number>>
 }
 
 export interface KPI {

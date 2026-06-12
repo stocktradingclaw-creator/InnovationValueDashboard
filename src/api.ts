@@ -67,11 +67,18 @@ export function syncSap(body: {
   )
 }
 
-export function getOpportunities() {
+export function getOpportunities(weights?: { value: number; efficiency: number; speed: number }) {
+  const qs = weights
+    ? `?value_weight=${weights.value}&efficiency_weight=${weights.efficiency}&speed_weight=${weights.speed}`
+    : ''
   return request<{
     opportunities: Opportunity[]
     total_estimated_annual_savings: number
-  }>('/api/opportunities')
+    prioritization: {
+      weights: { value: number; efficiency: number; speed: number }
+      summary: import('./types').PrioritizationSummary | null
+    }
+  }>(`/api/opportunities${qs}`)
 }
 
 export function submitBusinessCase(body: {

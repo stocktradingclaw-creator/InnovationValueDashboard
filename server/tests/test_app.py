@@ -222,3 +222,75 @@ def test_sap_odata_sync(monkeypatch, client):
     rows_meta = client.get("/api/datasets").json()["sources"]
     erp = next(s for s in rows_meta if s["source_type"] == "erp")
     assert erp["origin"] == "sap_odata"
+
+
+# ------------------------------------------------------------ prioritization
+
+from app.prioritization import normalize_weights, prioritize, WeightError
+
+
+def _opp(savings, effort, confidence, n=10, title="t"):
+    return {
+        "id": f"OPP-{title}", "source": "cmdb", "category": "c", "title": title,
+        "description": "d", "estimated_annual_savings": savings,
+        "effort": effort, "confidence": confidence,
+        "affected_items": [], "affected_count": n,
+    }
+
+
+def test_quick_win_outranks_money_pit():
+    # same headline savings: low-effort/high-confidence must beat high-effort/low-confidence
+    quick = _opp(50000, "low", "high", title="quick")
+    pit = _opp(50000, "high", "low", title="pit")
+    ranked = prioritize([quick, pit])["opportunities"]
+    assert ranked[0]["title"] == "quick"
+    assert ranked[0]["priority"]["quadrant"] == "quick_win"
+    assert ranked[1]["priority"]["quadrant"] == "deprioritize"
+
+
+def test_value_weight_can_flip_ordering():
+    whale = _opp(2_000_000, "high", "medium", n=100, title="whale")
+    minnow = _opp(30000, "low", "high", n=3, title="minnow")
+    eff_heavy = prioritize(
+        [whale, minnow], normalize_weights(0.05, 0.9, 0.05)
+    )["opportunities"]
+    val_heavy = prioritize(
+        [whale, minnow], normalize_weights(0.95, 0.025, 0.025)
+    )["opportunities"]
+    assert eff_heavy[0]["title"] == "minnow"
+    assert val_heavy[0]["title"] == "whale"
+
+
+def test_priority_economics_math():
+    opp = _opp(120000, "low", "high", n=4)
+    econ = prioritize([opp])["opportunities"][0]["priority"]
+    assert econ["risk_adjusted_annual_savings"] == 108000.0   # 120k * 0.9
+    assert econ["est_implementation_cost"] == 6000.0          # 5000 + 4*250
+    assert econ["time_to_value_months"] == 1
+    # payback = ttv + cost / monthly = 1 + 6000/9000
+    assert econ["payback_months"] == 1.7
+    assert econ["first_year_net"] == 93000.0                  # 108k * 11/12 - 6k
+
+
+def test_invalid_weights_rejected():
+    with pytest.raises(WeightError):
+        normalize_weights(-1, 0.5, 0.5)
+    with pytest.raises(WeightError):
+        normalize_weights(0, 0, 0)
+
+
+def test_opportunities_endpoint_prioritized(client):
+    client.post("/api/datasets/load-samples")
+    resp = client.get("/api/opportunities")
+    assert resp.status_code == 200
+    body = resp.json()
+    opps = body["opportunities"]
+    scores = [o["priority"]["score"] for o in opps]
+    assert scores == sorted(scores, reverse=True)
+    assert opps[0]["priority"]["rank"] == 1
+    assert body["prioritization"]["summary"]["count_for_80_pct_of_value"] >= 1
+    assert set(body["prioritization"]["weights"]) == {"value", "efficiency", "speed"}
+
+    # custom weights are accepted; bad weights rejected
+    assert client.get("/api/opportunities?value_weight=1&efficiency_weight=0&speed_weight=0").status_code == 200
+    assert client.get("/api/opportunities?value_weight=-1").status_code == 400

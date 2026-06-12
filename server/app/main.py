@@ -6,11 +6,11 @@ import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from . import connectors, db, opportunities, roi
+from . import connectors, db, opportunities, prioritization, roi
 from .ingestion import SOURCE_TYPES, IngestionError, normalize_rows, parse_csv
 
 app = FastAPI(title="InnovationValueDashboard API")
@@ -150,13 +150,28 @@ def sap_sync(body: SapSyncRequest) -> Dict[str, Any]:
 # --------------------------------------------------------------- opportunities
 
 @app.get("/api/opportunities")
-def get_opportunities() -> Dict[str, Any]:
-    opps = _analyze()
+def get_opportunities(
+    value_weight: Optional[float] = Query(None, description="Weight for size of prize"),
+    efficiency_weight: Optional[float] = Query(None, description="Weight for payback ratio"),
+    speed_weight: Optional[float] = Query(None, description="Weight for time to value"),
+) -> Dict[str, Any]:
+    try:
+        weights = prioritization.normalize_weights(
+            value_weight, efficiency_weight, speed_weight
+        )
+    except prioritization.WeightError as exc:
+        raise HTTPException(400, str(exc))
+
+    result = prioritization.prioritize(_analyze(), weights)
     return {
-        "opportunities": opps,
+        "opportunities": result["opportunities"],
         "total_estimated_annual_savings": round(
-            sum(o["estimated_annual_savings"] for o in opps), 2
+            sum(o["estimated_annual_savings"] for o in result["opportunities"]), 2
         ),
+        "prioritization": {
+            "weights": result["weights"],
+            "summary": result["summary"],
+        },
     }
 
 

@@ -4,15 +4,25 @@ import BusinessCases from './components/BusinessCases'
 import DataSources from './components/DataSources'
 import Opportunities from './components/Opportunities'
 import Tracking from './components/Tracking'
-import type { BusinessCase, Opportunity, SourceStatus } from './types'
+import type {
+  BusinessCase,
+  Opportunity,
+  PrioritizationSummary,
+  SourceStatus,
+  Weights,
+} from './types'
 
 type Tab = 'sources' | 'opportunities' | 'cases' | 'tracking'
+
+const DEFAULT_WEIGHTS: Weights = { value: 40, efficiency: 35, speed: 25 }
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('sources')
   const [sources, setSources] = useState<SourceStatus[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [total, setTotal] = useState(0)
+  const [summary, setSummary] = useState<PrioritizationSummary | null>(null)
+  const [weights, setWeights] = useState<Weights>(DEFAULT_WEIGHTS)
   const [cases, setCases] = useState<BusinessCase[]>([])
   const [offline, setOffline] = useState(false)
 
@@ -20,18 +30,19 @@ export default function App() {
     try {
       const [ds, opps, bcs] = await Promise.all([
         getDatasets(),
-        getOpportunities(),
+        getOpportunities(weights),
         getBusinessCases(),
       ])
       setSources(ds.sources)
       setOpportunities(opps.opportunities)
       setTotal(opps.total_estimated_annual_savings)
+      setSummary(opps.prioritization.summary)
       setCases(bcs.business_cases)
       setOffline(false)
     } catch {
       setOffline(true)
     }
-  }, [])
+  }, [weights])
 
   useEffect(() => {
     refresh()
@@ -74,7 +85,14 @@ export default function App() {
       <main>
         {tab === 'sources' && <DataSources sources={sources} onChanged={refresh} />}
         {tab === 'opportunities' && (
-          <Opportunities opportunities={opportunities} total={total} hasData={hasData} />
+          <Opportunities
+            opportunities={opportunities}
+            total={total}
+            summary={summary}
+            weights={weights}
+            onWeightsChange={setWeights}
+            hasData={hasData}
+          />
         )}
         {tab === 'cases' && (
           <BusinessCases cases={cases} opportunities={opportunities} onChanged={refresh} />

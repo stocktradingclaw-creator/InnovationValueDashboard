@@ -19,6 +19,13 @@ formula to apply after implementation.
   - Rules engine: idle/EOL infrastructure, app rationalization, duplicate
     payments, vendor consolidation, maverick spend, cloud rightsizing,
     orphaned storage, ITSM automation candidates, incident hotspots
+  - Prioritization model: each opportunity is scored 0-100 from
+    **value** (risk-adjusted savings = savings x detection confidence,
+    log-scaled), **efficiency** (payback ratio vs. an effort-and-scale-based
+    implementation cost estimate), and **speed** (time to value). Weights are
+    tunable per request; opportunities get value-vs-effort quadrant labels
+    (quick win / strategic bet / fill-in / deprioritize), payback months, and
+    1-/3-year net figures
   - Business-case digestion via Claude (`messages.parse` structured output);
     falls back to a deterministic template plan when no API key is set.
     Cases can link to a detected opportunity — the link feeds the prompt so
@@ -28,7 +35,8 @@ formula to apply after implementation.
     progress, and months live
 - `src/` — React + TypeScript frontend (Vite)
   - **Data Sources** — upload CSVs, load sample data, or sync live connectors
-  - **Opportunities** — savings-ranked table with effort/confidence and drill-down
+  - **Opportunities** — score-ranked table with weight sliders, a
+    value-vs-effort quadrant matrix, and per-opportunity economics drill-down
   - **Business Cases** — submit an idea (optionally linked to an opportunity),
     get the generated ROI plan
   - **ROI Tracking** — record actuals against each plan after go-live
@@ -64,7 +72,7 @@ Opportunities and Business Cases tabs.
 | `POST` | `/api/datasets/load-samples` | Load bundled synthetic sample data |
 | `POST` | `/api/connectors/servicenow/sync` | Pull CMDB or ITSM data from a ServiceNow instance |
 | `POST` | `/api/connectors/sap/sync` | Pull ERP invoices from an SAP OData service |
-| `GET` | `/api/opportunities` | Run the rules engine over loaded data |
+| `GET` | `/api/opportunities` | Rules engine + prioritization (optional `value_weight`, `efficiency_weight`, `speed_weight`) |
 | `POST` | `/api/business-cases` | Digest a business case (optional `linked_opportunity_id`) |
 | `GET` | `/api/business-cases` | List cases with plans, readings, savings, tracking |
 | `POST` | `/api/business-cases/{id}/implement` | Mark implemented with a go-live date |
@@ -85,7 +93,9 @@ instance needed.
 ## Notes
 
 - Savings figures are conservative heuristics meant to rank and size
-  opportunities for investigation — not financial commitments.
+  opportunities for investigation — not financial commitments. The same goes
+  for the prioritization model's implementation-cost and time-to-value
+  estimates (see `server/app/prioritization.py` to tune the constants).
 - Connector field mappings ship with common defaults (e.g. ServiceNow
   `u_environment`, SAP `GrossAmount`); real instances usually need a custom
   `field_map` in the sync request body.
