@@ -25,7 +25,13 @@ so post-implementation comparison is valid. Call out seasonality if relevant.
 - Mix leading indicators (early signals the change is working) with lagging indicators \
 (realized financial outcomes).
 - The ROI formula must use the KPIs you defined. Keep it computable.
-- Be honest about measurement risks (attribution, baseline drift, behavior change)."""
+- Be honest about measurement risks (attribution, baseline drift, behavior change).
+- Classify each KPI's objectivity honestly: 'hard' only if it can be computed directly \
+from a system of record (ledger totals, billing exports, ticket counts); 'medium' if it \
+is system data combined with assumptions (e.g. hours x blended rate); 'soft' if it relies \
+on surveys, estimates, or self-reporting. Do not launder soft metrics as hard ones.
+- Audit the business case: list any value claims that cannot be measured from a named \
+data source. An empty list means every claim is measurable."""
 
 
 class KPI(BaseModel):
@@ -36,6 +42,10 @@ class KPI(BaseModel):
     data_sources: List[str]
     cadence: str = Field(description="How often to measure, e.g. monthly")
     indicator_type: str = Field(description="'leading' or 'lagging'")
+    objectivity: str = Field(
+        description="'hard' (computed from a system of record), 'medium' (system data "
+        "plus assumptions), or 'soft' (surveys, estimates, self-reporting)"
+    )
 
 
 class ValueDriver(BaseModel):
@@ -54,6 +64,10 @@ class ROIPlan(BaseModel):
     measurement_duration: str = Field(description="How long to measure before declaring the ROI verdict")
     assumptions: List[str]
     measurement_risks: List[str]
+    unmeasurable_claims: List[str] = Field(
+        description="Value claims made in the business case that cannot be measured "
+        "from any named data source; empty if all claims are measurable"
+    )
 
 
 def _template_plan(title: str, description: str, estimated_cost: Optional[float]) -> ROIPlan:
@@ -87,6 +101,7 @@ def _template_plan(title: str, description: str, estimated_cost: Optional[float]
                 data_sources=["ERP financials", "Cloud billing"],
                 cadence="monthly",
                 indicator_type="lagging",
+                objectivity="hard",
             ),
             KPI(
                 name="Manual effort hours in scope",
@@ -96,6 +111,7 @@ def _template_plan(title: str, description: str, estimated_cost: Optional[float]
                 data_sources=["ITSM tickets", "Time tracking"],
                 cadence="monthly",
                 indicator_type="leading",
+                objectivity="medium",
             ),
         ],
         baseline_plan=(
@@ -116,6 +132,7 @@ def _template_plan(title: str, description: str, estimated_cost: Optional[float]
             "Attribution: other initiatives may move the same KPIs",
             "Baseline drift if scope grows or shrinks after go-live",
         ],
+        unmeasurable_claims=[],
     )
 
 

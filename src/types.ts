@@ -61,6 +61,7 @@ export interface KPI {
   data_sources: string[]
   cadence: string
   indicator_type: string
+  objectivity?: 'hard' | 'medium' | 'soft'
 }
 
 export interface ValueDriver {
@@ -79,6 +80,7 @@ export interface ROIPlan {
   measurement_duration: string
   assumptions: string[]
   measurement_risks: string[]
+  unmeasurable_claims?: string[]
 }
 
 export interface LinkedOpportunity {
@@ -107,10 +109,87 @@ export interface SavingsEntry {
 
 export interface Tracking {
   total_realized_savings: number
+  measured_annual_savings: number
   realized_roi_pct: number | null
   payback_progress_pct: number | null
   months_live: number | null
   readings_count: number
+}
+
+export interface MetricObservation {
+  id: number
+  observed_at: string
+  value: number
+  rows_matched: number
+}
+
+export interface MetricBinding {
+  id: number
+  kpi_name: string | null
+  label: string
+  definition: Record<string, unknown>
+  unit: string
+  baseline_value: number
+  baseline_rows: number
+  baseline_captured_at: string
+  observations: MetricObservation[]
+  latest_value: number | null
+  delta: number | null
+  annualized_delta: number | null
+}
+
+export interface CalibrationCategory {
+  cases: number
+  forecast_annual_savings: number
+  actual_annual_savings: number
+  realization_rate: number
+  applied_factor: number
+  basis: string[]
+}
+
+export interface CalibrationReport {
+  categories: Record<string, CalibrationCategory>
+  cases_observed: number
+}
+
+export interface DashboardData {
+  funnel: {
+    identified_annual_savings: number
+    risk_adjusted_annual_savings: number
+    committed_annual_savings: number
+    measured_annual_savings: number
+    claimed_savings_to_date: number
+  }
+  opportunities: {
+    count: number
+    quadrants: Record<string, { count: number; value: number }>
+    top: {
+      id: string
+      title: string
+      score: number
+      estimated_annual_savings: number
+      quadrant: Quadrant
+      complexity: Complexity
+    }[]
+    count_for_80_pct_of_value: number
+  }
+  pipeline: {
+    id: string
+    title: string
+    status: 'proposed' | 'implemented'
+    go_live_date: string | null
+    forecast_annual_savings: number | null
+    measured_annual_savings: number | null
+    claimed_savings: number | null
+    payback_progress_pct: number | null
+  }[]
+  calibration: CalibrationReport
+  sources: {
+    source_type: string
+    rows_loaded: number
+    origin: string | null
+    updated_at: string | null
+  }[]
 }
 
 export interface BusinessCase {
@@ -127,5 +206,6 @@ export interface BusinessCase {
   go_live_date: string | null
   kpi_readings: KpiReading[]
   savings_entries: SavingsEntry[]
+  metric_bindings: MetricBinding[]
   tracking: Tracking | null
 }

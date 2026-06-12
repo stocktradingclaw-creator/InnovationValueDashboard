@@ -1,23 +1,26 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getBusinessCases, getDatasets, getOpportunities } from './api'
+import { getBusinessCases, getDashboard, getDatasets, getOpportunities } from './api'
 import BusinessCases from './components/BusinessCases'
+import Dashboard from './components/Dashboard'
 import DataSources from './components/DataSources'
 import Opportunities from './components/Opportunities'
 import Tracking from './components/Tracking'
 import type {
   BusinessCase,
+  DashboardData,
   Opportunity,
   PrioritizationSummary,
   SourceStatus,
   Weights,
 } from './types'
 
-type Tab = 'sources' | 'opportunities' | 'cases' | 'tracking'
+type Tab = 'overview' | 'sources' | 'opportunities' | 'cases' | 'tracking'
 
 const DEFAULT_WEIGHTS: Weights = { value: 35, efficiency: 30, speed: 15, simplicity: 20 }
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('sources')
+  const [tab, setTab] = useState<Tab>('overview')
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [sources, setSources] = useState<SourceStatus[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [total, setTotal] = useState(0)
@@ -28,12 +31,14 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [ds, opps, bcs] = await Promise.all([
+      const [ds, opps, bcs, dash] = await Promise.all([
         getDatasets(),
         getOpportunities(weights),
         getBusinessCases(),
+        getDashboard(),
       ])
       setSources(ds.sources)
+      setDashboard(dash)
       setOpportunities(opps.opportunities)
       setTotal(opps.total_estimated_annual_savings)
       setSummary(opps.prioritization.summary)
@@ -57,6 +62,9 @@ export default function App() {
           Innovation<span className="accent">Value</span>Dashboard
         </h1>
         <nav>
+          <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>
+            Overview
+          </button>
           <button className={tab === 'sources' ? 'active' : ''} onClick={() => setTab('sources')}>
             Data Sources
           </button>
@@ -83,6 +91,7 @@ export default function App() {
       )}
 
       <main>
+        {tab === 'overview' && <Dashboard data={dashboard} onNavigate={setTab} />}
         {tab === 'sources' && <DataSources sources={sources} onChanged={refresh} />}
         {tab === 'opportunities' && (
           <Opportunities

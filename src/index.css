@@ -481,6 +481,148 @@ select {
   margin-top: 0.3rem;
 }
 
+.obj-hard { background: rgba(76, 195, 138, 0.15); color: var(--accent); }
+.obj-medium { background: rgba(255, 171, 112, 0.15); color: #ffab70; }
+.obj-soft { background: rgba(229, 83, 75, 0.15); color: #ff8a84; }
+
+.banner-warn {
+  background: rgba(255, 171, 112, 0.1);
+  border: 1px solid #ffab70;
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  margin: 0.8rem 0;
+  font-size: 0.9rem;
+}
+
+.banner-warn ul {
+  margin-top: 0.4rem;
+}
+
+.linklike {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0;
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.linklike:hover:not(:disabled) {
+  background: none;
+  color: var(--text);
+}
+
+.headline-row {
+  margin-bottom: 1rem;
+}
+
+.metric.headline {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.8rem 1.2rem;
+  flex: 1;
+  min-width: 150px;
+}
+
+.metric.headline strong {
+  font-size: 1.5rem;
+}
+
+.metric.headline.verified {
+  border-color: var(--accent-dim);
+}
+
+.metric.headline.verified strong {
+  color: var(--accent);
+}
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 900px) {
+  .dash-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.funnel-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 110px;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.55rem;
+}
+
+.funnel-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.funnel-track {
+  background: var(--surface-2);
+  border-radius: 999px;
+  height: 18px;
+  overflow: hidden;
+}
+
+.funnel-bar {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.stage-identified { background: #3a4a5a; }
+.stage-adjusted { background: #4a6a8a; }
+.stage-committed { background: #79b8ff; }
+.stage-verified { background: var(--accent); }
+
+.mix-quick_win { background: var(--accent); }
+.mix-strategic_bet { background: #79b8ff; }
+.mix-fill_in { background: #ffab70; }
+.mix-deprioritize { background: #5a6772; }
+
+.funnel-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.funnel-hint {
+  grid-column: 2;
+  margin-top: -0.4rem;
+}
+
+.top-opp {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.top-opp:last-child {
+  border-bottom: none;
+}
+
+.top-opp-body {
+  flex: 1;
+}
+
+.spaced {
+  margin-top: 1.4rem;
+}
+
+.inline-progress {
+  width: 80px;
+  display: inline-block;
+  vertical-align: middle;
+}
+
 textarea {
   resize: vertical;
 }

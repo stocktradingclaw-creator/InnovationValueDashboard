@@ -121,5 +121,20 @@ export function addSavings(
   return request<BusinessCase>(`/api/business-cases/${caseId}/savings`, json(body))
 }
 
+export function observeBinding(caseId: string, bindingId: number) {
+  return request<BusinessCase>(
+    `/api/business-cases/${caseId}/bindings/${bindingId}/observe`,
+    { method: 'POST' },
+  )
+}
+
+export function getCalibration() {
+  return request<import('./types').CalibrationReport>('/api/calibration')
+}
+
+export function getDashboard() {
+  return request<import('./types').DashboardData>('/api/dashboard')
+}
+
 export const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })

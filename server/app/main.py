@@ -10,7 +10,7 @@ from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from . import connectors, db, opportunities, prioritization, roi
+from . import calibration, connectors, db, metrics, opportunities, prioritization, roi
 from .ingestion import SOURCE_TYPES, IngestionError, normalize_rows, parse_csv
 
 app = FastAPI(title="InnovationValueDashboard API")
@@ -163,7 +163,7 @@ def get_opportunities(
     except prioritization.WeightError as exc:
         raise HTTPException(400, str(exc))
 
-    result = prioritization.prioritize(_analyze(), weights)
+    result = prioritization.prioritize(_analyze(), weights, calibration.factors())
     return {
         "opportunities": result["opportunities"],
         "total_estimated_annual_savings": round(
@@ -210,7 +210,7 @@ def create_business_case(body: BusinessCaseRequest) -> Dict[str, Any]:
         body.title.strip(), body.description.strip(), body.estimated_cost,
         opportunity_context=linked_opportunity,
     )
-    return db.create_business_case(
+    case = db.create_business_case(
         title=body.title.strip(),
         description=body.description.strip(),
         estimated_cost=body.estimated_cost,
@@ -219,6 +219,27 @@ def create_business_case(body: BusinessCaseRequest) -> Dict[str, Any]:
         note=result["note"],
         linked_opportunity=linked_opportunity,
     )
+
+    # Linked opportunities ship their own measure: freeze the baseline now so
+    # post-implementation evidence is computed by the same query, not typed in.
+    if body.linked_opportunity_id:
+        match = next(
+            (o for o in _analyze() if o["id"] == body.linked_opportunity_id), None
+        )
+        measure = (match or {}).get("measure")
+        if measure:
+            definition = {k: v for k, v in measure.items() if k != "label"}
+            baseline = metrics.compute(definition, _loaded_datasets())
+            case = db.create_metric_binding(
+                case_id=case["id"],
+                label=measure["label"],
+                kpi_name=None,
+                definition=definition,
+                unit=metrics.unit_for(definition),
+                baseline_value=baseline["value"],
+                baseline_rows=baseline["rows_matched"],
+            )
+    return case
 
 
 @app.get("/api/business-cases")
@@ -256,6 +277,134 @@ def add_reading(case_id: str, body: ReadingRequest) -> Dict[str, Any]:
     return db.add_kpi_reading(
         case_id, body.kpi_name, body.reading_date.isoformat(), body.value, body.note
     )
+
+
+class BindingRequest(BaseModel):
+    label: str
+    definition: Dict[str, Any]
+    kpi_name: Optional[str] = None
+
+
+@app.post("/api/business-cases/{case_id}/bindings")
+def add_binding(case_id: str, body: BindingRequest) -> Dict[str, Any]:
+    try:
+        metrics.validate_definition(body.definition)
+    except metrics.MetricError as exc:
+        raise HTTPException(400, str(exc))
+    baseline = metrics.compute(body.definition, _loaded_datasets())
+    case = db.create_metric_binding(
+        case_id=case_id,
+        label=body.label.strip(),
+        kpi_name=body.kpi_name,
+        definition=body.definition,
+        unit=metrics.unit_for(body.definition),
+        baseline_value=baseline["value"],
+        baseline_rows=baseline["rows_matched"],
+    )
+    if case is None:
+        raise HTTPException(404, f"Business case '{case_id}' not found")
+    return case
+
+
+@app.post("/api/business-cases/{case_id}/bindings/{binding_id}/observe")
+def observe_binding(case_id: str, binding_id: int) -> Dict[str, Any]:
+    binding = db.get_binding(case_id, binding_id)
+    if binding is None:
+        raise HTTPException(404, f"Binding {binding_id} not found on case '{case_id}'")
+    observation = metrics.compute(binding["definition"], _loaded_datasets())
+    return db.add_metric_observation(
+        case_id, binding_id, observation["value"], observation["rows_matched"]
+    )
+
+
+@app.get("/api/calibration")
+def get_calibration() -> Dict[str, Any]:
+    return calibration.report()
+
+
+@app.get("/api/dashboard")
+def dashboard() -> Dict[str, Any]:
+    """Everything an executive overview needs, in one call: the value funnel
+    (identified -> risk-adjusted -> committed -> verified), opportunity mix,
+    case pipeline, calibration quality, and data freshness."""
+    result = prioritization.prioritize(_analyze(), None, calibration.factors())
+    opps = result["opportunities"]
+    cases = db.list_business_cases()
+    meta = db.dataset_meta()
+
+    identified = sum(o["estimated_annual_savings"] for o in opps)
+    risk_adjusted = sum(o["priority"]["risk_adjusted_annual_savings"] for o in opps)
+    committed = sum(
+        (c["linked_opportunity"] or {}).get("estimated_annual_savings", 0) for c in cases
+    )
+    measured = sum(
+        (c["tracking"] or {}).get("measured_annual_savings", 0) or 0 for c in cases
+    )
+    claimed = sum(
+        (c["tracking"] or {}).get("total_realized_savings", 0) or 0 for c in cases
+    )
+
+    quadrants: Dict[str, Dict[str, float]] = {}
+    for o in opps:
+        q = o["priority"]["quadrant"]
+        bucket = quadrants.setdefault(q, {"count": 0, "value": 0.0})
+        bucket["count"] += 1
+        bucket["value"] += o["estimated_annual_savings"]
+    for bucket in quadrants.values():
+        bucket["value"] = round(bucket["value"], 2)
+
+    return {
+        "funnel": {
+            "identified_annual_savings": round(identified, 2),
+            "risk_adjusted_annual_savings": round(risk_adjusted, 2),
+            "committed_annual_savings": round(committed, 2),
+            "measured_annual_savings": round(measured, 2),
+            "claimed_savings_to_date": round(claimed, 2),
+        },
+        "opportunities": {
+            "count": len(opps),
+            "quadrants": quadrants,
+            "top": [
+                {
+                    "id": o["id"],
+                    "title": o["title"],
+                    "score": o["priority"]["score"],
+                    "estimated_annual_savings": o["estimated_annual_savings"],
+                    "quadrant": o["priority"]["quadrant"],
+                    "complexity": o["complexity"],
+                }
+                for o in opps[:5]
+            ],
+            "count_for_80_pct_of_value": (result["summary"] or {}).get(
+                "count_for_80_pct_of_value", 0
+            ),
+        },
+        "pipeline": [
+            {
+                "id": c["id"],
+                "title": c["title"],
+                "status": c["status"],
+                "go_live_date": c["go_live_date"],
+                "forecast_annual_savings": (c["linked_opportunity"] or {}).get(
+                    "estimated_annual_savings"
+                ),
+                "measured_annual_savings": (c["tracking"] or {}).get("measured_annual_savings"),
+                "claimed_savings": (c["tracking"] or {}).get("total_realized_savings"),
+                "payback_progress_pct": (c["tracking"] or {}).get("payback_progress_pct"),
+            }
+            for c in cases
+        ],
+        "calibration": calibration.report(),
+        "sources": [
+            {
+                "source_type": st,
+                "rows_loaded": meta.get(st, {}).get("rows_loaded", 0),
+                "origin": meta.get(st, {}).get("origin"),
+                "updated_at": meta.get(st, {}).get("updated_at"),
+            }
+            for st in SOURCE_TYPES
+        ],
+    }
 
 
 class SavingsRequest(BaseModel):

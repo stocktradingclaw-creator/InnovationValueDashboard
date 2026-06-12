@@ -327,3 +327,134 @@ def test_opportunities_carry_complexity(client):
     by_cat = {o["category"]: o["complexity"] for o in opps}
     assert by_cat["Application rationalization"] == "high"
     assert by_cat["Orphaned storage"] == "low"
+
+
+# -------------------------------------------------- measurement & calibration
+
+from app import metrics
+
+
+def test_metric_compute_and_validation():
+    datasets = _sample_datasets()
+    result = metrics.compute({
+        "metric": "sum", "source": "cloud", "field": "monthly_cost",
+        "filters": [{"field": "resource_id", "op": "in",
+                     "values": ["i-0a1b2c3d01", "i-0a1b2c3d02"]}],
+    }, datasets)
+    assert result == {"value": 840.0, "rows_matched": 2}
+
+    count = metrics.compute({
+        "metric": "count", "source": "itsm",
+        "filters": [{"field": "ticket_type", "op": "eq", "value": "Request"}],
+    }, datasets)
+    assert count["value"] == 33  # 16 + 12 + 5 request rows in sample data
+
+    with pytest.raises(metrics.MetricError):
+        metrics.validate_definition({"metric": "median", "source": "cloud"})
+    with pytest.raises(metrics.MetricError):
+        metrics.validate_definition({"metric": "sum", "source": "cloud"})  # no field
+
+
+def _cloud_idle_opp(client):
+    opps = client.get("/api/opportunities").json()["opportunities"]
+    return next(o for o in opps if o["category"] == "Idle cloud resources")
+
+
+def test_linked_case_freezes_baseline_and_observes_change(client):
+    client.post("/api/datasets/load-samples")
+    opp = _cloud_idle_opp(client)
+
+    case = client.post("/api/business-cases", json={
+        "title": "Terminate idle cloud", "description": "Kill the idle instances.",
+        "estimated_cost": 10000, "linked_opportunity_id": opp["id"],
+    }).json()
+
+    # baseline frozen automatically from the opportunity's own measure
+    assert len(case["metric_bindings"]) == 1
+    binding = case["metric_bindings"][0]
+    assert binding["unit"] == "usd_per_month"
+    assert binding["baseline_value"] == 2280.0   # 560 + 280 + 1440
+    assert binding["baseline_rows"] == 3
+    assert binding["latest_value"] is None
+
+    # simulate the remediation: re-upload cloud data without the idle resources
+    survivors = (
+        "resource_id,service,monthly_cost,state,avg_cpu_pct\n"
+        "i-0a1b2c3d05,EC2,140.00,running,64\n"
+        "db-2e3f4a01,RDS,720.00,running,38\n"
+    )
+    resp = client.post("/api/datasets/cloud",
+                       files={"file": ("cloud.csv", survivors, "text/csv")})
+    assert resp.status_code == 200
+
+    case = client.post(
+        f"/api/business-cases/{case['id']}/bindings/{binding['id']}/observe"
+    ).json()
+    binding = case["metric_bindings"][0]
+    assert binding["latest_value"] == 0.0          # same query, new data
+    assert binding["delta"] == 2280.0
+    assert binding["annualized_delta"] == 27360.0  # monthly delta x 12
+
+    # measured value flows into tracking once implemented
+    client.post(f"/api/business-cases/{case['id']}/implement",
+                json={"go_live_date": "2026-05-01"})
+    case = client.get("/api/business-cases").json()["business_cases"][0]
+    assert case["tracking"]["measured_annual_savings"] == 27360.0
+
+
+def test_manual_binding_endpoint(client):
+    client.post("/api/datasets/load-samples")
+    case = client.post("/api/business-cases", json={
+        "title": "Standalone", "description": "No linked opportunity.",
+    }).json()
+    resp = client.post(f"/api/business-cases/{case['id']}/bindings", json={
+        "label": "Password reset volume",
+        "definition": {
+            "metric": "count", "source": "itsm",
+            "filters": [{"field": "category", "op": "eq", "value": "password reset"}],
+        },
+    })
+    assert resp.status_code == 200
+    assert resp.json()["metric_bindings"][0]["baseline_value"] == 16.0
+
+    bad = client.post(f"/api/business-cases/{case['id']}/bindings", json={
+        "label": "x", "definition": {"metric": "sum", "source": "nope"},
+    })
+    assert bad.status_code == 400
+
+
+def test_calibration_feeds_prioritization(client):
+    client.post("/api/datasets/load-samples")
+    opp = _cloud_idle_opp(client)
+    assert opp["priority"]["calibration_factor"] == 1.0  # nothing learned yet
+
+    case = client.post("/api/business-cases", json={
+        "title": "c", "description": "d", "estimated_cost": 5000,
+        "linked_opportunity_id": opp["id"],
+    }).json()
+    client.post(f"/api/business-cases/{case['id']}/implement",
+                json={"go_live_date": "2026-01-01"})
+    # claimed savings: 1200/mo for ~5 months live -> annualized well below forecast
+    client.post(f"/api/business-cases/{case['id']}/savings",
+                json={"entry_date": "2026-02-01", "amount": 6000})
+
+    report = client.get("/api/calibration").json()
+    stats = report["categories"]["Idle cloud resources"]
+    assert stats["cases"] == 1
+    assert 0 < stats["realization_rate"] < 1
+    assert stats["basis"] == ["claimed"]
+
+    # the learned factor now discounts the same category's future estimates
+    opp_after = _cloud_idle_opp(client)
+    factor = opp_after["priority"]["calibration_factor"]
+    assert factor == stats["applied_factor"]
+    assert factor < 1.0
+    assert (opp_after["priority"]["risk_adjusted_annual_savings"]
+            < opp["priority"]["risk_adjusted_annual_savings"])
+
+
+def test_roi_template_carries_objectivity():
+    from app.roi import _template_plan
+    plan = _template_plan("t", "d", 1000)
+    assert {k.objectivity for k in plan.kpis} == {"hard", "medium"}
+    assert plan.unmeasurable_claims == []

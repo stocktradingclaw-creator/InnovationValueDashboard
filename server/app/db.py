@@ -49,6 +49,24 @@ CREATE TABLE IF NOT EXISTS savings_entries (
     amount     REAL NOT NULL,
     note       TEXT
 );
+CREATE TABLE IF NOT EXISTS metric_bindings (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id             TEXT NOT NULL REFERENCES business_cases(id),
+    kpi_name            TEXT,
+    label               TEXT NOT NULL,
+    definition_json     TEXT NOT NULL,
+    unit                TEXT NOT NULL,
+    baseline_value      REAL NOT NULL,
+    baseline_rows       INTEGER NOT NULL,
+    baseline_captured_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS metric_observations (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    binding_id   INTEGER NOT NULL REFERENCES metric_bindings(id),
+    observed_at  TEXT NOT NULL,
+    value        REAL NOT NULL,
+    rows_matched INTEGER NOT NULL
+);
 """
 
 
@@ -153,6 +171,37 @@ def create_business_case(
     return get_business_case(case_id)  # type: ignore[return-value]
 
 
+def _binding_payload(conn: sqlite3.Connection, b: sqlite3.Row) -> Dict[str, Any]:
+    from . import metrics  # local import: metrics has no db dependency
+
+    observations = [
+        dict(o) for o in conn.execute(
+            "SELECT id, observed_at, value, rows_matched FROM metric_observations "
+            "WHERE binding_id = ? ORDER BY observed_at", (b["id"],)
+        ).fetchall()
+    ]
+    definition = json.loads(b["definition_json"])
+    latest = observations[-1]["value"] if observations else None
+    payload = {
+        "id": b["id"],
+        "kpi_name": b["kpi_name"],
+        "label": b["label"],
+        "definition": definition,
+        "unit": b["unit"],
+        "baseline_value": b["baseline_value"],
+        "baseline_rows": b["baseline_rows"],
+        "baseline_captured_at": b["baseline_captured_at"],
+        "observations": observations,
+        "latest_value": latest,
+        "delta": round(b["baseline_value"] - latest, 2) if latest is not None else None,
+        "annualized_delta": (
+            metrics.annualized_delta(definition, b["baseline_value"], latest)
+            if latest is not None else None
+        ),
+    }
+    return payload
+
+
 def _case_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict[str, Any]:
     readings = [
         dict(r) for r in conn.execute(
@@ -164,6 +213,11 @@ def _case_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict[str, Any]
         dict(r) for r in conn.execute(
             "SELECT id, entry_date, amount, note FROM savings_entries "
             "WHERE case_id = ? ORDER BY entry_date", (row["id"],)
+        ).fetchall()
+    ]
+    bindings = [
+        _binding_payload(conn, b) for b in conn.execute(
+            "SELECT * FROM metric_bindings WHERE case_id = ? ORDER BY id", (row["id"],)
         ).fetchall()
     ]
     case: Dict[str, Any] = {
@@ -181,6 +235,7 @@ def _case_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict[str, Any]
         "go_live_date": row["go_live_date"],
         "kpi_readings": readings,
         "savings_entries": savings,
+        "metric_bindings": bindings,
     }
     case["tracking"] = _tracking_metrics(case)
     return case
@@ -190,6 +245,12 @@ def _tracking_metrics(case: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if case["status"] != "implemented":
         return None
     total = sum(e["amount"] for e in case["savings_entries"])
+    # measured (hard) value: annualizable reductions computed from data,
+    # kept strictly separate from self-reported (claimed) savings entries
+    measured_annual = sum(
+        b["annualized_delta"] for b in case["metric_bindings"]
+        if b["annualized_delta"] is not None
+    )
     cost = case["estimated_cost"]
     roi_pct = None
     payback_progress_pct = None
@@ -208,6 +269,7 @@ def _tracking_metrics(case: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             pass
     return {
         "total_realized_savings": round(total, 2),
+        "measured_annual_savings": round(measured_annual, 2),
         "realized_roi_pct": roi_pct,
         "payback_progress_pct": payback_progress_pct,
         "months_live": months_live,
@@ -252,6 +314,50 @@ def add_kpi_reading(
             "INSERT INTO kpi_readings (case_id, kpi_name, reading_date, value, note) "
             "VALUES (?, ?, ?, ?, ?)",
             (case_id, kpi_name, reading_date, value, note),
+        )
+    return get_business_case(case_id)
+
+
+def create_metric_binding(
+    case_id: str,
+    label: str,
+    kpi_name: Optional[str],
+    definition: Dict[str, Any],
+    unit: str,
+    baseline_value: float,
+    baseline_rows: int,
+) -> Optional[Dict[str, Any]]:
+    if get_business_case(case_id) is None:
+        return None
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO metric_bindings (case_id, kpi_name, label, definition_json, unit, "
+            "baseline_value, baseline_rows, baseline_captured_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (case_id, kpi_name, label, json.dumps(definition), unit,
+             baseline_value, baseline_rows, _now()),
+        )
+    return get_business_case(case_id)
+
+
+def get_binding(case_id: str, binding_id: int) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM metric_bindings WHERE id = ? AND case_id = ?",
+            (binding_id, case_id),
+        ).fetchone()
+        return _binding_payload(conn, row) if row else None
+
+
+def add_metric_observation(
+    case_id: str, binding_id: int, value: float, rows_matched: int
+) -> Optional[Dict[str, Any]]:
+    if get_binding(case_id, binding_id) is None:
+        return None
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO metric_observations (binding_id, observed_at, value, rows_matched) "
+            "VALUES (?, ?, ?, ?)",
+            (binding_id, _now(), value, rows_matched),
         )
     return get_business_case(case_id)
 

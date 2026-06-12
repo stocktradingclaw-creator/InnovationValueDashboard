@@ -35,6 +35,7 @@ def _opportunity(
     affected: List[str],
     confidence: str,
     complexity: str = "medium",
+    measure: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
     # Deterministic ID so business cases can link to an opportunity and the
     # link survives server restarts and re-analysis.
@@ -49,6 +50,7 @@ def _opportunity(
         "effort": effort,
         "confidence": confidence,
         "complexity": _scale_complexity(complexity, len(affected)),
+        "measure": measure,
         "affected_items": affected[:25],
         "affected_count": len(affected),
     }
@@ -76,6 +78,11 @@ def _cmdb_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "Servers running below 5% average CPU are candidates for decommissioning "
             "or consolidation. Savings assume full retirement of the asset.",
             savings, "medium", [r["ci_name"] for r in idle], "high", complexity="medium",
+            measure={
+                "label": "Annual run cost of flagged idle servers",
+                "metric": "sum", "source": "cmdb", "field": "annual_cost",
+                "filters": [{"field": "ci_name", "op": "in", "values": [r["ci_name"] for r in idle]}],
+            },
         ))
 
     today = date.today()
@@ -92,6 +99,11 @@ def _cmdb_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "Assets past their end-of-life date incur extended-support premiums and "
             "security exposure. Savings estimate the support premium avoided (~30% of run cost).",
             savings, "high", [r["ci_name"] for r in eol], "medium", complexity="high",
+            measure={
+                "label": "Annual run cost of past-EOL assets",
+                "metric": "sum", "source": "cmdb", "field": "annual_cost",
+                "filters": [{"field": "ci_name", "op": "in", "values": [r["ci_name"] for r in eol]}],
+            },
         ))
 
     by_app_category: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -110,6 +122,11 @@ def _cmdb_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     f"{len(apps)} applications serve the '{cat}' capability. Consolidating to "
                     "one or two platforms removes duplicate licensing and support effort.",
                     savings, "high", [a["ci_name"] for a in apps], "medium", complexity="high",
+                    measure={
+                        "label": f"Annual cost of '{cat}' application portfolio",
+                        "metric": "sum", "source": "cmdb", "field": "annual_cost",
+                        "filters": [{"field": "ci_name", "op": "in", "values": [a["ci_name"] for a in apps]}],
+                    },
                 ))
 
     nonprod = [
@@ -125,6 +142,11 @@ def _cmdb_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "Non-production systems costing >$10k/yr can usually be downsized or "
             "scheduled (off outside business hours) for ~40% savings.",
             savings, "low", [r["ci_name"] for r in nonprod], "medium", complexity="low",
+            measure={
+                "label": "Annual run cost of flagged non-production systems",
+                "metric": "sum", "source": "cmdb", "field": "annual_cost",
+                "filters": [{"field": "ci_name", "op": "in", "values": [r["ci_name"] for r in nonprod]}],
+            },
         ))
     return opps
 
@@ -153,6 +175,11 @@ def _erp_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "Invoices with the same vendor and amount within 10 days are likely "
             "duplicates. Savings equal the full recoverable amount.",
             savings, "low", [r["invoice_id"] for r in dupes], "high", complexity="low",
+            measure={
+                "label": "Amount on flagged duplicate invoices",
+                "metric": "sum", "source": "erp", "field": "amount",
+                "filters": [{"field": "invoice_id", "op": "in", "values": [r["invoice_id"] for r in dupes]}],
+            },
         ))
 
     # Vendor consolidation: categories with 4+ vendors
@@ -169,6 +196,11 @@ def _erp_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 f"Spend of ${spend:,.0f} in '{cat}' is split across {len(vendors)} vendors. "
                 "Consolidating to preferred vendors typically yields ~5% via volume pricing.",
                 savings, "medium", sorted(vendors), "medium", complexity="high",
+                measure={
+                    "label": f"Total spend in '{cat}'",
+                    "metric": "sum", "source": "erp", "field": "amount",
+                    "filters": [{"field": "category", "op": "eq", "value": cat}],
+                },
             ))
 
     # Maverick spend: invoices with no PO
@@ -182,6 +214,11 @@ def _erp_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 f"${spend:,.0f} was invoiced without a purchase order. Routing this through "
                 "procurement typically saves ~3% via negotiated rates and approval control.",
                 spend * 0.03, "medium", [r["invoice_id"] for r in no_po], "medium", complexity="medium",
+                measure={
+                    "label": "Off-PO invoice spend",
+                    "metric": "sum", "source": "erp", "field": "amount",
+                    "filters": [{"field": "po_number", "op": "eq", "value": ""}],
+                },
             ))
     return opps
 
@@ -205,6 +242,11 @@ def _cloud_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "Running resources averaging under 5% CPU are doing no useful work. "
             "Savings assume termination.",
             savings, "low", [r["resource_id"] for r in idle], "high", complexity="low",
+            measure={
+                "label": "Monthly cost of flagged idle resources",
+                "metric": "sum", "source": "cloud", "field": "monthly_cost",
+                "filters": [{"field": "resource_id", "op": "in", "values": [r["resource_id"] for r in idle]}],
+            },
         ))
 
     oversized = [
@@ -220,6 +262,11 @@ def _cloud_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "Resources at 5-20% CPU can usually drop one or two instance sizes "
             "(~40% of cost).",
             savings, "low", [r["resource_id"] for r in oversized], "high", complexity="low",
+            measure={
+                "label": "Monthly cost of flagged over-provisioned instances",
+                "metric": "sum", "source": "cloud", "field": "monthly_cost",
+                "filters": [{"field": "resource_id", "op": "in", "values": [r["resource_id"] for r in oversized]}],
+            },
         ))
 
     unattached = [
@@ -235,6 +282,11 @@ def _cloud_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "Unattached volumes and idle allocations bill continuously with no consumer. "
             "Snapshot then delete.",
             savings, "low", [r["resource_id"] for r in unattached], "high", complexity="low",
+            measure={
+                "label": "Monthly cost of unattached volumes/IPs",
+                "metric": "sum", "source": "cloud", "field": "monthly_cost",
+                "filters": [{"field": "resource_id", "op": "in", "values": [r["resource_id"] for r in unattached]}],
+            },
         ))
 
     stopped_billed = [
@@ -249,6 +301,11 @@ def _cloud_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "Stopped instances still bill for attached storage and reservations. "
             "Deallocate or delete after review.",
             savings, "low", [r["resource_id"] for r in stopped_billed], "medium", complexity="low",
+            measure={
+                "label": "Monthly cost of stopped-but-billing resources",
+                "metric": "sum", "source": "cloud", "field": "monthly_cost",
+                "filters": [{"field": "resource_id", "op": "in", "values": [r["resource_id"] for r in stopped_billed]}],
+            },
         ))
     return opps
 
@@ -276,6 +333,12 @@ def _itsm_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     "low-complexity work suited to self-service automation. Savings assume "
                     f"${COST_PER_TICKET:.0f}/ticket handling cost, annualized.",
                     annualized * 0.8, "medium", [t["ticket_id"] for t in tickets], "medium", complexity="medium",
+                    measure={
+                        "label": f"'{cat}' request volume in dataset window",
+                        "metric": "count", "source": "itsm",
+                        "filters": [{"field": "category", "op": "eq", "value": cat},
+                                    {"field": "ticket_type", "op": "eq", "value": "Request"}],
+                    },
                 ))
 
     incidents_by_ci: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -293,6 +356,12 @@ def _itsm_rules(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             f"{', '.join(sorted(hotspots))}. Root-cause remediation removes the recurring "
             "handling cost and downtime.",
             res_costs * 0.7, "high", sorted(hotspots), "medium", complexity="high",
+            measure={
+                "label": "Incident volume on hotspot CIs",
+                "metric": "count", "source": "itsm",
+                "filters": [{"field": "ci_name", "op": "in", "values": sorted(hotspots)},
+                            {"field": "ticket_type", "op": "eq", "value": "Incident"}],
+            },
         ))
     return opps
 

@@ -73,9 +73,9 @@ def normalize_weights(
     return {k: w / total for k, w in weights.items()}
 
 
-def _economics(opp: Dict[str, Any]) -> Dict[str, Any]:
+def _economics(opp: Dict[str, Any], calibration_factor: float = 1.0) -> Dict[str, Any]:
     confidence = CONFIDENCE_FACTOR.get(opp["confidence"], 0.5)
-    risk_adjusted = opp["estimated_annual_savings"] * confidence
+    risk_adjusted = opp["estimated_annual_savings"] * confidence * calibration_factor
 
     base, per_item = EFFORT_COST.get(opp["effort"], EFFORT_COST["medium"])
     est_cost = base + per_item * opp.get("affected_count", 1)
@@ -89,6 +89,7 @@ def _economics(opp: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "risk_adjusted_annual_savings": round(risk_adjusted, 2),
+        "calibration_factor": round(calibration_factor, 3),
         "est_implementation_cost": round(est_cost, 2),
         "time_to_value_months": ttv,
         "payback_months": payback_months,
@@ -114,14 +115,19 @@ def _quadrant(risk_adjusted: float, est_cost: float,
 def prioritize(
     opportunities: List[Dict[str, Any]],
     weights: Optional[Dict[str, float]] = None,
+    calibration: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """Annotates each opportunity with a `priority` block and returns the
-    re-ranked list plus portfolio-level stats."""
+    re-ranked list plus portfolio-level stats. `calibration` maps opportunity
+    category -> measured realization factor (see calibration.py)."""
     weights = weights or dict(DEFAULT_WEIGHTS)
+    calibration = calibration or {}
     if not opportunities:
         return {"opportunities": [], "summary": None, "weights": weights}
 
-    economics = [_economics(o) for o in opportunities]
+    economics = [
+        _economics(o, calibration.get(o["category"], 1.0)) for o in opportunities
+    ]
 
     max_value = max(e["risk_adjusted_annual_savings"] for e in economics)
     max_ratio = max(min(e["payback_ratio"], PAYBACK_RATIO_CAP) for e in economics)

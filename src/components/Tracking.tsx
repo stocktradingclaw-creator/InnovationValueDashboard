@@ -1,6 +1,57 @@
 import { useState } from 'react'
-import { addReading, addSavings, implementCase, money } from '../api'
+import { addReading, addSavings, implementCase, money, observeBinding } from '../api'
 import type { BusinessCase } from '../types'
+
+function Evidence({ bc, onChanged }: { bc: BusinessCase; onChanged: () => void }) {
+  const [busy, setBusy] = useState<number | null>(null)
+  if (bc.metric_bindings.length === 0) return null
+  return (
+    <>
+      <h4>Measured evidence <span className="muted small">(frozen baseline, computed from data)</span></h4>
+      <table className="kpi-table">
+        <thead>
+          <tr>
+            <th>Metric</th><th className="num">Baseline</th><th className="num">Latest</th>
+            <th className="num">Reduction</th><th className="num">Verified /yr</th><th />
+          </tr>
+        </thead>
+        <tbody>
+          {bc.metric_bindings.map((b) => (
+            <tr key={b.id}>
+              <td>
+                <strong>{b.label}</strong>
+                <div className="muted small">frozen {b.baseline_captured_at.slice(0, 10)} · {b.unit.replace(/_/g, ' ')}</div>
+              </td>
+              <td className="num">{b.baseline_value.toLocaleString()}</td>
+              <td className="num">{b.latest_value != null ? b.latest_value.toLocaleString() : '—'}</td>
+              <td className="num">{b.delta != null ? b.delta.toLocaleString() : '—'}</td>
+              <td className="num savings">
+                {b.annualized_delta != null ? money(b.annualized_delta) : '—'}
+              </td>
+              <td>
+                <button
+                  className="secondary"
+                  disabled={busy === b.id}
+                  onClick={async () => {
+                    setBusy(b.id)
+                    try {
+                      await observeBinding(bc.id, b.id)
+                      onChanged()
+                    } finally {
+                      setBusy(null)
+                    }
+                  }}
+                >
+                  {busy === b.id ? 'Observing…' : 'Observe now'}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  )
+}
 
 interface Props {
   cases: BusinessCase[]
@@ -139,11 +190,19 @@ function CaseTracker({ bc, onChanged }: { bc: BusinessCase; onChanged: () => voi
 
       {bc.status === 'proposed' && <ImplementForm bc={bc} onChanged={onChanged} />}
 
+      {bc.status === 'proposed' && <Evidence bc={bc} onChanged={onChanged} />}
+
       {bc.status === 'implemented' && t && (
         <>
           <div className="metrics-row">
             <div className="metric">
-              <span className="muted small">Realized savings</span>
+              <span className="muted small">Verified /yr (measured)</span>
+              <strong className={t.measured_annual_savings > 0 ? 'pos' : ''}>
+                {money(t.measured_annual_savings)}
+              </strong>
+            </div>
+            <div className="metric">
+              <span className="muted small">Claimed savings</span>
               <strong>{money(t.total_realized_savings)}</strong>
             </div>
             <div className="metric">
@@ -172,7 +231,9 @@ function CaseTracker({ bc, onChanged }: { bc: BusinessCase; onChanged: () => voi
             </div>
           )}
 
-          <h4>Record realized savings</h4>
+          <Evidence bc={bc} onChanged={onChanged} />
+
+          <h4>Record claimed savings <span className="muted small">(self-reported)</span></h4>
           <SavingsForm bc={bc} onChanged={onChanged} />
           {bc.savings_entries.length > 0 && (
             <table className="kpi-table">

@@ -13,6 +13,18 @@ function PlanView({ plan }: { plan: ROIPlan }) {
     <div className="plan">
       <p>{plan.summary}</p>
 
+      {plan.unmeasurable_claims && plan.unmeasurable_claims.length > 0 && (
+        <div className="banner-warn">
+          <strong>Unmeasurable claims flagged:</strong> the business case makes claims no named
+          data source can verify —
+          <ul>
+            {plan.unmeasurable_claims.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <h4>Value drivers</h4>
       <ul>
         {plan.value_drivers.map((v) => (
@@ -34,6 +46,7 @@ function PlanView({ plan }: { plan: ROIPlan }) {
             <th>Sources</th>
             <th>Cadence</th>
             <th>Type</th>
+            <th>Objectivity</th>
           </tr>
         </thead>
         <tbody>
@@ -49,6 +62,13 @@ function PlanView({ plan }: { plan: ROIPlan }) {
                 <span className={`pill pill-${k.indicator_type === 'leading' ? 'low' : 'medium'}`}>
                   {k.indicator_type}
                 </span>
+              </td>
+              <td>
+                {k.objectivity ? (
+                  <span className={`pill obj-${k.objectivity}`}>{k.objectivity}</span>
+                ) : (
+                  <span className="muted small">—</span>
+                )}
               </td>
             </tr>
           ))}

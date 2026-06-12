@@ -38,7 +38,26 @@ formula to apply after implementation.
   - Post-implementation tracking: mark a case implemented, record realized
     savings and KPI readings; the API computes realized ROI, payback
     progress, and months live
+  - **Measurement objectivity** — three mechanisms that shrink the
+    subjectivity of value claims:
+    - *Metric bindings with frozen baselines*: every detection rule ships a
+      computable measure (a declarative query over the ingested data).
+      Linking a business case to an opportunity freezes the baseline at
+      creation; later observations run the identical query against fresh
+      data. Verified value is computed, never typed. (`app/metrics.py`)
+    - *Calibration loop*: implemented cases yield realization rates
+      (actual vs. forecast) per opportunity category, which automatically
+      discount or boost future estimates of the same category in the
+      prioritization model. (`app/calibration.py`, `GET /api/calibration`)
+    - *Auditor pass*: Claude classifies each KPI's objectivity (hard /
+      medium / soft) and flags business-case claims that no named data
+      source can verify (`unmeasurable_claims`)
+  - Tracking reports **verified** (measured from data) and **claimed**
+    (self-reported) value as separate numbers — never blended
 - `src/` — React + TypeScript frontend (Vite)
+  - **Overview** — executive dashboard: value funnel (identified →
+    risk-adjusted → committed → verified), portfolio mix, top opportunities,
+    case pipeline, estimate calibration, and data freshness in one view
   - **Data Sources** — upload CSVs, load sample data, or sync live connectors
   - **Opportunities** — score-ranked table with weight sliders, a
     value-vs-effort quadrant matrix, and per-opportunity economics drill-down
@@ -82,7 +101,11 @@ Opportunities and Business Cases tabs.
 | `GET` | `/api/business-cases` | List cases with plans, readings, savings, tracking |
 | `POST` | `/api/business-cases/{id}/implement` | Mark implemented with a go-live date |
 | `POST` | `/api/business-cases/{id}/readings` | Record a KPI reading (must match a plan KPI) |
-| `POST` | `/api/business-cases/{id}/savings` | Record realized savings (drives ROI/payback) |
+| `POST` | `/api/business-cases/{id}/savings` | Record claimed savings (drives ROI/payback) |
+| `POST` | `/api/business-cases/{id}/bindings` | Create a metric binding (freezes the baseline now) |
+| `POST` | `/api/business-cases/{id}/bindings/{bid}/observe` | Re-run the binding's query against current data |
+| `GET` | `/api/calibration` | Realization rates per opportunity category |
+| `GET` | `/api/dashboard` | Consolidated overview payload (funnel, mix, pipeline, calibration, freshness) |
 
 ## Tests
 
