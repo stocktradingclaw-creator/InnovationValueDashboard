@@ -1,0 +1,11 @@
+initiative_id,name,status,category,budget,spend_to_date,claimed_annual_benefit,measured_annual_benefit,benefit_type,start_date,go_live_date
+INIT-001,ERP modernization,Live,erp platform,850000,910000,1200000,,hard,2024-09-01,2025-12-15
+INIT-002,Service desk chatbot,Live,service automation,120000,115000,180000,40000,soft,2025-03-01,2025-11-01
+INIT-003,Cloud migration wave 2,In flight,cloud,450000,380000,300000,,hard,2025-01-15,
+INIT-004,Data lake consolidation,In flight,data platform,600000,220000,150000,,soft,2025-02-01,
+INIT-005,RPA invoice processing,Live,service automation,90000,88000,140000,125000,hard,2025-06-01,2026-01-10
+INIT-006,Network refresh,On hold,infrastructure,300000,140000,90000,,hard,2024-11-01,
+INIT-007,Customer 360 platform,In flight,data platform,520000,90000,160000,,soft,2026-01-05,
+INIT-008,Workplace analytics,On hold,workplace,75000,30000,60000,,soft,2025-04-01,
+INIT-009,Self-service password reset,Live,service automation,45000,41000,70000,68000,hard,2025-08-01,2026-02-01
+INIT-010,Legacy DC exit,In flight,infrastructure,950000,410000,280000,,hard,2024-12-01,

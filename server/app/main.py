@@ -10,7 +10,10 @@ from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from . import calibration, connectors, db, metrics, opportunities, prioritization, roi
+from . import (
+    calibration, connectors, db, metrics, opportunities,
+    portfolio, prioritization, roi, timeline,
+)
 from .ingestion import SOURCE_TYPES, IngestionError, normalize_rows, parse_csv
 
 app = FastAPI(title="InnovationValueDashboard API")
@@ -322,6 +325,16 @@ def get_calibration() -> Dict[str, Any]:
     return calibration.report()
 
 
+@app.get("/api/portfolio/diagnostic")
+def portfolio_diagnostic() -> Dict[str, Any]:
+    rows = normalize_rows("portfolio", db.load_dataset("portfolio"))
+    if not rows:
+        raise HTTPException(
+            400, "No portfolio loaded — upload a PMO export to the 'portfolio' source first"
+        )
+    return portfolio.diagnose(rows)
+
+
 @app.get("/api/dashboard")
 def dashboard() -> Dict[str, Any]:
     """Everything an executive overview needs, in one call: the value funnel
@@ -394,6 +407,7 @@ def dashboard() -> Dict[str, Any]:
             }
             for c in cases
         ],
+        "timeline": timeline.build(cases),
         "calibration": calibration.report(),
         "sources": [
             {

@@ -458,3 +458,78 @@ def test_roi_template_carries_objectivity():
     plan = _template_plan("t", "d", 1000)
     assert {k.objectivity for k in plan.kpis} == {"hard", "medium"}
     assert plan.unmeasurable_claims == []
+
+
+# ------------------------------------------------------------------- timeline
+
+def test_value_timeline_and_roi(client):
+    client.post("/api/datasets/load-samples")
+    opp = _cloud_idle_opp(client)
+    case = client.post("/api/business-cases", json={
+        "title": "t", "description": "d", "estimated_cost": 10000,
+        "linked_opportunity_id": opp["id"],
+    }).json()
+    client.post(f"/api/business-cases/{case['id']}/implement",
+                json={"go_live_date": "2026-03-01"})
+    client.post(f"/api/business-cases/{case['id']}/savings",
+                json={"entry_date": "2026-04-01", "amount": 3000})
+
+    # remediate and observe -> verified run-rate starts this month
+    survivors = "resource_id,service,monthly_cost,state,avg_cpu_pct\nx-1,EC2,100,running,50\n"
+    client.post("/api/datasets/cloud", files={"file": ("c.csv", survivors, "text/csv")})
+    binding_id = case["metric_bindings"][0]["id"]
+    client.post(f"/api/business-cases/{case['id']}/bindings/{binding_id}/observe")
+
+    tl = client.get("/api/dashboard").json()["timeline"]
+    summary = tl["summary"]
+    months = tl["months"]
+
+    assert summary["total_invested"] == 10000
+    assert summary["claimed_value_to_date"] == 3000
+    assert summary["verified_run_rate"] == 27360.0
+    # cost lands in the go-live month and stays cumulative
+    march = next(m for m in months if m["month"] == "2026-03")
+    assert march["cumulative_cost"] == 10000
+    april = next(m for m in months if m["month"] == "2026-04")
+    assert april["cumulative_claimed"] == 3000
+    # verified value only accrues from the observation month (no retro credit)
+    assert all(m["cumulative_verified"] == 0 for m in months if m["month"] < "2026-06")
+    # projection extends the run-rate and finds break-even (10k / 2280-mo)
+    assert any(m["projected"] for m in months)
+    assert summary["break_even_month"] is not None
+    assert summary["break_even_projected"] is True
+    last_actual = [m for m in months if not m["projected"]][-1]
+    assert last_actual["roi_pct"] == summary["portfolio_roi_pct"]
+
+
+# ------------------------------------------------------------------ portfolio
+
+def test_portfolio_diagnostic(client):
+    resp = client.get("/api/portfolio/diagnostic")
+    assert resp.status_code == 400  # nothing loaded yet
+
+    client.post("/api/datasets/load-samples")
+    report = client.get("/api/portfolio/diagnostic").json()
+
+    assert 5 <= report["health_score"] < 100
+    stats = report["stats"]
+    assert stats["initiatives"] == 10
+    assert stats["verification_ratio"] is not None
+
+    categories = {f["category"] for f in report["findings"]}
+    # the sample portfolio is seeded to trip every diagnostic
+    assert "Unverified benefits" in categories       # ERP modernization, live, unmeasured
+    assert "Realization shortfall" in categories     # chatbot: 40k of 180k claimed
+    assert "Weak ROI" in categories                  # legacy DC exit / data lake
+    assert "Budget overrun" in categories            # ERP modernization over budget
+    assert "Stalled delivery" in categories          # cloud wave 2 / DC exit in flight >12mo
+    assert "Parked spend" in categories              # network refresh + workplace on hold
+    assert "Overlapping scope" in categories         # two data platform initiatives
+
+    # findings sorted high severity first, each carries value impact
+    severities = [f["severity"] for f in report["findings"]]
+    assert severities == sorted(severities, key={"high": 0, "medium": 1, "low": 2}.get)
+    assert all(f["value_impact"] >= 0 for f in report["findings"])
+
+    unverified = next(f for f in report["findings"] if f["category"] == "Unverified benefits")
+    assert "ERP modernization" in unverified["affected_initiatives"]

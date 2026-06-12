@@ -1,26 +1,29 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getBusinessCases, getDashboard, getDatasets, getOpportunities } from './api'
+import { getBusinessCases, getDashboard, getDatasets, getOpportunities, getPortfolioDiagnostic } from './api'
 import BusinessCases from './components/BusinessCases'
 import Dashboard from './components/Dashboard'
 import DataSources from './components/DataSources'
 import Opportunities from './components/Opportunities'
+import Portfolio from './components/Portfolio'
 import Tracking from './components/Tracking'
 import type {
   BusinessCase,
   DashboardData,
   Opportunity,
+  PortfolioReport,
   PrioritizationSummary,
   SourceStatus,
   Weights,
 } from './types'
 
-type Tab = 'overview' | 'sources' | 'opportunities' | 'cases' | 'tracking'
+type Tab = 'overview' | 'sources' | 'opportunities' | 'cases' | 'tracking' | 'portfolio'
 
 const DEFAULT_WEIGHTS: Weights = { value: 35, efficiency: 30, speed: 15, simplicity: 20 }
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('overview')
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
+  const [portfolioReport, setPortfolioReport] = useState<PortfolioReport | null>(null)
   const [sources, setSources] = useState<SourceStatus[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [total, setTotal] = useState(0)
@@ -43,6 +46,7 @@ export default function App() {
       setTotal(opps.total_estimated_annual_savings)
       setSummary(opps.prioritization.summary)
       setCases(bcs.business_cases)
+      setPortfolioReport(await getPortfolioDiagnostic().catch(() => null))
       setOffline(false)
     } catch {
       setOffline(true)
@@ -80,6 +84,9 @@ export default function App() {
           <button className={tab === 'tracking' ? 'active' : ''} onClick={() => setTab('tracking')}>
             ROI Tracking
           </button>
+          <button className={tab === 'portfolio' ? 'active' : ''} onClick={() => setTab('portfolio')}>
+            Portfolio
+          </button>
         </nav>
       </header>
 
@@ -107,6 +114,13 @@ export default function App() {
           <BusinessCases cases={cases} opportunities={opportunities} onChanged={refresh} />
         )}
         {tab === 'tracking' && <Tracking cases={cases} onChanged={refresh} />}
+        {tab === 'portfolio' && (
+          <Portfolio
+            report={portfolioReport}
+            hasPortfolio={sources.some((s) => s.source_type === 'portfolio' && s.rows_loaded > 0)}
+            onChanged={refresh}
+          />
+        )}
       </main>
     </div>
   )

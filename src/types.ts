@@ -183,6 +183,10 @@ export interface DashboardData {
     claimed_savings: number | null
     payback_progress_pct: number | null
   }[]
+  timeline: {
+    months: TimelineMonth[]
+    summary: TimelineSummary | null
+  }
   calibration: CalibrationReport
   sources: {
     source_type: string
@@ -190,6 +194,49 @@ export interface DashboardData {
     origin: string | null
     updated_at: string | null
   }[]
+}
+
+export interface TimelineMonth {
+  month: string
+  cumulative_cost: number
+  cumulative_claimed: number
+  cumulative_verified: number
+  verified_run_rate: number
+  roi_pct: number | null
+  projected: boolean
+}
+
+export interface TimelineSummary {
+  total_invested: number
+  verified_value_to_date: number
+  claimed_value_to_date: number
+  verified_run_rate: number
+  portfolio_roi_pct: number | null
+  break_even_month: string | null
+  break_even_projected: boolean
+}
+
+export interface PortfolioFinding {
+  category: string
+  severity: 'high' | 'medium' | 'low'
+  title: string
+  description: string
+  affected_initiatives: string[]
+  affected_count: number
+  value_impact: number
+}
+
+export interface PortfolioReport {
+  health_score: number
+  stats: {
+    initiatives: number
+    total_budget: number
+    total_spend_to_date: number
+    total_claimed_annual_benefit: number
+    total_measured_annual_benefit: number
+    verification_ratio: number | null
+  }
+  findings: PortfolioFinding[]
 }
 
 export interface BusinessCase {

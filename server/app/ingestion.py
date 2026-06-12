@@ -82,6 +82,18 @@ SOURCE_TYPES: Dict[str, Dict[str, Any]] = {
             "resolution_minutes": _to_float,
         },
     },
+    "portfolio": {
+        "label": "Initiative portfolio (PMO export)",
+        "required": ["initiative_id", "name", "status", "budget", "claimed_annual_benefit"],
+        "coerce": {
+            "budget": _to_float,
+            "spend_to_date": _to_float,
+            "claimed_annual_benefit": _to_float,
+            "measured_annual_benefit": _to_float,
+            "start_date": _to_date,
+            "go_live_date": _to_date,
+        },
+    },
 }
 
 

@@ -136,5 +136,9 @@ export function getDashboard() {
   return request<import('./types').DashboardData>('/api/dashboard')
 }
 
+export function getPortfolioDiagnostic() {
+  return request<import('./types').PortfolioReport>('/api/portfolio/diagnostic')
+}
+
 export const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })

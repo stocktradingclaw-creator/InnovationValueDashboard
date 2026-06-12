@@ -1,5 +1,83 @@
 import { money } from '../api'
-import type { DashboardData, Quadrant } from '../types'
+import type { DashboardData, Quadrant, TimelineMonth } from '../types'
+
+function ValueOverTime({ months, breakEven }: { months: TimelineMonth[]; breakEven: string | null }) {
+  if (months.length < 2) return null
+  const W = 660
+  const H = 230
+  const PAD = { l: 56, r: 12, t: 12, b: 26 }
+  const maxY = Math.max(
+    ...months.map((m) => Math.max(m.cumulative_cost, m.cumulative_verified, m.cumulative_claimed)),
+    1,
+  )
+  const x = (i: number) => PAD.l + (i / (months.length - 1)) * (W - PAD.l - PAD.r)
+  const y = (v: number) => H - PAD.b - (v / maxY) * (H - PAD.t - PAD.b)
+  const path = (key: 'cumulative_cost' | 'cumulative_verified' | 'cumulative_claimed', filter: (m: TimelineMonth) => boolean) =>
+    months
+      .map((m, i) => ({ m, i }))
+      .filter(({ m }) => filter(m))
+      .map(({ m, i }, idx) => `${idx === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(m[key]).toFixed(1)}`)
+      .join(' ')
+
+  const lastActualIdx = months.reduce((acc, m, i) => (m.projected ? acc : i), 0)
+  const actual = (m: TimelineMonth) => !m.projected
+  const projectedPlus = (m: TimelineMonth, i: number) => m.projected || i === lastActualIdx
+  const breakEvenIdx = breakEven ? months.findIndex((m) => m.month === breakEven) : -1
+  const ticks = [0, 0.5, 1].map((f) => Math.round(maxY * f))
+
+  return (
+    <div className="card">
+      <h3>
+        Value against time{' '}
+        <span className="muted small">cumulative · dashed = projected at current run-rate</span>
+      </h3>
+      <svg viewBox={`0 0 ${W} ${H}`} className="timeline-chart" role="img">
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={PAD.l} x2={W - PAD.r} y1={y(t)} y2={y(t)} className="chart-grid" />
+            <text x={PAD.l - 6} y={y(t) + 4} className="chart-tick" textAnchor="end">
+              {t >= 1000 ? `$${Math.round(t / 1000)}k` : `$${t}`}
+            </text>
+          </g>
+        ))}
+        <path d={path('cumulative_cost', actual)} className="line line-cost" />
+        <path d={path('cumulative_claimed', actual)} className="line line-claimed" />
+        <path d={path('cumulative_verified', actual)} className="line line-verified" />
+        <path
+          d={months
+            .map((m, i) => ({ m, i }))
+            .filter(({ m, i }) => projectedPlus(m, i))
+            .map(({ m, i }, idx) => `${idx === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(m.cumulative_verified).toFixed(1)}`)
+            .join(' ')}
+          className="line line-verified projected"
+        />
+        {breakEvenIdx >= 0 && (
+          <g>
+            <line
+              x1={x(breakEvenIdx)} x2={x(breakEvenIdx)}
+              y1={PAD.t} y2={H - PAD.b} className="chart-breakeven"
+            />
+            <text x={x(breakEvenIdx) + 4} y={PAD.t + 10} className="chart-tick">
+              break-even
+            </text>
+          </g>
+        )}
+        {months.map((m, i) =>
+          i % Math.ceil(months.length / 8) === 0 ? (
+            <text key={m.month} x={x(i)} y={H - 8} className="chart-tick" textAnchor="middle">
+              {m.month.slice(2)}
+            </text>
+          ) : null,
+        )}
+      </svg>
+      <div className="chart-legend muted small">
+        <span><i className="swatch sw-verified" /> verified value</span>
+        <span><i className="swatch sw-claimed" /> claimed value</span>
+        <span><i className="swatch sw-cost" /> invested cost</span>
+      </div>
+    </div>
+  )
+}
 
 interface Props {
   data: DashboardData | null
@@ -118,6 +196,46 @@ export default function Dashboard({ data, onNavigate }: Props) {
       </div>
 
       <Funnel data={data} />
+
+      {data.timeline.summary && (
+        <>
+          <div className="metrics-row headline-row">
+            <div className="metric headline">
+              <span className="muted small">Total invested</span>
+              <strong>{money(data.timeline.summary.total_invested)}</strong>
+            </div>
+            <div className="metric headline verified">
+              <span className="muted small">Verified value to date</span>
+              <strong>{money(data.timeline.summary.verified_value_to_date)}</strong>
+            </div>
+            <div className="metric headline">
+              <span className="muted small">Portfolio ROI (verified)</span>
+              <strong
+                className={
+                  (data.timeline.summary.portfolio_roi_pct ?? 0) >= 0 ? 'pos' : 'neg'
+                }
+              >
+                {data.timeline.summary.portfolio_roi_pct != null
+                  ? `${data.timeline.summary.portfolio_roi_pct}%`
+                  : '—'}
+              </strong>
+            </div>
+            <div className="metric headline">
+              <span className="muted small">Break-even</span>
+              <strong>
+                {data.timeline.summary.break_even_month ?? '—'}
+                {data.timeline.summary.break_even_projected && (
+                  <span className="muted small"> (proj.)</span>
+                )}
+              </strong>
+            </div>
+          </div>
+          <ValueOverTime
+            months={data.timeline.months}
+            breakEven={data.timeline.summary.break_even_month}
+          />
+        </>
+      )}
 
       <div className="dash-grid">
         <div className="card">

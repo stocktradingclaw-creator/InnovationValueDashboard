@@ -54,6 +54,19 @@ formula to apply after implementation.
       source can verify (`unmeasurable_claims`)
   - Tracking reports **verified** (measured from data) and **claimed**
     (self-reported) value as separate numbers — never blended
+  - **Value against time**: monthly portfolio series built from recorded
+    events — implementation cost lands at go-live, claimed savings at their
+    entry dates, verified value accrues from the month each binding
+    observation lands (no retroactive credit). Computes portfolio ROI over
+    time and a projected break-even month at the current verified run-rate
+    (`app/timeline.py`, included in `GET /api/dashboard`)
+  - **Portfolio value diagnostic**: ingest an existing initiative portfolio
+    (PMO export, 5th source type `portfolio`) and diagnose value leaks —
+    unverified benefit claims, realization shortfalls, weak ROI, budget
+    overruns, stalled delivery, parked spend, concentration risk, soft-benefit
+    reliance, overlapping scope. Produces a health score, portfolio stats,
+    and severity-ranked findings with value impact
+    (`app/portfolio.py`, `GET /api/portfolio/diagnostic`)
 - `src/` — React + TypeScript frontend (Vite)
   - **Overview** — executive dashboard: value funnel (identified →
     risk-adjusted → committed → verified), portfolio mix, top opportunities,
