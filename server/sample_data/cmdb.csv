@@ -1,0 +1,19 @@
+ci_name,ci_type,status,environment,annual_cost,cpu_utilization_pct,eol_date,application_category
+srv-fin-01,Server,Active,prod,18500,42,2028-03-01,
+srv-fin-02,Server,Active,prod,18500,3,2028-03-01,
+srv-hr-01,Server,Active,prod,14200,2,2027-11-15,
+srv-legacy-01,Server,Active,prod,22000,18,2024-06-30,
+srv-legacy-02,Server,Active,prod,26500,35,2023-12-31,
+srv-dw-01,Server,Active,prod,31000,55,2029-01-01,
+srv-dev-01,Server,Active,dev,15500,12,2028-05-01,
+srv-test-01,Server,Active,test,12800,8,2028-05-01,
+srv-qa-01,Server,Active,qa,16900,4,2028-05-01,
+srv-old-01,Server,Retired,prod,0,,2022-01-01,
+app-crm-sales,Application,Active,prod,48000,,2030-01-01,crm
+app-crm-legacy,Application,Active,prod,21000,,2025-01-01,crm
+app-crm-regional,Application,Active,prod,17500,,2029-06-01,crm
+app-itsm-main,Application,Active,prod,38000,,2030-01-01,service management
+app-bi-tableau,Application,Active,prod,29000,,2030-01-01,business intelligence
+app-bi-powerbi,Application,Active,prod,24000,,2030-01-01,business intelligence
+app-bi-qlik,Application,Active,prod,19000,,2030-01-01,business intelligence
+app-bi-cognos,Application,Active,prod,15000,,2024-09-30,business intelligence

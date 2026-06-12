@@ -1,0 +1,50 @@
+ticket_id,ticket_type,category,opened_at,resolution_minutes,ci_name
+TKT-0001,Request,password reset,2026-02-05,20,
+TKT-0002,Request,password reset,2026-03-02,10,
+TKT-0003,Request,password reset,2026-03-04,19,
+TKT-0004,Request,password reset,2026-03-02,24,
+TKT-0005,Request,password reset,2026-01-02,10,
+TKT-0006,Request,password reset,2026-02-14,10,
+TKT-0007,Request,password reset,2026-01-03,25,
+TKT-0008,Request,password reset,2026-02-02,34,
+TKT-0009,Request,password reset,2026-03-04,15,
+TKT-0010,Request,password reset,2026-03-21,26,
+TKT-0011,Request,password reset,2026-01-19,26,
+TKT-0012,Request,password reset,2026-02-02,15,
+TKT-0013,Request,password reset,2026-01-18,35,
+TKT-0014,Request,password reset,2026-01-10,21,
+TKT-0015,Request,password reset,2026-01-18,11,
+TKT-0016,Request,password reset,2026-03-10,25,
+TKT-0017,Request,access provisioning,2026-03-06,26,
+TKT-0018,Request,access provisioning,2026-03-19,32,
+TKT-0019,Request,access provisioning,2026-02-04,55,
+TKT-0020,Request,access provisioning,2026-03-03,23,
+TKT-0021,Request,access provisioning,2026-03-07,51,
+TKT-0022,Request,access provisioning,2026-03-18,47,
+TKT-0023,Request,access provisioning,2026-02-15,49,
+TKT-0024,Request,access provisioning,2026-02-10,35,
+TKT-0025,Request,access provisioning,2026-01-23,35,
+TKT-0026,Request,access provisioning,2026-01-19,39,
+TKT-0027,Request,access provisioning,2026-03-16,41,
+TKT-0028,Request,access provisioning,2026-03-15,38,
+TKT-0029,Request,hardware request,2026-03-03,420,
+TKT-0030,Request,hardware request,2026-03-14,468,
+TKT-0031,Request,hardware request,2026-02-05,800,
+TKT-0032,Request,hardware request,2026-02-02,379,
+TKT-0033,Request,hardware request,2026-03-19,621,
+TKT-0034,Incident,outage,2026-02-23,239,srv-legacy-01
+TKT-0035,Incident,outage,2026-03-16,356,srv-legacy-01
+TKT-0036,Incident,outage,2026-02-03,107,srv-legacy-01
+TKT-0037,Incident,outage,2026-02-16,400,srv-legacy-01
+TKT-0038,Incident,outage,2026-01-02,218,srv-legacy-01
+TKT-0039,Incident,outage,2026-03-19,288,srv-legacy-01
+TKT-0040,Incident,outage,2026-02-23,257,srv-legacy-01
+TKT-0041,Incident,degraded performance,2026-03-12,56,app-crm-legacy
+TKT-0042,Incident,degraded performance,2026-02-12,131,app-crm-legacy
+TKT-0043,Incident,degraded performance,2026-03-04,297,app-crm-legacy
+TKT-0044,Incident,degraded performance,2026-01-07,192,app-crm-legacy
+TKT-0045,Incident,degraded performance,2026-01-24,171,app-crm-legacy
+TKT-0046,Incident,degraded performance,2026-02-13,299,app-crm-legacy
+TKT-0047,Incident,error,2026-01-06,87,srv-dw-01
+TKT-0048,Incident,error,2026-02-18,65,app-itsm-main
+TKT-0049,Incident,error,2026-01-27,85,srv-fin-01

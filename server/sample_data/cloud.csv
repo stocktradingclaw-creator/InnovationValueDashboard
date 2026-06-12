@@ -1,0 +1,16 @@
+resource_id,service,instance_type,region,monthly_cost,avg_cpu_pct,state
+i-0a1b2c3d01,EC2,m5.2xlarge,us-east-1,560.00,3,running
+i-0a1b2c3d02,EC2,m5.xlarge,us-east-1,280.00,2,running
+i-0a1b2c3d03,EC2,c5.4xlarge,us-east-1,1120.00,12,running
+i-0a1b2c3d04,EC2,r5.2xlarge,us-west-2,680.00,15,running
+i-0a1b2c3d05,EC2,m5.large,us-east-1,140.00,64,running
+i-0a1b2c3d06,EC2,m5.4xlarge,eu-west-1,1150.00,48,running
+i-0a1b2c3d07,EC2,t3.2xlarge,us-east-1,240.00,8,running
+i-0a1b2c3d08,EC2,m5.2xlarge,us-east-1,95.00,,stopped
+i-0a1b2c3d09,EC2,r5.4xlarge,us-west-2,180.00,,stopped
+vol-9f8e7d01,EBS,gp3-500GB,us-east-1,42.00,,unattached
+vol-9f8e7d02,EBS,gp3-1TB,us-east-1,84.00,,unattached
+vol-9f8e7d03,EBS,io2-2TB,us-west-2,310.00,,unattached
+eip-5c4b3a01,ElasticIP,,us-east-1,3.65,,unattached
+db-2e3f4a01,RDS,db.r5.xlarge,us-east-1,720.00,38,running
+db-2e3f4a02,RDS,db.r5.2xlarge,us-east-1,1440.00,4,running

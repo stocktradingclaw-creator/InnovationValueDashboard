@@ -1,0 +1,19 @@
+invoice_id,vendor,category,amount,invoice_date,payment_terms_days,po_number
+INV-1001,Acme Networks,network hardware,45200.00,2026-01-12,30,PO-7781
+INV-1002,Acme Networks,network hardware,45200.00,2026-01-19,30,PO-7781
+INV-1003,Globex Telecom,telecom,12750.00,2026-01-15,45,PO-7790
+INV-1004,Initech Consulting,consulting,38000.00,2026-01-20,30,
+INV-1005,Initech Consulting,consulting,22500.00,2026-02-03,30,PO-7802
+INV-1006,Hooli Cloud,software,9800.00,2026-02-05,30,PO-7805
+INV-1007,Vandelay Software,software,15600.00,2026-02-08,30,PO-7811
+INV-1008,Stark Solutions,software,8400.00,2026-02-10,30,
+INV-1009,Wayne Apps,software,11200.00,2026-02-12,30,PO-7814
+INV-1010,Pied Piper Inc,software,7300.00,2026-02-14,30,PO-7816
+INV-1011,Globex Telecom,telecom,12750.00,2026-02-15,45,PO-7790
+INV-1012,Umbrella Office,facilities,5400.00,2026-02-18,15,PO-7820
+INV-1013,Umbrella Office,facilities,5400.00,2026-02-24,15,
+INV-1014,Acme Networks,network hardware,18900.00,2026-03-02,30,PO-7825
+INV-1015,Soylent Catering,facilities,3100.00,2026-03-05,15,
+INV-1016,Initech Consulting,consulting,41000.00,2026-03-10,30,PO-7830
+INV-1017,Cyberdyne Security,software,26800.00,2026-03-12,30,PO-7832
+INV-1018,Globex Telecom,telecom,13100.00,2026-03-15,45,PO-7835
