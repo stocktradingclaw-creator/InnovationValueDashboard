@@ -29,3 +29,4 @@ server/.env
 __pycache__/
 *.pyc
 server/data.db
+.vercel
