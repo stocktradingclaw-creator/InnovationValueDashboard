@@ -18,6 +18,68 @@ from .ingestion import SOURCE_TYPES, IngestionError, normalize_rows, parse_csv
 
 app = FastAPI(title="InnovationValueDashboard API")
 
+# --- authentication -------------------------------------------------------
+# The hub is open until user profiles exist (demo mode). Once any user is
+# registered, every /api call outside /api/auth requires a session token,
+# and the session identity — not a self-reported name — drives role checks.
+from contextvars import ContextVar
+
+_CURRENT_USER: ContextVar[Optional[Dict[str, str]]] = ContextVar("current_user", default=None)
+
+
+def _session_name() -> Optional[str]:
+    user = _CURRENT_USER.get()
+    return user["name"] if user else None
+
+
+@app.middleware("http")
+async def _auth_middleware(request, call_next):
+    from fastapi.responses import JSONResponse
+    path = request.url.path
+    user = None
+    token = (request.headers.get("authorization") or "")
+    if token.lower().startswith("bearer "):
+        user = db.session_user(token[7:])
+    _CURRENT_USER.set(user)
+    if (path.startswith("/api") and not path.startswith("/api/auth")
+            and user is None and db.list_users()):
+        return JSONResponse({"detail": "Sign in required"}, status_code=401)
+    return await call_next(request)
+
+
+class LoginRequest(BaseModel):
+    name: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(body: LoginRequest) -> Dict[str, Any]:
+    name = body.name.strip().lower()
+    if not name or not body.password:
+        raise HTTPException(400, "name and password are required")
+    if not db.list_users():
+        # first sign-in bootstraps the admin account
+        user = db.create_user(name, "admin", body.password)
+    else:
+        user = db.verify_login(name, body.password)
+        if user is None:
+            raise HTTPException(401, "Wrong name or password — or no password set yet; "
+                                     "ask an admin to set one in Hub Settings")
+    return {"token": db.create_session(user["name"]), "user": user}
+
+
+@app.get("/api/auth/me")
+def me() -> Dict[str, Any]:
+    return {"auth_required": bool(db.list_users()), "user": _CURRENT_USER.get()}
+
+
+@app.post("/api/auth/logout")
+def logout(authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    if authorization and authorization.lower().startswith("bearer "):
+        db.delete_session(authorization[7:])
+    return {"ok": True}
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -342,6 +404,7 @@ class IdeaRequest(BaseModel):
     beneficiary: Optional[str] = None
     pain_point: Optional[str] = None
     initiative_id: Optional[str] = None
+    initiative_ids: Optional[List[str]] = None
 
 
 def _prioritized_opps() -> List[Dict[str, Any]]:
@@ -358,9 +421,17 @@ def _ingest_idea(body: IdeaRequest, source: str,
     challenge = db.get_challenge(body.challenge_id) if body.challenge_id else None
     if body.challenge_id and challenge is None:
         raise HTTPException(400, f"Challenge '{body.challenge_id}' not found")
-    initiative = db.get_initiative(body.initiative_id) if body.initiative_id else None
-    if body.initiative_id and initiative is None:
-        raise HTTPException(400, f"Initiative '{body.initiative_id}' not found")
+    tag_ids: List[str] = []
+    for iid in ([body.initiative_id] if body.initiative_id else []) + (body.initiative_ids or []):
+        if iid and iid not in tag_ids:
+            tag_ids.append(iid)
+    initiatives = []
+    for iid in tag_ids:
+        found = db.get_initiative(iid)
+        if found is None:
+            raise HTTPException(400, f"Initiative '{iid}' not found")
+        initiatives.append(found)
+    initiative = initiatives[0] if initiatives else None
     opps = _prioritized_opps()
     assessment = hub.triage_idea(
         body.title, body.description, opps,
@@ -371,7 +442,7 @@ def _ingest_idea(body: IdeaRequest, source: str,
     )
     idea = db.create_idea(
         body.title.strip(), body.description.strip(),
-        (body.submitter or "").strip() or None, assessment,
+        (body.submitter or "").strip() or _session_name(), assessment,
         category=(body.category or "").strip() or assessment.get("derived_category"),
         estimated_annual_benefit=body.estimated_annual_benefit,
         source=source, submitted_at=submitted_at,
@@ -380,13 +451,25 @@ def _ingest_idea(body: IdeaRequest, source: str,
         challenge_id=body.challenge_id,
         beneficiary=(body.beneficiary or "").strip() or None,
         pain_point=(body.pain_point or "").strip() or None,
-        initiative_id=body.initiative_id,
+        initiative_ids=tag_ids,
     )
     db.log_automation(
         "idea_triage", assessment["recommendation"], idea["id"],
         assessment["rationale"][:200],
     )
     return idea
+
+
+class AssistRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+
+
+@app.post("/api/ideas/assist")
+def assist_description(body: AssistRequest) -> Dict[str, Any]:
+    if not body.title.strip():
+        raise HTTPException(400, "a title is required before the hub can help with the description")
+    return hub.assist_idea_description(body.title.strip(), (body.description or "").strip())
 
 
 @app.post("/api/ideas")
@@ -553,7 +636,7 @@ def _require_admin(authorization: Optional[str], actor: Optional[str] = None) ->
         if authorization != f"Bearer {expected}":
             raise HTTPException(401, "Configuration changes require the admin token")
         return
-    blocked = hub.check_role("admin", actor)
+    blocked = hub.check_role("admin", _session_name() or actor)
     if blocked:
         raise HTTPException(403, blocked)
 
@@ -698,7 +781,7 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
         if pos < 0 and decision in ("advance", "develop", "hold"):
             raise HTTPException(400, f"No forward gate from status '{idea['status']}'")
         minimum = "contributor" if decision == "feedback" else "reviewer"
-        blocked = hub.check_role(minimum, body.actor)
+        blocked = hub.check_role(minimum, _session_name() or body.actor)
         if blocked:
             raise HTTPException(403, blocked)
         area = steps[pos]["forum"] if pos >= 0 else "idea_screening"
@@ -740,7 +823,8 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
     case = db.get_business_case(body.subject_id)
     if case is None:
         raise HTTPException(404, f"Business case '{body.subject_id}' not found")
-    blocked = hub.check_role("contributor" if body.decision == "feedback" else "executive", body.actor)
+    blocked = hub.check_role("contributor" if body.decision == "feedback" else "executive",
+                             _session_name() or body.actor)
     if blocked:
         raise HTTPException(403, blocked)
     area = _governance_area_for("case", case)
@@ -817,7 +901,8 @@ def list_initiatives() -> Dict[str, Any]:
     cases = db.list_business_cases()
     rollups = []
     for initiative in db.list_initiatives():
-        tagged_ideas = [i for i in ideas if i.get("initiative_id") == initiative["id"]]
+        tagged_ideas = [i for i in ideas
+                        if initiative["id"] in (i.get("initiative_ids") or [])]
         tagged_cases = [c for c in cases if c.get("initiative_id") == initiative["id"]]
         rollups.append({
             **initiative,
@@ -1023,7 +1108,7 @@ class ReleaseRequest(BaseModel):
 
 @app.post("/api/business-cases/{case_id}/tranches/{tranche_id}/release")
 def release_tranche(case_id: str, tranche_id: int, body: ReleaseRequest) -> Dict[str, Any]:
-    blocked = hub.check_role("executive", body.actor) or hub.check_authority(
+    blocked = hub.check_role("executive", _session_name() or body.actor) or hub.check_authority(
         "business_case_approval", body.actor)
     if blocked:
         raise HTTPException(403, blocked)

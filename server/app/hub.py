@@ -429,6 +429,96 @@ def triage_idea(
 
 # ------------------------------------------------------------ AI evaluation
 
+def assist_idea_description(title: str, description: str = "") -> Dict[str, Any]:
+    """Draft a description from the title, or review a submitter's own text and
+    recommend improvements. Template mode never invents facts: it returns a
+    fill-in scaffold or suggestions only, clearly labeled."""
+    import os
+
+    mode = "improve" if description.strip() else "generate"
+
+    def _heuristic_suggestions(text: str) -> List[str]:
+        low = text.lower()
+        out = []
+        if len(text) < 80:
+            out.append("Expand the description — reviewers score short submissions lower "
+                       "because they can't judge feasibility or value.")
+        if not any(w in low for w in ("today", "currently", "manual", "problem", "pain", "slow", "error")):
+            out.append("Describe the situation today: what is broken, slow, or manual right now?")
+        if not any(w in low for w in ("customer", "team", "agent", "employee", "user", "analyst", "engineer")):
+            out.append("Name who benefits — ideas anchored to a specific beneficiary score "
+                       "higher on desirability.")
+        if not any(ch.isdigit() for ch in text) and "$" not in text and "%" not in text:
+            out.append("Add a number, even a rough one: hours per week, tickets per month, "
+                       "or an annual dollar estimate.")
+        if not any(w in low for w in ("reduce", "save", "cut", "increase", "improve",
+                                      "eliminate", "automate", "faster", "avoid")):
+            out.append("State the expected change as a measurable outcome "
+                       "(e.g. 'cut resolution time by half').")
+        return out
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        if mode == "generate":
+            draft = (
+                f"Problem today: <describe what is slow, manual, or costly that '{title}' addresses>. "
+                "Proposed change: <what would be built or changed>. "
+                "Who benefits: <the team or customer group affected>. "
+                "Expected outcome: <a measurable change, e.g. hours saved per week or $ per year>."
+            )
+            return {"mode": mode, "draft": draft, "generated_by": "template",
+                    "suggestions": ["No AI key configured — this is a fill-in scaffold, "
+                                    "not generated content. Replace each <placeholder>."]}
+        return {"mode": mode, "draft": description, "generated_by": "template",
+                "suggestions": _heuristic_suggestions(description)
+                or ["Reads well — covers the problem, beneficiary, and a measurable outcome."]}
+
+    import anthropic
+    from pydantic import BaseModel, Field
+    from typing import List as TList
+
+    class DescriptionAssist(BaseModel):
+        draft: str = Field(description="The drafted or improved description, 3-5 sentences, "
+                                       "covering problem today, proposed change, who benefits, "
+                                       "and expected measurable outcome")
+        suggestions: TList[str] = Field(description="Specific things the submitter should add, "
+                                                    "verify, or quantify; empty if none")
+
+    client = anthropic.Anthropic()
+    try:
+        if mode == "generate":
+            task = (f"Idea title: {title}\n\nDraft a submission description for this idea. "
+                    "Where a fact is unknowable from the title (numbers, team names), use an "
+                    "explicit <placeholder> the submitter must fill in — never invent specifics.")
+        else:
+            task = (f"Idea title: {title}\nSubmitter's description: {description}\n\n"
+                    "Improve this description: keep every fact the submitter stated, tighten "
+                    "the wording, and structure it as problem / change / beneficiary / outcome. "
+                    "List what is still missing or unquantified as suggestions.")
+        response = client.messages.parse(
+            model="claude-opus-4-8",
+            max_tokens=16000,
+            thinking={"type": "adaptive"},
+            system=("You help employees write clear innovation-idea submissions. Preserve "
+                    "their facts exactly; never fabricate numbers or specifics — use "
+                    "<placeholders> for anything unknown."),
+            messages=[{"role": "user", "content": task}],
+            output_format=DescriptionAssist,
+        )
+        result = response.parsed_output.model_dump()
+        return {"mode": mode, "generated_by": "claude", **result}
+    except Exception as exc:
+        base = {"mode": mode, "generated_by": "template",
+                "suggestions": [f"AI assist unavailable ({type(exc).__name__}); "
+                                "heuristic guidance shown instead."]}
+        if mode == "improve":
+            base["draft"] = description
+            base["suggestions"] += _heuristic_suggestions(description)
+        else:
+            base["draft"] = (f"Problem today: <what '{title}' addresses>. Proposed change: <what changes>. "
+                             "Who benefits: <who>. Expected outcome: <measurable change>.")
+        return base
+
+
 def ai_evaluate_idea(idea: Dict[str, Any],
                      opportunities: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Deeper AI validation of one idea: measurability check, categorization,
@@ -905,7 +995,7 @@ def gate_checklist(idea: Dict[str, Any]) -> List[Dict[str, Any]]:
         ("Named business sponsor", bool(idea.get("submitter"))),
         ("No existing solution / duplicate", not assessment.get("possible_duplicates")),
         ("Strategic alignment", (assessment.get("score_components") or {}).get("alignment", 0) > 0
-         or bool(idea.get("initiative_id")) or bool(idea.get("challenge_id"))),
+         or bool(idea.get("initiative_ids")) or bool(idea.get("challenge_id"))),
         ("Intake guardrails met", not assessment.get("guardrail_flags")),
     ]
     return [{"check": name, "passed": passed} for name, passed in checks]

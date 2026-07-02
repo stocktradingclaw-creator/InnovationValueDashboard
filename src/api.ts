@@ -1,7 +1,14 @@
 import type { BusinessCase, Opportunity, SourceStatus } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init)
+  const token = localStorage.getItem('ivd_token')
+  const headers = new Headers(init?.headers)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const res = await fetch(path, { ...init, headers })
+  if (res.status === 401 && !path.startsWith('/api/auth')) {
+    localStorage.removeItem('ivd_token')
+    window.dispatchEvent(new Event('ivd-auth-required'))
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     const detail = body?.detail
@@ -17,6 +24,25 @@ const json = (body: unknown): RequestInit => ({
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(body),
 })
+
+export interface Me { auth_required: boolean; user: { name: string; role: string } | null }
+
+export function getMe() {
+  return request<Me>('/api/auth/me')
+}
+
+export async function login(name: string, password: string) {
+  const r = await request<{ token: string; user: { name: string; role: string } }>(
+    '/api/auth/login', json({ name, password }))
+  localStorage.setItem('ivd_token', r.token)
+  localStorage.setItem('ivd_user', r.user.name)
+  return r.user
+}
+
+export async function logout() {
+  await request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }).catch(() => {})
+  localStorage.removeItem('ivd_token')
+}
 
 export function getDatasets() {
   return request<{ sources: SourceStatus[] }>('/api/datasets')
@@ -140,6 +166,17 @@ export function getPortfolioDiagnostic() {
   return request<import('./types').PortfolioReport>('/api/portfolio/diagnostic')
 }
 
+export interface AssistResult {
+  mode: 'generate' | 'improve'
+  draft: string
+  suggestions: string[]
+  generated_by: 'claude' | 'template'
+}
+
+export function assistDescription(body: { title: string; description?: string }) {
+  return request<AssistResult>('/api/ideas/assist', json(body))
+}
+
 export function submitIdea(body: {
   title: string
   description: string
@@ -152,6 +189,7 @@ export function submitIdea(body: {
   beneficiary?: string
   pain_point?: string
   initiative_id?: string
+  initiative_ids?: string[]
 }) {
   return request<import('./types').Idea>('/api/ideas', json(body))
 }
@@ -179,7 +217,7 @@ const actorQS = () => {
   return who ? `?actor=${encodeURIComponent(who)}` : ''
 }
 
-export interface UserProfile { name: string; role: string }
+export interface UserProfile { name: string; role: string; has_password?: boolean; password?: string }
 
 export function getUsers() {
   return request<{ users: UserProfile[]; roles: string[]; capabilities: Record<string, string> }>('/api/users')

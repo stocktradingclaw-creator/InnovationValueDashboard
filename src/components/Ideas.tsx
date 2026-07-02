@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useEffect } from 'react'
-import { commentOnIdea, evaluateIdea, getChallenges, getInitiatives, getNotifications, importIdeas, money, submitIdea, voteIdea } from '../api'
+import { assistDescription, commentOnIdea, evaluateIdea, getChallenges, getInitiatives, getNotifications, importIdeas, money, submitIdea, voteIdea } from '../api'
+import type { AssistResult } from '../api'
 import type { Challenge, Idea, Initiative, Notification } from '../types'
 
 interface Props {
@@ -34,16 +35,18 @@ const BENEFIT_TYPES = [
 function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challenge[]; initiatives: Initiative[]; onChanged: () => void }) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [submitter, setSubmitter] = useState('')
+  const [submitter, setSubmitter] = useState(localStorage.getItem('ivd_user') ?? '')
   const [category, setCategory] = useState('')
   const [benefit, setBenefit] = useState('')
   const [benefitType, setBenefitType] = useState('')
   const [challengeId, setChallengeId] = useState('')
-  const [initiativeId, setInitiativeId] = useState('')
+  const [initiativeIds, setInitiativeIds] = useState<string[]>([])
   const [beneficiary, setBeneficiary] = useState('')
   const [painPoint, setPainPoint] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [assisting, setAssisting] = useState(false)
+  const [assist, setAssist] = useState<AssistResult | null>(null)
   const activeChallenges = challenges.filter((c) => c.status === 'active')
 
   // prompt for the information that improves the triage score
@@ -68,12 +71,12 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
         estimated_annual_benefit: benefit ? Number(benefit) : null,
         benefit_type: benefitType || undefined,
         challenge_id: challengeId || undefined,
-        initiative_id: initiativeId || undefined,
+        initiative_ids: initiativeIds.length ? initiativeIds : undefined,
         beneficiary: beneficiary || undefined,
         pain_point: painPoint || undefined,
       })
       setTitle(''); setDescription(''); setSubmitter(''); setCategory(''); setBenefit('')
-      setBenefitType(''); setChallengeId(''); setInitiativeId(''); setBeneficiary(''); setPainPoint('')
+      setBenefitType(''); setChallengeId(''); setInitiativeIds([]); setBeneficiary(''); setPainPoint('')
       onChanged()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -92,6 +95,36 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
         value={description}
         onChange={(e) => setDescription(e.target.value)}
       />
+      <div className="row">
+        <button
+          type="button" className="secondary"
+          disabled={assisting || !title.trim()}
+          title={title.trim() ? '' : 'Give the idea a title first'}
+          onClick={async () => {
+            setAssisting(true); setAssist(null)
+            try {
+              const r = await assistDescription({ title, description: description || undefined })
+              if (r.mode === 'generate' || r.draft !== description) setDescription(r.draft)
+              setAssist(r)
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e))
+            } finally { setAssisting(false) }
+          }}
+        >
+          {assisting ? 'Thinking…'
+            : description.trim() ? '✦ Review & improve description' : '✦ Draft description with AI'}
+        </button>
+        {assist && (
+          <span className="muted small">
+            {assist.generated_by === 'claude' ? 'AI' : 'template'} {assist.mode === 'generate' ? 'draft — edit before submitting' : 'review'}
+          </span>
+        )}
+      </div>
+      {assist && assist.suggestions.length > 0 && (
+        <ul className="muted small prompt-list">
+          {assist.suggestions.map((sg) => <li key={sg}>{sg}</li>)}
+        </ul>
+      )}
       <div className="row">
         <input placeholder="Your name" value={submitter} onChange={(e) => setSubmitter(e.target.value)} />
         <input placeholder="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} />
@@ -114,14 +147,7 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
           <option value="">Benefit type (hub will default to cost reduction)</option>
           {BENEFIT_TYPES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
-        {initiatives.length > 0 && (
-          <select value={initiativeId} onChange={(e) => setInitiativeId(e.target.value)}>
-            <option value="">No strategic initiative</option>
-            {initiatives.map((i) => (
-              <option key={i.id} value={i.id}>Initiative: {i.name}</option>
-            ))}
-          </select>
-        )}
+
         {activeChallenges.length > 0 && (
           <select value={challengeId} onChange={(e) => setChallengeId(e.target.value)}>
             <option value="">Not answering a challenge</option>
@@ -134,6 +160,26 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
           {busy ? 'Triaging…' : 'Submit idea'}
         </button>
       </div>
+      {initiatives.length > 0 && (
+        <div className="objective-tags">
+          <span className="muted small">Strategic objectives (pick all that apply):</span>
+          {initiatives.map((i) => {
+            const on = initiativeIds.includes(i.id)
+            return (
+              <button
+                key={i.id} type="button"
+                className={on ? 'chip chip-active' : 'chip'}
+                aria-pressed={on}
+                onClick={() => setInitiativeIds(on
+                  ? initiativeIds.filter((x) => x !== i.id)
+                  : [...initiativeIds, i.id])}
+              >
+                {i.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
       {prompts.length > 0 && (
         <ul className="muted small prompt-list">
           {prompts.map((p) => <li key={p}>{p}</li>)}

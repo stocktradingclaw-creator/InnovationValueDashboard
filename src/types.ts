@@ -232,6 +232,7 @@ export interface Idea {
   beneficiary: string | null
   pain_point: string | null
   initiative_id: string | null
+  initiative_ids: string[]
   comments: IdeaComment[]
   voters: string[]
   vote_count: number

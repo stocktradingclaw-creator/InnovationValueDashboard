@@ -57,8 +57,8 @@ function Chain({ idea, workflow }: { idea: SubmissionIdea; workflow: WorkflowSte
   )
 }
 
-export default function MySubmissions() {
-  const [name, setName] = useState(localStorage.getItem('ivd_user') ?? '')
+export default function MySubmissions({ me }: { me: string | null }) {
+  const [name, setName] = useState(me ?? localStorage.getItem('ivd_user') ?? '')
   const [data, setData] = useState<Payload | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -74,7 +74,9 @@ export default function MySubmissions() {
       setBusy(false)
     }
   }
-  useEffect(() => { if (name) load(name) }, [])
+  useEffect(() => {
+    if (me) { setName(me); load(me) } else if (name) load(name)
+  }, [me])
 
   const attention = data?.ideas.filter((i) => i.needs_attention) ?? []
   const rest = data?.ideas.filter((i) => !i.needs_attention) ?? []
@@ -89,13 +91,17 @@ export default function MySubmissions() {
             needs your attention.
           </p>
         </div>
-        <div className="row">
-          <input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)}
-                 onKeyDown={(e) => e.key === 'Enter' && load(name)} style={{ maxWidth: 200 }} />
-          <button disabled={busy || !name.trim()} onClick={() => load(name)}>
-            {busy ? 'Loading…' : 'Show mine'}
-          </button>
-        </div>
+        {me ? (
+          <span className="badge">signed in as <strong>{me}</strong></span>
+        ) : (
+          <div className="row">
+            <input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)}
+                   onKeyDown={(e) => e.key === 'Enter' && load(name)} style={{ maxWidth: 200 }} />
+            <button disabled={busy || !name.trim()} onClick={() => load(name)}>
+              {busy ? 'Loading…' : 'Show mine'}
+            </button>
+          </div>
+        )}
       </div>
 
       {data && data.ideas.length === 0 && (

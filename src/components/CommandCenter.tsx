@@ -46,7 +46,14 @@ function DecisionButtons({
       setComment('')
       onDone()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg.includes('not found')) {
+        setError('This item no longer exists on the server (the demo data was reset or '
+          + 'reverted since this queue loaded) — refreshing the queue.')
+        setTimeout(onDone, 1200)
+      } else {
+        setError(msg)
+      }
     } finally {
       setBusy(null)
     }
@@ -151,7 +158,14 @@ function GateActions({
                 setComment('')
                 onDone()
               } catch (e) {
-                setError(e instanceof Error ? e.message : String(e))
+                const msg = e instanceof Error ? e.message : String(e)
+                if (msg.includes('not found')) {
+                  setError('This idea no longer exists on the server (the demo data was '
+                    + 'reset or reverted since this queue loaded) — refreshing the queue.')
+                  setTimeout(onDone, 1200)
+                } else {
+                  setError(msg)
+                }
               } finally {
                 setBusy(null)
               }

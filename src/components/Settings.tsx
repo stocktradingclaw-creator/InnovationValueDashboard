@@ -199,8 +199,10 @@ function UserProfiles() {
     <div className="card">
       <h3>User profiles &amp; access levels</h3>
       <p className="muted small">
-        The hub is open until profiles exist. Once any are added, every decision requires a
-        registered profile with sufficient access — and Hub Settings itself becomes admin-only.
+        The hub is open until profiles exist. Once any are added, signing in is required,
+        every decision is checked against the signed-in user's access level, and Hub
+        Settings itself becomes admin-only. Users without a password cannot sign in
+        until one is set here.
       </p>
       <ul className="muted small">
         {Object.entries(caps).map(([r, c]) => (
@@ -213,6 +215,10 @@ function UserProfiles() {
           <select value={u.role} onChange={(e) => edit(i, { role: e.target.value })}>
             {roles.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
+          <input type="password" autoComplete="new-password"
+                 placeholder={u.has_password ? 'password set — type to replace' : 'set password'}
+                 value={u.password ?? ''}
+                 onChange={(e) => edit(i, { password: e.target.value })} />
           <button className="secondary" onClick={() => setUsers(users.filter((_, j) => j !== i))}>Remove</button>
         </div>
       ))}
@@ -412,6 +418,56 @@ function DemoStudio({ onDone }: { onDone: () => void }) {
   )
 }
 
+const DELIVERY_PHASES: [string, string][] = [
+  ['AI business case', 'Hub drafts the ROI plan with frozen metric baselines'],
+  ['Executive review', 'Value, opportunity cost, and ROI on the table'],
+  ['Funding gate', 'A released tranche is required to mobilize'],
+  ['Delivery', 'Build and implement'],
+  ['Live', 'Go-live starts the measurement clock'],
+  ['Value verified', 'Re-observed against the frozen baseline'],
+  ['Scale', 'Proven patterns replicated across the estate'],
+]
+
+function LifecycleMap() {
+  const [steps, setSteps] = useState<WorkflowStep[]>([])
+  useEffect(() => { getWorkflow().then((r) => setSteps(r.steps)).catch(() => {}) }, [])
+  return (
+    <div className="card">
+      <h3>The end-to-end innovation lifecycle</h3>
+      <p className="muted small">
+        Every idea travels this path. The ideation gates below are yours to shape in the
+        workflow editor; the business-case, funding, and value phases are fixed so verified
+        ROI always means the same thing.
+      </p>
+      <div className="lc-map">
+        <div className="lc-phase">
+          <span className="lc-phase-label">Ideation — configurable</span>
+          <div className="lc-nodes">
+            {steps.map((st, i) => (
+              <span key={st.key} className="lc-node lc-idea" title={st.purpose}>
+                <strong>{i + 1}. {st.label}</strong>
+                <span className="muted small">{st.gate}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+        <span className="lc-arrow" aria-hidden="true">➜</span>
+        <div className="lc-phase">
+          <span className="lc-phase-label">Business case, funding &amp; value — fixed</span>
+          <div className="lc-nodes">
+            {DELIVERY_PHASES.map(([label, hint], i) => (
+              <span key={label} className={`lc-node ${i < 3 ? 'lc-case' : 'lc-value'}`} title={hint}>
+                <strong>{label}</strong>
+                <span className="muted small">{hint}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Settings({ onChanged }: { onChanged: () => void }) {
   return (
     <section>
@@ -420,6 +476,7 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
         Configure how the hub runs: the workflow itself, who decides what, what "good" scores as,
         the strategy it aligns to, and the demo studio.
       </p>
+      <LifecycleMap />
       <WorkflowEditor />
       <div className="dash-grid">
         <ScoringSettings />

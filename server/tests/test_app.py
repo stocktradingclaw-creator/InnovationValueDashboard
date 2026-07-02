@@ -1403,40 +1403,146 @@ def test_user_profiles_gate_access(client):
 
     # open until profiles exist
     resp = client.put("/api/users", json={"users": [
-        {"name": "Cara", "role": "contributor"},
-        {"name": "Rio", "role": "reviewer"},
-        {"name": "Eve", "role": "executive"},
-        {"name": "Ada", "role": "admin"},
+        {"name": "Cara", "role": "contributor", "password": "pw"},
+        {"name": "Rio", "role": "reviewer", "password": "pw"},
+        {"name": "Eve", "role": "executive", "password": "pw"},
+        {"name": "Ada", "role": "admin", "password": "pw"},
     ]})
     assert resp.status_code == 200
 
+    def _as(who):
+        tok = client.post("/api/auth/login", json={"name": who, "password": "pw"}).json()["token"]
+        return {"Authorization": f"Bearer {tok}"}
+
+    # once users exist, unauthenticated decisions are refused outright
+    assert client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "qualify",
+    }).status_code == 401
+
     # contributor cannot make gate decisions; reviewer can
-    assert client.post("/api/command/decide", json={
-        "subject_type": "idea", "subject_id": idea["id"], "decision": "qualify", "actor": "cara",
+    assert client.post("/api/command/decide", headers=_as("cara"), json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "qualify",
     }).status_code == 403
-    assert client.post("/api/command/decide", json={
-        "subject_type": "idea", "subject_id": idea["id"], "decision": "qualify", "actor": "rio",
+    assert client.post("/api/command/decide", headers=_as("rio"), json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "qualify",
     }).status_code == 200
-    # unknown actors are refused entirely
-    assert client.post("/api/command/decide", json={
-        "subject_type": "idea", "subject_id": idea["id"], "decision": "prioritize", "actor": "ghost",
-    }).status_code == 403
 
     # reviewer cannot approve cases; executive can
-    client.post("/api/command/decide", json={
-        "subject_type": "idea", "subject_id": idea["id"], "decision": "prioritize", "actor": "rio"})
-    case = client.post("/api/command/decide", json={
-        "subject_type": "idea", "subject_id": idea["id"], "decision": "develop", "actor": "rio",
+    rio = _as("rio")
+    client.post("/api/command/decide", headers=rio, json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "prioritize"})
+    case = client.post("/api/command/decide", headers=rio, json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "develop",
     }).json()["result"]["case"]
-    assert client.post("/api/command/decide", json={
-        "subject_type": "case", "subject_id": case["id"], "decision": "approve", "actor": "rio",
+    assert client.post("/api/command/decide", headers=rio, json={
+        "subject_type": "case", "subject_id": case["id"], "decision": "approve",
     }).status_code == 403
-    assert client.post("/api/command/decide", json={
-        "subject_type": "case", "subject_id": case["id"], "decision": "approve", "actor": "eve",
+    assert client.post("/api/command/decide", headers=_as("eve"), json={
+        "subject_type": "case", "subject_id": case["id"], "decision": "approve",
     }).status_code == 200
 
     # settings require admin once profiles exist
     assert client.put("/api/scoring-config", json={"priority_themes": ["x"]},
-                      params={"actor": "eve"}).status_code == 403
+                      headers=_as("eve")).status_code == 403
     assert client.put("/api/scoring-config", json={"priority_themes": ["x"]},
-                      params={"actor": "ada"}).status_code == 200
+                      headers=_as("ada")).status_code == 200
+
+
+def test_idea_tags_multiple_objectives(client):
+    a = client.post("/api/initiatives", json={"name": "Cut run costs", "objective": "Reduce opex"}).json()
+    b = client.post("/api/initiatives", json={"name": "Customer love", "objective": "Raise NPS"}).json()
+    idea = client.post("/api/ideas", json={
+        "title": "Self-service billing portal",
+        "description": "Customers resolve billing questions themselves, cutting ticket volume.",
+        "initiative_ids": [a["id"], b["id"]],
+    }).json()
+    assert idea["initiative_ids"] == [a["id"], b["id"]]
+    assert idea["initiative_id"] == a["id"]  # legacy field = first tag
+
+    rollups = {r["id"]: r for r in client.get("/api/initiatives").json()["initiatives"]}
+    assert rollups[a["id"]]["ideas_count"] == 1
+    assert rollups[b["id"]]["ideas_count"] == 1
+
+    # unknown objective refused; legacy single-tag field still accepted
+    assert client.post("/api/ideas", json={
+        "title": "x", "description": "y", "initiative_ids": ["SI-nope"],
+    }).status_code == 400
+    legacy = client.post("/api/ideas", json={
+        "title": "Warehouse slotting optimizer",
+        "description": "Re-slot by velocity to cut picker travel time.",
+        "initiative_id": b["id"],
+    }).json()
+    assert legacy["initiative_ids"] == [b["id"]]
+
+
+def test_description_assist(client):
+    # generate mode: scaffold from title, clearly labeled, nothing invented
+    r = client.post("/api/ideas/assist", json={"title": "Automate invoice matching"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["mode"] == "generate"
+    assert body["generated_by"] == "template"
+    assert "<" in body["draft"]  # placeholders, not fabricated facts
+
+    # improve mode: heuristic suggestions for a thin description
+    r = client.post("/api/ideas/assist", json={
+        "title": "Automate invoice matching", "description": "It would be good."})
+    body = r.json()
+    assert body["mode"] == "improve"
+    assert body["draft"] == "It would be good."  # template mode never rewrites
+    assert len(body["suggestions"]) >= 2
+
+    assert client.post("/api/ideas/assist", json={"title": "  "}).status_code == 400
+
+
+def test_login_sessions_and_identity(client):
+    # open mode: no auth required
+    r = client.get("/api/auth/me")
+    assert r.json() == {"auth_required": False, "user": None}
+
+    # first sign-in bootstraps the admin
+    r = client.post("/api/auth/login", json={"name": "Ryan", "password": "hunter2"})
+    assert r.status_code == 200
+    token = r.json()["token"]
+    assert r.json()["user"] == {"name": "ryan", "role": "admin"}
+    auth = {"Authorization": f"Bearer {token}"}
+
+    # once users exist, unauthenticated API calls are refused
+    assert client.get("/api/ideas").status_code == 401
+    assert client.get("/api/ideas", headers=auth).status_code == 200
+
+    # wrong password refused; admin adds a contributor with a password
+    assert client.post("/api/auth/login", json={"name": "ryan", "password": "nope"}).status_code == 401
+    r = client.put("/api/users", headers=auth, json={"users": [
+        {"name": "ryan", "role": "admin"},
+        {"name": "cara", "role": "contributor", "password": "carapass"},
+    ]})
+    assert r.status_code == 200
+    assert all(u["has_password"] for u in r.json()["users"])
+    # saving again without passwords keeps existing hashes
+    client.put("/api/users", headers=auth, json={"users": [
+        {"name": "ryan", "role": "admin"},
+        {"name": "cara", "role": "contributor"},
+    ]})
+    cara_tok = client.post("/api/auth/login",
+                           json={"name": "Cara", "password": "carapass"}).json()["token"]
+    cara = {"Authorization": f"Bearer {cara_tok}"}
+
+    # session identity drives privileges: contributor can't decide even if the
+    # request claims otherwise
+    idea = client.post("/api/ideas", headers=cara, json={
+        "title": "Chat deflection bot", "description": "Deflect common IT questions to self-serve.",
+    }).json()
+    r = client.post("/api/command/decide", headers=cara, json={
+        "subject_type": "idea", "subject_id": idea["id"],
+        "decision": "qualify", "actor": "ryan",
+    })
+    assert r.status_code == 403
+
+    # my-submissions reflects the signed-in submitter
+    mine = client.get("/api/my-submissions", params={"submitter": "cara"}, headers=cara).json()
+    assert [i["id"] for i in mine["ideas"]] == [idea["id"]]
+
+    # logout invalidates the session
+    client.post("/api/auth/logout", headers=cara)
+    assert client.get("/api/ideas", headers=cara).status_code == 401

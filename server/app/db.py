@@ -104,8 +104,14 @@ CREATE TABLE IF NOT EXISTS stage_history (
     entered_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS users (
-    name       TEXT PRIMARY KEY,
-    role       TEXT NOT NULL,
+    name          TEXT PRIMARY KEY,
+    role          TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    password_hash TEXT
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token      TEXT PRIMARY KEY,
+    user_name  TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS meta (
@@ -210,6 +216,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE ideas ADD COLUMN pain_point TEXT")
     if idea_cols and "initiative_id" not in idea_cols:
         conn.execute("ALTER TABLE ideas ADD COLUMN initiative_id TEXT")
+        idea_cols.add("initiative_id")
+    if idea_cols and "initiative_ids" not in idea_cols:
+        conn.execute("ALTER TABLE ideas ADD COLUMN initiative_ids TEXT")
+        conn.execute(
+            "UPDATE ideas SET initiative_ids = '[\"' || initiative_id || '\"]' "
+            "WHERE initiative_id IS NOT NULL")
+    user_cols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+    if user_cols and "password_hash" not in user_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
     si_cols = {r[1] for r in conn.execute("PRAGMA table_info(strategic_initiatives)")}
     if si_cols and "rank" not in si_cols:
         conn.execute("ALTER TABLE strategic_initiatives ADD COLUMN rank INTEGER NOT NULL DEFAULT 0")
@@ -522,19 +537,21 @@ def create_idea(
     challenge_id: Optional[str] = None,
     beneficiary: Optional[str] = None,
     pain_point: Optional[str] = None,
-    initiative_id: Optional[str] = None,
+    initiative_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     idea_id = f"IDEA-{uuid.uuid4().hex[:8]}"
+    ids = initiative_ids or []
     with _conn() as conn:
         conn.execute(
             "INSERT INTO ideas (id, title, description, submitter, submitted_at, status, "
             "assessment_json, category, estimated_annual_benefit, source, benefit_type, "
-            "horizon, challenge_id, beneficiary, pain_point, initiative_id) "
-            "VALUES (?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "horizon, challenge_id, beneficiary, pain_point, initiative_id, initiative_ids) "
+            "VALUES (?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (idea_id, title, description, submitter, submitted_at or _now(),
              json.dumps(assessment) if assessment else None,
              category, estimated_annual_benefit, source, benefit_type, horizon, challenge_id,
-             beneficiary, pain_point, initiative_id),
+             beneficiary, pain_point, ids[0] if ids else None,
+             json.dumps(ids) if ids else None),
         )
     return get_idea(idea_id)  # type: ignore[return-value]
 
@@ -574,6 +591,8 @@ def _idea_from_row(row: sqlite3.Row) -> Dict[str, Any]:
         "beneficiary": row["beneficiary"],
         "pain_point": row["pain_point"],
         "initiative_id": row["initiative_id"],
+        "initiative_ids": (json.loads(row["initiative_ids"]) if row["initiative_ids"]
+                           else ([row["initiative_id"]] if row["initiative_id"] else [])),
         **_idea_social(row["id"]),
     }
 
@@ -1014,21 +1033,88 @@ def events_for(subject_type: str, subject_id: str) -> List[Dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def _hash_password(password: str, salt: Optional[str] = None) -> str:
+    import hashlib
+    import os as _os
+    salt = salt or _os.urandom(16).hex()
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), 200_000)
+    return f"{salt}${digest.hex()}"
+
+
 def replace_users(users: List[Dict[str, str]]) -> List[Dict[str, str]]:
     with _conn() as conn:
+        old = {r["name"]: r["password_hash"]
+               for r in conn.execute("SELECT name, password_hash FROM users")}
         conn.execute("DELETE FROM users")
         for u in users:
+            name = u["name"].strip().lower()
+            pw = (u.get("password") or "").strip()
             conn.execute(
-                "INSERT INTO users (name, role, created_at) VALUES (?, ?, ?)",
-                (u["name"].strip().lower(), u["role"], _now()),
+                "INSERT INTO users (name, role, created_at, password_hash) VALUES (?, ?, ?, ?)",
+                (name, u["role"], _now(),
+                 _hash_password(pw) if pw else old.get(name)),
             )
+        conn.execute(
+            "DELETE FROM sessions WHERE user_name NOT IN (SELECT name FROM users)")
     return list_users()
+
+
+def create_user(name: str, role: str, password: str) -> Dict[str, str]:
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO users (name, role, created_at, password_hash) VALUES (?, ?, ?, ?)",
+            (name.strip().lower(), role, _now(), _hash_password(password)),
+        )
+    return {"name": name.strip().lower(), "role": role}
+
+
+def verify_login(name: str, password: str) -> Optional[Dict[str, str]]:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT name, role, password_hash FROM users WHERE name = ?",
+            ((name or "").strip().lower(),),
+        ).fetchone()
+    if row is None or not row["password_hash"]:
+        return None
+    salt = row["password_hash"].split("$", 1)[0]
+    if _hash_password(password, salt) != row["password_hash"]:
+        return None
+    return {"name": row["name"], "role": row["role"]}
+
+
+def create_session(user_name: str) -> str:
+    token = uuid.uuid4().hex + uuid.uuid4().hex
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO sessions (token, user_name, created_at) VALUES (?, ?, ?)",
+            (token, user_name, _now()),
+        )
+    return token
+
+
+def session_user(token: str) -> Optional[Dict[str, str]]:
+    if not token:
+        return None
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT u.name, u.role FROM sessions s JOIN users u ON u.name = s.user_name "
+            "WHERE s.token = ?", (token,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def delete_session(token: str) -> None:
+    with _conn() as conn:
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
 
 
 def list_users() -> List[Dict[str, str]]:
     with _conn() as conn:
-        rows = conn.execute("SELECT name, role FROM users ORDER BY name").fetchall()
-    return [dict(r) for r in rows]
+        rows = conn.execute(
+            "SELECT name, role, password_hash IS NOT NULL AS has_password "
+            "FROM users ORDER BY name").fetchall()
+    return [{"name": r["name"], "role": r["role"], "has_password": bool(r["has_password"])}
+            for r in rows]
 
 
 def get_role(name: str) -> Optional[str]:
