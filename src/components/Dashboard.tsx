@@ -126,6 +126,43 @@ function ValueOverTime({ months, breakEven }: { months: TimelineMonth[]; breakEv
   )
 }
 
+function ValueFlow({ f }: { f: DashboardData['funnel'] }) {
+  const W = 640, H = 190, NW = 14, PAD = 26
+  const total = Math.max(f.identified_annual_savings, 1)
+  const h = (v: number) => Math.max((v / total) * (H - PAD * 2), v > 0 ? 3 : 0)
+  const idH = h(f.identified_annual_savings)
+  const comH = Math.min(h(f.committed_annual_savings), idH)
+  const verH = Math.min(h(f.measured_annual_savings), Math.max(comH, 3))
+  const y0 = (H - idH) / 2
+  const x1 = 8, x2 = W / 2 - NW / 2, x3 = W - NW - 8
+  const ribbon = (xa: number, ya: number, ha: number, xb: number, yb: number, hb: number) => {
+    const c = (xa + xb) / 2
+    return `M${xa},${ya} C${c},${ya} ${c},${yb} ${xb},${yb} L${xb},${yb + hb} C${c},${yb + hb} ${c},${ya + ha} ${xa},${ya + ha} Z`
+  }
+  return (
+    <div className="value-flow">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Value flowing from identified to committed to verified">
+        {idH > comH && (
+          <path d={ribbon(x1 + NW, y0 + comH, idH - comH, x2, y0 + comH, Math.max((idH - comH) * 0.2, 2))} className="flow-faded" />
+        )}
+        <path d={ribbon(x1 + NW, y0, idH, x2, y0, Math.max(comH, 2))} className="flow-committed" />
+        {comH > verH && (
+          <path d={ribbon(x2 + NW, y0 + verH, comH - verH, x3, y0 + verH, Math.max((comH - verH) * 0.25, 2))} className="flow-pending" />
+        )}
+        <path d={ribbon(x2 + NW, y0, Math.max(comH, 2), x3, y0, Math.max(verH, 2))} className="flow-verified" />
+        <rect x={x1} y={y0} width={NW} height={idH} className="node-identified" rx={4} />
+        <rect x={x2} y={y0} width={NW} height={Math.max(comH, 3)} className="node-committed" rx={4} />
+        <rect x={x3} y={y0} width={NW} height={Math.max(verH, 3)} className="node-verified" rx={4} />
+      </svg>
+      <div className="flow-labels">
+        <span><strong>{money(f.identified_annual_savings)}</strong><em>identified from data</em></span>
+        <span><strong>{money(f.committed_annual_savings)}</strong><em>committed to cases</em></span>
+        <span className="flow-verified-label"><strong>{money(f.measured_annual_savings)}</strong><em>verified from evidence</em></span>
+      </div>
+    </div>
+  )
+}
+
 function InitiativeRollup() {
   const [initiatives, setInitiatives] = useState<Initiative[]>([])
   useEffect(() => {
@@ -244,7 +281,6 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
   const f = data.funnel
   const returnMultiple =
     ts && ts.total_invested > 0 ? ts.verified_value_to_date / ts.total_invested : null
-  const maxFunnel = Math.max(f.identified_annual_savings, 1)
 
   return (
     <section className="exec">
@@ -305,9 +341,19 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
         {data.portfolio_health != null && (
           <div className="hero-stat">
             <span className="hero-label">Portfolio health</span>
-            <strong className={data.portfolio_health >= 70 ? 'pos' : data.portfolio_health >= 40 ? 'warn' : 'neg'}>
-              {data.portfolio_health}<em>/100</em>
-            </strong>
+            <span className="gauge-wrap">
+              <svg viewBox="0 0 42 42" className="gauge" aria-hidden="true">
+                <circle className="gauge-bg" cx="21" cy="21" r="16" pathLength={100} />
+                <circle
+                  className={`gauge-fg ${data.portfolio_health >= 70 ? 'g-good' : data.portfolio_health >= 40 ? 'g-warn' : 'g-bad'}`}
+                  cx="21" cy="21" r="16" pathLength={100}
+                  strokeDasharray={`${data.portfolio_health} 100`}
+                />
+              </svg>
+              <strong className={data.portfolio_health >= 70 ? 'pos' : data.portfolio_health >= 40 ? 'warn' : 'neg'}>
+                {data.portfolio_health}<em>/100</em>
+              </strong>
+            </span>
             <span className="muted small">existing initiative portfolio</span>
           </div>
         )}
@@ -377,23 +423,7 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
             How identified opportunity converts to verified value — each stage is a harder
             standard of proof.
           </p>
-          {[
-            { label: 'Identified', value: f.identified_annual_savings, cls: 'stage-identified' },
-            { label: 'Risk-adjusted', value: f.risk_adjusted_annual_savings, cls: 'stage-adjusted' },
-            { label: 'Committed', value: f.committed_annual_savings, cls: 'stage-committed' },
-            { label: 'Verified', value: f.measured_annual_savings, cls: 'stage-verified' },
-          ].map((s) => (
-            <div key={s.label} className="funnel-row">
-              <span className="funnel-label">{s.label}</span>
-              <div className="funnel-track">
-                <div
-                  className={`funnel-bar ${s.cls}`}
-                  style={{ width: `${Math.max((s.value / maxFunnel) * 100, s.value > 0 ? 2 : 0)}%` }}
-                />
-              </div>
-              <span className="funnel-value">{money(s.value)}</span>
-            </div>
-          ))}
+          <ValueFlow f={f} />
           <p className="muted small">
             {f.identified_annual_savings > 0 && f.measured_annual_savings > 0
               ? `${Math.round((f.measured_annual_savings / f.identified_annual_savings) * 100)}% of identified value is now verified.`

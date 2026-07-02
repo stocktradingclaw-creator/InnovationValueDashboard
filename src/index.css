@@ -1267,3 +1267,128 @@ textarea:focus-visible {
   outline-offset: 2px;
   border-radius: 6px;
 }
+
+/* ------------------------------------------------ visual redesign: atmosphere */
+
+body {
+  background:
+    radial-gradient(1200px 600px at 75% -10%, rgba(76, 195, 138, 0.07), transparent 60%),
+    radial-gradient(900px 500px at -10% 30%, rgba(121, 184, 255, 0.05), transparent 55%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+.card, .hero-stat, .pipeline-col, .lifecycle-strip {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.25);
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+
+.card:hover, .hero-stat:hover {
+  border-color: #3d4c5c;
+}
+
+.decision-row, .pipeline-item, .idea-card {
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.decision-row:hover {
+  transform: translateX(4px);
+}
+
+.hero-stat.verified {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(160deg, rgba(76, 195, 138, 0.12), var(--surface) 55%) padding-box,
+    linear-gradient(140deg, var(--accent), rgba(76, 195, 138, 0.1)) border-box;
+  box-shadow: 0 0 32px rgba(76, 195, 138, 0.12), 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+main > section {
+  animation: rise-in 0.35s ease both;
+}
+
+@keyframes grow-bar {
+  from { width: 0; }
+}
+
+.funnel-bar, .progress-bar {
+  animation: grow-bar 0.7s ease both;
+}
+
+/* -------------------------------------------------------- Sankey value flow */
+
+.value-flow svg {
+  width: 100%;
+  height: auto;
+}
+
+.flow-committed { fill: rgba(121, 184, 255, 0.30); }
+.flow-verified { fill: rgba(76, 195, 138, 0.42); }
+.flow-faded { fill: rgba(139, 154, 168, 0.10); }
+.flow-pending { fill: rgba(121, 184, 255, 0.10); }
+
+.node-identified { fill: #3a4a5a; }
+.node-committed { fill: #79b8ff; }
+.node-verified { fill: var(--accent); filter: drop-shadow(0 0 6px rgba(76, 195, 138, 0.6)); }
+
+.flow-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.3rem;
+}
+
+.flow-labels span {
+  display: flex;
+  flex-direction: column;
+}
+
+.flow-labels strong {
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-labels em {
+  font-style: normal;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.flow-verified-label strong { color: var(--accent); }
+
+/* -------------------------------------------------------------- radial gauge */
+
+.gauge-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.gauge {
+  width: 44px;
+  height: 44px;
+  transform: rotate(-90deg);
+}
+
+.gauge-bg {
+  fill: none;
+  stroke: var(--surface-2);
+  stroke-width: 5;
+}
+
+.gauge-fg {
+  fill: none;
+  stroke-width: 5;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.6s ease;
+}
+
+.g-good { stroke: var(--accent); }
+.g-warn { stroke: #ffab70; }
+.g-bad { stroke: #ff8a84; }
