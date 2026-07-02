@@ -134,8 +134,11 @@ export default function App() {
 
       {offline && (
         <div className="banner-error">
-          Cannot reach the API. Start it with:{' '}
-          <code>cd server && uvicorn app.main:app --port 8000</code>
+          <span>
+            <strong>Reconnecting…</strong> The hub can't reach its data service right now — this
+            usually resolves in a few seconds.
+          </span>
+          <button className="secondary" onClick={refresh}>Retry now</button>
         </div>
       )}
 

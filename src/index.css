@@ -1221,3 +1221,11 @@ li {
 .gate-checklist {
   margin: 0.5rem 0;
 }
+
+.banner-error {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}

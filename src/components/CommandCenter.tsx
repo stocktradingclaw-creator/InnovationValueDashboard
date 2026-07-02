@@ -909,7 +909,9 @@ export default function CommandCenter({ onChanged }: Props) {
       <p className="muted small">
         Is it sponsored, novel, and aligned? Qualified ideas move to portfolio prioritization.
       </p>
-      {queue.idea_queues.screening.length === 0 && <p className="muted small">Queue clear.</p>}
+      {queue.idea_queues.screening.length === 0 && (
+        <p className="muted small">All caught up — every new idea has been screened.</p>
+      )}
       {queue.idea_queues.screening.map((idea) => (
         <IdeaGateCard
           key={idea.id} idea={idea} actor={actor} onDone={refresh}
@@ -923,7 +925,9 @@ export default function CommandCenter({ onChanged }: Props) {
         {queue.idea_queues.backlog.length > 0 && ` ${queue.idea_queues.backlog.length} on the backlog.`}
       </p>
       <PortfolioRegister lifecycle={lifecycle} />
-      {queue.idea_queues.prioritization.length === 0 && <p className="muted small">Queue clear.</p>}
+      {queue.idea_queues.prioritization.length === 0 && (
+        <p className="muted small">Nothing waiting to be ranked — qualified ideas will appear here.</p>
+      )}
       {queue.idea_queues.prioritization.map((idea) => (
         <IdeaGateCard
           key={idea.id} idea={idea} actor={actor} onDone={refresh}
@@ -936,7 +940,9 @@ export default function CommandCenter({ onChanged }: Props) {
         The hub develops the case with AI — ROI plan, KPIs, and a frozen evidence baseline —
         then it lands in executive review below.
       </p>
-      {queue.idea_queues.development.length === 0 && <p className="muted small">Queue clear.</p>}
+      {queue.idea_queues.development.length === 0 && (
+        <p className="muted small">No prioritized ideas awaiting a business case — the AI is ready when they are.</p>
+      )}
       {queue.idea_queues.development.map((idea) => (
         <IdeaGateCard
           key={idea.id} idea={idea} actor={actor} onDone={refresh}
@@ -945,7 +951,9 @@ export default function CommandCenter({ onChanged }: Props) {
       ))}
 
       <h3 className="spaced" id="cc-cases">Gate 4 — Executive review ({queue.cases_pending_approval.length})</h3>
-      {queue.cases_pending_approval.length === 0 && <p className="muted small">Queue clear.</p>}
+      {queue.cases_pending_approval.length === 0 && (
+        <p className="muted small">No cases awaiting executive review.</p>
+      )}
       {queue.cases_pending_approval.map((c) => (
         <div key={c.id} className="card">
           <div className="card-header">

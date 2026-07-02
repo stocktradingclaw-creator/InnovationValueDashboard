@@ -56,3 +56,32 @@ above visible page content (minor); Overview stacking order is sound;
 tables scan well. "Queue clear." copy remains a lens C candidate.
 
 Verified: build clean, 43 tests green, dev server renders with nav mounted.
+
+---
+
+## Pass 3 — Lens C: microcopy & tone (2026-06-14)
+
+**Issue:** System copy spoke developer, not human, at the two worst moments.
+The offline banner printed a literal shell command ("Start it with: cd server
+&& uvicorn app.main:app --port 8000") — which a client would see during any
+serverless cold-start hiccup mid-presentation. And all four gate queues used
+the same terse "Queue clear." regardless of context.
+
+**Who it hurt, when:** A client or executive at the moment the product
+stumbles — exactly when tone determines whether the stumble reads as "blip"
+or "broken". Empty queues are also a reviewer's most common sight; identical
+copy wasted the moment.
+
+**Change:** Offline banner now reads "Reconnecting… The hub can't reach its
+data service right now — this usually resolves in a few seconds" with a
+Retry now button (recovery affordance instead of shell instructions). Each
+gate's empty state now affirms in its own voice ("All caught up — every new
+idea has been screened", "the AI is ready when they are").
+
+**Files:** src/App.tsx, src/components/CommandCenter.tsx, src/index.css
+
+**Also observed (below the fix bar):** "Observe now" button label is jargon
+but tied to the evidence-observation concept (lens C candidate if it recurs);
+generic "Loading…" placeholders are candidates for lens E skeletons.
+
+Verified: build clean, 44 tests green, dev server renders.
