@@ -1546,3 +1546,73 @@ def test_login_sessions_and_identity(client):
     # logout invalidates the session
     client.post("/api/auth/logout", headers=cara)
     assert client.get("/api/ideas", headers=cara).status_code == 401
+
+
+def test_seed_lifecycle_populates_every_phase(client):
+    r = client.post("/api/demo/seed-lifecycle")
+    assert r.status_code == 200
+    assert r.json()["seeded"] is True
+
+    ideas = client.get("/api/ideas").json()["ideas"]
+    statuses = {i["status"] for i in ideas}
+    assert {"proposed", "qualified", "prioritized", "business_case",
+            "backlog", "declined"} <= statuses
+
+    cases = client.get("/api/business-cases").json()["business_cases"]
+    stages = {c["stage"] for c in cases}
+    assert {"proposed", "experiment", "approved", "in_delivery",
+            "live", "value_realized", "scale", "closed"} <= stages
+
+    # funding released, claimed savings recorded, learnings captured
+    assert any((c.get("funding") or {}).get("released", 0) > 0 for c in cases)
+    assert any(c.get("savings_entries") for c in cases)
+    assert client.get("/api/learnings").json()["learnings"]
+
+
+def test_e2e_workflow_and_data_integrity(client):
+    """Regression guard: walks the seeded end-to-end lifecycle and checks the
+    data stays internally consistent across every phase boundary."""
+    client.post("/api/demo/seed-lifecycle")
+    ideas = client.get("/api/ideas").json()["ideas"]
+    cases = {c["id"]: c for c in client.get("/api/business-cases").json()["business_cases"]}
+    workflow_keys = [s["key"] for s in client.get("/api/workflow").json()["steps"]]
+
+    for idea in ideas:
+        # every idea sits at a legal stage
+        assert idea["status"] in set(workflow_keys) | {"business_case", "backlog", "declined"}
+        # promoted ideas link to a real case; the case links back
+        if idea["status"] == "business_case":
+            assert idea["promoted_case_id"] in cases
+            assert idea["id"] in (cases[idea["promoted_case_id"]].get("note") or "")
+        # objective tags reference real initiatives
+    init_ids = {i["id"] for i in client.get("/api/initiatives").json()["initiatives"]}
+    for idea in ideas:
+        assert set(idea.get("initiative_ids") or []) <= init_ids
+
+    for c in cases.values():
+        funding = c.get("funding") or {}
+        # metered funding can never release more than was planned
+        assert funding.get("released", 0) <= funding.get("planned", 0) + 0.01
+        # value stages require implementation; claimed savings require go-live
+        if c["stage"] in ("value_realized", "scale") or c.get("savings_entries"):
+            assert c["status"] == "implemented" and c.get("go_live_date")
+        # claimed and verified value are separate, honestly-computed numbers
+        t = c.get("tracking")
+        if t:
+            assert abs(t["total_realized_savings"]
+                       - sum(e["amount"] for e in c["savings_entries"])) < 0.01
+            measured = sum(b.get("annualized_delta") or 0 for b in c["metric_bindings"])
+            assert abs(t["measured_annual_savings"] - round(measured, 2)) < 0.01
+
+    # initiative rollups equal a manual recount
+    for r in client.get("/api/initiatives").json()["initiatives"]:
+        manual = sum(1 for i in ideas if r["id"] in (i.get("initiative_ids") or []))
+        assert r["ideas_count"] == manual
+
+    # my-submissions mirrors the decide history for each submitter
+    mine = client.get("/api/my-submissions", params={"submitter": "jordan"}).json()
+    assert all((i.get("submitter") or "").lower() == "jordan" for i in mine["ideas"])
+    legal_actions = {"advance", "qualify", "prioritize", "hold", "develop",
+                     "reject", "feedback", "approve", "experiment"}
+    for i in mine["ideas"]:
+        assert {h["action"] for h in i["history"]} <= legal_actions

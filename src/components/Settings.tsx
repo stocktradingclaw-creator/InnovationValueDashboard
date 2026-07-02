@@ -6,6 +6,7 @@ import {
   putScoringConfig, putWorkflow, reorderInitiatives, updateChallenge, updateInitiative,
   getUsers,
   putUsers,
+  seedLifecycle,
 } from '../api'
 import { getGovernance } from '../api'
 import type { Challenge, DemoStatus, Initiative, ScoringConfig, WorkflowStep } from '../types'
@@ -360,6 +361,8 @@ function Campaigns() {
 }
 
 function DemoStudio({ onDone }: { onDone: () => void }) {
+  const [seeding, setSeeding] = useState(false)
+  const [seedMsg, setSeedMsg] = useState<string | null>(null)
   const [status, setStatus] = useState<DemoStatus | null>(null)
   const [industries, setIndustries] = useState<string[]>([])
   const [clientName, setClientName] = useState('')
@@ -377,6 +380,17 @@ function DemoStudio({ onDone }: { onDone: () => void }) {
         in it (industry optional); industry-only follows its latest trends. Revert restores the
         exact pre-demo baseline.
       </p>
+      <div className="row" style={{ marginBottom: '0.8rem' }}>
+        <button className="secondary" disabled={seeding} onClick={async () => {
+          setSeeding(true)
+          try {
+            const r = await seedLifecycle()
+            setSeedMsg(`Seeded ${r.ideas} ideas and ${r.cases} business cases across every phase.`)
+          } catch (e) { setSeedMsg(e instanceof Error ? e.message : String(e)) }
+          finally { setSeeding(false) }
+        }}>{seeding ? 'Seeding…' : 'Seed full-lifecycle sample data'}</button>
+        {seedMsg && <span className="muted small">{seedMsg}</span>}
+      </div>
       {status ? (
         <>
           <div className="banner-ok">

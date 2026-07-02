@@ -44,6 +44,11 @@ export async function logout() {
   localStorage.removeItem('ivd_token')
 }
 
+export function seedLifecycle() {
+  return request<{ seeded: boolean; ideas: number; cases: number; note: string }>(
+    '/api/demo/seed-lifecycle', { method: 'POST' })
+}
+
 export function getDatasets() {
   return request<{ sources: SourceStatus[] }>('/api/datasets')
 }

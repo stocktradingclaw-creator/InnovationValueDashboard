@@ -1657,3 +1657,192 @@ def add_savings(case_id: str, body: SavingsRequest) -> Dict[str, Any]:
     if case is None:
         raise HTTPException(404, f"Business case '{case_id}' not found")
     return case
+
+# ------------------------------------------------- full-lifecycle sample data
+
+@app.post("/api/demo/seed-lifecycle")
+def seed_lifecycle() -> Dict[str, Any]:
+    """Populate every phase of the lifecycle with realistic sample content so
+    the full look and feel is visible: ideas at each gate, cases at each stage,
+    an experiment kill with learnings, funding tranches, claimed savings and
+    KPI readings, plus a real measured reduction observed from changed data."""
+    from datetime import datetime, timedelta
+
+    load_samples()
+    days = lambda n: (datetime.utcnow() - timedelta(days=n)).isoformat()
+
+    inits = [db.create_initiative(n, o) for n, o in [
+        ("Cost & efficiency", "Cut run-rate cost of operations by 15%"),
+        ("Customer experience", "Halve time-to-resolution for customer issues"),
+        ("AI-first operations", "Automate the top 20 manual back-office workflows"),
+    ]]
+    challenge = create_challenge(ChallengeRequest(
+        title="Cut cost-to-serve in half",
+        question="Where do we spend people-hours that a customer would never pay for?",
+        theme="cost"))
+
+    def idea(title, desc, who, benefit=None, days_ago=0, init=None, chal=None,
+             beneficiary=None, pain=None):
+        return _ingest_idea(IdeaRequest(
+            title=title, description=desc, submitter=who,
+            estimated_annual_benefit=benefit,
+            initiative_ids=[init["id"]] if init else None,
+            challenge_id=chal, beneficiary=beneficiary, pain_point=pain,
+        ), source="manual", submitted_at=days(days_ago))
+
+    def walk(i, *decisions, actor="rio"):
+        for d in decisions:
+            result = command_decide(DecisionRequest(
+                subject_type="idea", subject_id=i["id"], decision=d, actor=actor))
+        return result["result"].get("case") or db.get_idea(i["id"])
+
+    # --- ideation: one idea resting at every gate ---
+    fresh = idea("Digital mailroom with OCR routing",
+                 "Physical mail is opened, scanned, and routed by hand today.",
+                 "priya", 60000, 1, inits[2])
+    needs_info = idea("Better reporting", "We should improve reports.", "sam", None, 2)
+    command_decide(DecisionRequest(subject_type="idea", subject_id=needs_info["id"],
+                                   decision="feedback", actor="rio",
+                                   comment="Which reports, for whom, and what decision do they drive?"))
+    qualified = idea("Self-service password resets",
+                     "Password resets are 30% of service-desk tickets; a self-service flow "
+                     "with MFA removes the wait for employees and frees agents.",
+                     "alex", 90000, 9, inits[0], beneficiary="Service-desk agents",
+                     pain="Repetitive resets crowd out real incidents")
+    walk(qualified, "qualify")
+    prioritized = idea("Right-size over-provisioned VMs",
+                       "Cloud spend grows 8% a quarter while average utilization sits under "
+                       "20%; automated right-sizing recommendations reviewed weekly.",
+                       "jordan", 150000, 14, inits[0], chal=challenge["id"])
+    walk(prioritized, "qualify", "prioritize")
+    held = idea("Office plant subscription",
+                "Plants improve morale and air quality across our five offices.",
+                "sam", None, 20)
+    walk(held, "qualify")
+    command_decide(DecisionRequest(subject_type="idea", subject_id=held["id"],
+                                   decision="hold", actor="rio",
+                                   comment="Nice-to-have; revisit next quarter"))
+    rejected = idea("Rewrite everything in Rust", "It would be faster.", "sam", None, 21)
+    command_decide(DecisionRequest(subject_type="idea", subject_id=rejected["id"],
+                                   decision="reject", actor="rio",
+                                   comment="No measurable business outcome stated"))
+    for who in ("alex", "jordan", "maria"):
+        vote_idea(qualified["id"], VoteRequest(voter=who))
+    add_comment(prioritized["id"], CommentRequest(
+        author="maria", comment="Finance would co-sponsor this — the quarterly true-up is painful.",
+        build_on=True))
+
+    # --- business case & funding ---
+    exec_review = walk(idea("Automate invoice matching",
+                            "Three-way matching is manual for 40% of invoices; exceptions "
+                            "queue for days and suppliers chase payment status by phone.",
+                            "priya", 220000, 30, inits[0]),
+                       "qualify", "prioritize", "develop")
+    experimenting = walk(idea("AI triage for support tickets",
+                              "Classify and route inbound tickets so specialists stop "
+                              "hand-sorting the queue every morning.",
+                              "alex", 180000, 35, inits[1]),
+                         "qualify", "prioritize", "develop")
+    add_experiment(experimenting["id"], ExperimentRequest(
+        hypothesis="A classifier on 12 months of tickets routes ≥80% correctly",
+        method="Shadow-route two weeks of live tickets; compare against agents",
+        success_criteria="≥80% routing accuracy, no P1 misroutes", cost=8000))
+    killed = walk(idea("Chatbot for all HR questions",
+                       "Answer every HR policy question with a chatbot.",
+                       "sam", 120000, 40, inits[2]),
+                  "qualify", "prioritize", "develop")
+    exp = add_experiment(killed["id"], ExperimentRequest(
+        hypothesis="Employees will accept chatbot answers for sensitive HR topics",
+        method="Pilot with 50 employees for two weeks",
+        success_criteria="CSAT ≥ 4.0 and ≤10% escalation", cost=5000))
+    conclude_experiment(killed["id"], exp["experiments"][-1]["id"],
+                        ConcludeExperimentRequest(
+        outcome="kill",
+        learnings="People will not discuss leave, pay, or grievances with a bot; trust, "
+                  "not accuracy, was the barrier. Narrow FAQ automation works — "
+                  "sensitive topics need a human."))
+    approved = walk(idea("Decommission idle cloud instances",
+                         "Dozens of instances idle below 5% CPU around the clock; "
+                         "schedule or decommission them with owner sign-off.",
+                         "jordan", 200000, 45, inits[0], chal=challenge["id"]),
+                    "qualify", "prioritize", "develop")
+    command_decide(DecisionRequest(subject_type="case", subject_id=approved["id"],
+                                   decision="approve", actor="eve",
+                                   comment="Strong payback; fund discovery tranche"))
+    add_tranche(approved["id"], TrancheRequest(label="Discovery", amount=15000,
+                                               milestone="Owner sign-off on top 20 instances"))
+    add_tranche(approved["id"], TrancheRequest(label="Rollout", amount=45000,
+                                               milestone="First 10 instances decommissioned"))
+    case = db.get_business_case(approved["id"])
+    release_tranche(approved["id"], case["funding"]["tranches"][0]["id"], ReleaseRequest(actor="eve"))
+
+    def approved_case(title, desc, who, benefit, days_ago, init):
+        c = walk(idea(title, desc, who, benefit, days_ago, init),
+                 "qualify", "prioritize", "develop")
+        command_decide(DecisionRequest(subject_type="case", subject_id=c["id"],
+                                       decision="approve", actor="eve"))
+        add_tranche(c["id"], TrancheRequest(label="Delivery", amount=60000,
+                                            milestone="Go-live"))
+        cc = db.get_business_case(c["id"])
+        release_tranche(c["id"], cc["funding"]["tranches"][0]["id"], ReleaseRequest(actor="eve"))
+        return c
+
+    # --- delivery & value ---
+    delivering = approved_case("Robotic process automation for order entry",
+                               "Manual re-keying of orders from email into the ERP "
+                               "consumes four FTEs and introduces errors.",
+                               "priya", 260000, 60, inits[2])
+    db.set_stage(delivering["id"], "in_delivery")
+
+    live = approved_case("Consolidate duplicate CRM licenses",
+                         "Three overlapping CRM tools; consolidating to one saves "
+                         "licenses and integration upkeep.",
+                         "alex", 170000, 90, inits[0])
+    implement_case(live["id"], ImplementRequest(go_live_date=days(75)[:10]))  # pydantic coerces ISO strings
+    for n, amt in ((70, 12000), (40, 14500), (10, 15200)):
+        add_savings(live["id"], SavingsRequest(entry_date=days(n)[:10], amount=amt,
+                                                  note="License true-down, monthly"))
+    lv = db.get_business_case(live["id"])
+    for k in lv["roi_plan"]["kpis"][:1]:
+        for n, val in ((70, 310), (40, 240), (10, 195)):
+            add_reading(live["id"], ReadingRequest(kpi_name=k["name"],
+                                                      reading_date=days(n)[:10], value=val))
+
+    realized = approved_case("Automated employee onboarding provisioning",
+                             "Accounts, hardware, and access provisioned by checklist "
+                             "over five days; automation cuts it to one.",
+                             "maria", 140000, 120, inits[1])
+    implement_case(realized["id"], ImplementRequest(go_live_date=days(100)[:10]))
+    add_savings(realized["id"], SavingsRequest(entry_date=days(30)[:10], amount=38000,
+                                                  note="Quarterly measure: onboarding hours"))
+    db.set_stage(realized["id"], "value_realized")
+
+    scaled = approved_case("Invoice OCR rollout — EU region",
+                           "Replicate the proven invoice OCR pattern from North America "
+                           "to the EU shared-service center.",
+                           "priya", 190000, 150, inits[0])
+    implement_case(scaled["id"], ImplementRequest(go_live_date=days(120)[:10]))
+    add_savings(scaled["id"], SavingsRequest(entry_date=days(20)[:10], amount=52000,
+                                                note="First-quarter measured run-rate"))
+    db.set_stage(scaled["id"], "scale")
+
+    # a real measured reduction: the customer's data changed, then we re-observe
+    lv = db.get_business_case(live["id"])
+    if lv.get("metric_bindings"):
+        rows = _loaded_datasets().get("cloud", [])
+        if rows:
+            db.save_dataset("cloud", rows[: max(1, len(rows) - 6)], origin="sample (post-fix)")
+        for b in lv["metric_bindings"]:
+            try:
+                observe_binding(live["id"], b["id"])
+            except Exception:
+                pass
+
+    return {
+        "seeded": True,
+        "ideas": len(db.list_ideas()),
+        "cases": len(db.list_business_cases()),
+        "initiatives": len(inits),
+        "note": "Sample content across every lifecycle phase; use Demo Studio revert "
+                "or reload samples to reset.",
+    }
