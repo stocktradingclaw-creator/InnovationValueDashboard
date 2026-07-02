@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
   addExperiment, addTranche, concludeExperiment, createChallenge, createInitiative, decide,
-  demoGenerate, demoRevert, getDemoStatus,
+  demoGenerate, demoRevert, getDemoStatus, getLifecycle,
   getCommandQueue, getLearnings, getPatterns, getScoringConfig, money, putGovernance,
   putScoringConfig, releaseTranche, replicatePattern, runAutomation,
 } from '../api'
-import type { BusinessCase, CommandQueue, DemoStatus, Idea, Learning, Pattern, ScoringConfig, Stage } from '../types'
+import type { BusinessCase, CommandQueue, DemoStatus, Learning, Lifecycle, Pattern, QueuedIdea, ScoringConfig, Stage } from '../types'
 
 interface Props {
   onChanged: () => void
@@ -78,6 +78,165 @@ function DecisionButtons({
       </div>
       {error && <p className="error">{error}</p>}
     </>
+  )
+}
+
+const IDEA_STAGE_LABEL: Record<string, string> = {
+  proposed: 'Proposed',
+  qualified: 'Qualified',
+  prioritized: 'Prioritized',
+  business_case: 'Business case',
+}
+
+function LifecycleStrip({ lifecycle }: { lifecycle: Lifecycle | null }) {
+  if (!lifecycle) return null
+  const caseTotal = (stages: string[]) =>
+    stages.reduce((sum, s) => sum + (lifecycle.case_counts[s] ?? 0), 0)
+  const steps = [
+    ...lifecycle.spec.slice(0, 3).map((s) => ({
+      label: IDEA_STAGE_LABEL[s.stage],
+      gate: s.gate,
+      count: lifecycle.idea_counts[s.stage] ?? 0,
+      title: `${s.step}
+${s.purpose}`,
+    })),
+    { label: 'Business case', gate: 'Executive review', count: caseTotal(['draft', 'proposed', 'experiment']), title: 'AI-developed case under executive review' },
+    { label: 'Approved & funded', gate: 'Funding gate', count: caseTotal(['approved', 'in_delivery']), title: 'Approved; tranche release required to mobilize' },
+    { label: 'Live → value', gate: 'Verified evidence', count: caseTotal(['live', 'value_realized', 'scale']), title: 'Delivering and verifying value from data' },
+  ]
+  return (
+    <div className="lifecycle-strip" role="group" aria-label="Idea-to-portfolio lifecycle">
+      {steps.map((s, i) => (
+        <div key={s.label} className="lifecycle-step" title={s.title}>
+          <div className="lifecycle-box">
+            <strong>{s.count}</strong>
+            <span>{s.label}</span>
+          </div>
+          {i < steps.length - 1 && (
+            <div className="lifecycle-gate" title={s.gate}>
+              <span className="muted small">{s.gate.split(' (')[0]}</span>
+              <span className="lifecycle-arrow">→</span>
+            </div>
+          )}
+        </div>
+      ))}
+      <span className="muted small lifecycle-exits">
+        backlog {lifecycle.idea_terminal.backlog} · declined {lifecycle.idea_terminal.declined} ·
+        killed/closed {lifecycle.case_counts.closed ?? 0}
+      </span>
+    </div>
+  )
+}
+
+function GateActions({
+  ideaId, actor, actions, onDone,
+}: {
+  ideaId: string
+  actor: string
+  actions: [string, string, string][]  // [decision, label, className]
+  onDone: () => void
+}) {
+  const [comment, setComment] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <>
+      <div className="row decide-row">
+        <input placeholder="Rationale / feedback (optional)" value={comment} onChange={(e) => setComment(e.target.value)} />
+        {actions.map(([decision, label, cls]) => (
+          <button
+            key={decision}
+            className={cls}
+            disabled={!!busy}
+            onClick={async () => {
+              setBusy(decision)
+              setError(null)
+              try {
+                await decide({
+                  subject_type: 'idea', subject_id: ideaId,
+                  decision: decision as Parameters<typeof decide>[0]['decision'],
+                  actor: actor || undefined, comment: comment || undefined,
+                })
+                setComment('')
+                onDone()
+              } catch (e) {
+                setError(e instanceof Error ? e.message : String(e))
+              } finally {
+                setBusy(null)
+              }
+            }}
+          >
+            {busy === decision ? '…' : label}
+          </button>
+        ))}
+      </div>
+      {error && <p className="error">{error}</p>}
+    </>
+  )
+}
+
+function IdeaGateCard({
+  idea, actor, actions, onDone,
+}: {
+  idea: QueuedIdea
+  actor: string
+  actions: [string, string, string][]
+  onDone: () => void
+}) {
+  return (
+    <div className="card">
+      <div className="card-header">
+        <div>
+          <h3>{idea.title}</h3>
+          <p className="muted small">
+            {idea.assessment?.rationale} · score {idea.assessment?.score}
+            {idea.submitter ? ` · from ${idea.submitter}` : ''}
+          </p>
+        </div>
+        {idea.assessment && <span className="score-chip">{idea.assessment.score}</span>}
+      </div>
+      <div className="row gate-checklist">
+        {idea.gate_checklist.map((c) => (
+          <span key={c.check} className={c.passed ? 'pill act-approve' : 'pill act-verify'}>
+            {c.passed ? '✓' : '?'} {c.check}
+          </span>
+        ))}
+      </div>
+      <GateActions ideaId={idea.id} actor={actor} actions={actions} onDone={onDone} />
+    </div>
+  )
+}
+
+function PortfolioRegister({ lifecycle }: { lifecycle: Lifecycle | null }) {
+  if (!lifecycle || lifecycle.register.length === 0) return null
+  const entries = lifecycle.register
+  const maxImpact = Math.max(...entries.map((e) => e.impact), 1)
+  return (
+    <div className="card matrix-card">
+      <h3>Portfolio register <span className="muted small">impact vs readiness</span></h3>
+      <div className="matrix">
+        <span className="matrix-corner tl">Prioritize</span>
+        <span className="matrix-corner tr">Fast-track</span>
+        <span className="matrix-corner bl">Hold / develop info</span>
+        <span className="matrix-corner br">Quick validation</span>
+        {entries.map((e) => (
+          <span
+            key={e.id}
+            className={`dot ${e.status === 'prioritized' ? 'dot-quick_win' : 'dot-strategic_bet'}`}
+            style={{
+              left: `${5 + e.readiness * 90}%`,
+              top: `${95 - Math.min(Math.log1p(e.impact) / Math.log1p(maxImpact), 1) * 90}%`,
+            }}
+            title={`${e.title}
+$${e.impact.toLocaleString()}/yr est · readiness ${Math.round(e.readiness * 100)}% · ${e.status}`}
+          />
+        ))}
+      </div>
+      <div className="matrix-axes muted small">
+        <span>← lower readiness</span>
+        <span>higher readiness →</span>
+      </div>
+    </div>
   )
 }
 
@@ -672,15 +831,18 @@ function ScoringEditor({ onSaved }: { onSaved: () => void }) {
 
 export default function CommandCenter({ onChanged }: Props) {
   const [queue, setQueue] = useState<CommandQueue | null>(null)
+  const [lifecycle, setLifecycle] = useState<Lifecycle | null>(null)
   const [actor, setActor] = useState('')
   const [autoBusy, setAutoBusy] = useState(false)
 
   const refresh = async () => {
     setQueue(await getCommandQueue())
+    setLifecycle(await getLifecycle().catch(() => null))
     onChanged()
   }
   useEffect(() => {
     getCommandQueue().then(setQueue)
+    getLifecycle().then(setLifecycle).catch(() => {})
   }, [])
 
   if (!queue) return <section><p className="muted">Loading…</p></section>
@@ -721,7 +883,9 @@ export default function CommandCenter({ onChanged }: Props) {
 
       <nav className="cc-nav" aria-label="Command center sections">
         {[
-          ['cc-ideas', `Screening ${queue.ideas_pending.length}`],
+          ['cc-ideas', `Screening ${queue.idea_queues.screening.length}`],
+          ['cc-prioritize', `Prioritization ${queue.idea_queues.prioritization.length}`],
+          ['cc-develop', `Development ${queue.idea_queues.development.length}`],
           ['cc-cases', `Approvals ${queue.cases_pending_approval.length}`],
           ['cc-experiments', `Experiments ${queue.cases_in_experiment.length}`],
           ['cc-pipeline', 'Pipeline'],
@@ -739,25 +903,48 @@ export default function CommandCenter({ onChanged }: Props) {
         ))}
       </nav>
 
-      <h3 id="cc-ideas">Ideas awaiting screening ({queue.ideas_pending.length})</h3>
-      {queue.ideas_pending.length === 0 && <p className="muted small">Queue clear.</p>}
-      {queue.ideas_pending.map((idea: Idea) => (
-        <div key={idea.id} className="card">
-          <div className="card-header">
-            <div>
-              <h3>{idea.title}</h3>
-              <p className="muted small">
-                {idea.assessment?.rationale} · score {idea.assessment?.score}
-                {idea.submitter ? ` · from ${idea.submitter}` : ''}
-              </p>
-            </div>
-            {idea.assessment && <span className="score-chip">{idea.assessment.score}</span>}
-          </div>
-          <DecisionButtons subjectType="idea" subjectId={idea.id} actor={actor} onDone={refresh} />
-        </div>
+      <LifecycleStrip lifecycle={lifecycle} />
+
+      <h3 id="cc-ideas">Gate 1 — Qualification ({queue.idea_queues.screening.length})</h3>
+      <p className="muted small">
+        Is it sponsored, novel, and aligned? Qualified ideas move to portfolio prioritization.
+      </p>
+      {queue.idea_queues.screening.length === 0 && <p className="muted small">Queue clear.</p>}
+      {queue.idea_queues.screening.map((idea) => (
+        <IdeaGateCard
+          key={idea.id} idea={idea} actor={actor} onDone={refresh}
+          actions={[['qualify', 'Qualify', ''], ['reject', 'Decline', 'danger'], ['feedback', 'Send feedback', 'secondary']]}
+        />
       ))}
 
-      <h3 className="spaced" id="cc-cases">Cases awaiting approval ({queue.cases_pending_approval.length})</h3>
+      <h3 className="spaced" id="cc-prioritize">Gate 2 — Portfolio prioritization ({queue.idea_queues.prioritization.length})</h3>
+      <p className="muted small">
+        Impact vs capability and capacity — only prioritized ideas earn an AI business case.
+        {queue.idea_queues.backlog.length > 0 && ` ${queue.idea_queues.backlog.length} on the backlog.`}
+      </p>
+      <PortfolioRegister lifecycle={lifecycle} />
+      {queue.idea_queues.prioritization.length === 0 && <p className="muted small">Queue clear.</p>}
+      {queue.idea_queues.prioritization.map((idea) => (
+        <IdeaGateCard
+          key={idea.id} idea={idea} actor={actor} onDone={refresh}
+          actions={[['prioritize', 'Prioritize', ''], ['hold', 'Hold (backlog)', 'secondary'], ['reject', 'Decline', 'danger']]}
+        />
+      ))}
+
+      <h3 className="spaced" id="cc-develop">Gate 3 — Business case development ({queue.idea_queues.development.length})</h3>
+      <p className="muted small">
+        The hub develops the case with AI — ROI plan, KPIs, and a frozen evidence baseline —
+        then it lands in executive review below.
+      </p>
+      {queue.idea_queues.development.length === 0 && <p className="muted small">Queue clear.</p>}
+      {queue.idea_queues.development.map((idea) => (
+        <IdeaGateCard
+          key={idea.id} idea={idea} actor={actor} onDone={refresh}
+          actions={[['develop', 'Develop AI business case', ''], ['hold', 'Hold (backlog)', 'secondary']]}
+        />
+      ))}
+
+      <h3 className="spaced" id="cc-cases">Gate 4 — Executive review ({queue.cases_pending_approval.length})</h3>
       {queue.cases_pending_approval.length === 0 && <p className="muted small">Queue clear.</p>}
       {queue.cases_pending_approval.map((c) => (
         <div key={c.id} className="card">

@@ -1155,3 +1155,69 @@ li {
 [id^='cc-'] {
   scroll-margin-top: 70px;
 }
+
+.lifecycle-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.8rem 1rem;
+  margin-bottom: 1.2rem;
+}
+
+.lifecycle-step {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.lifecycle-box {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.4rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 86px;
+}
+
+.lifecycle-box strong {
+  font-size: 1.15rem;
+  color: var(--accent);
+}
+
+.lifecycle-box span {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.lifecycle-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 74px;
+}
+
+.lifecycle-gate .small {
+  font-size: 0.66rem;
+  text-align: center;
+}
+
+.lifecycle-arrow {
+  color: var(--accent-dim);
+  font-weight: 700;
+}
+
+.lifecycle-exits {
+  margin-left: auto;
+}
+
+.gate-checklist {
+  margin: 0.5rem 0;
+}

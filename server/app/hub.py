@@ -655,7 +655,7 @@ def hub_metrics(cases: List[Dict[str, Any]], ideas: List[Dict[str, Any]]) -> Dic
         bucket["share"] = round(bucket["value"] / total_hval, 3) if total_hval else None
         bucket["target_share"] = HORIZON_TARGETS.get(h)
 
-    promoted = sum(1 for i in ideas if i["status"] == "promoted")
+    promoted = sum(1 for i in ideas if i["status"] == "business_case")
     recent = db.automation_log_entries(limit=8)
     action_counts: Dict[str, int] = {}
     for entry in db.automation_log_entries(limit=500):
@@ -680,3 +680,85 @@ def hub_metrics(cases: List[Dict[str, Any]], ideas: List[Dict[str, Any]]) -> Dic
             "recent": recent,
         },
     }
+
+
+# ------------------------------------------------------- idea-to-portfolio gates
+
+# Formal stage-gate lifecycle (modeled on enterprise portfolio stage-gate
+# processes): ideas advance through named gates with declared criteria and a
+# responsible governance forum. Terminal exits: declined, backlog (hold).
+IDEA_STAGES = ["proposed", "qualified", "prioritized", "business_case"]
+
+LIFECYCLE_SPEC = [
+    {
+        "stage": "proposed",
+        "step": "Step 1 — Intake & qualification",
+        "gate": "Qualification (GO/NO-GO)",
+        "forum": "idea_screening",
+        "purpose": "Validate the idea is sponsored, novel, and strategically aligned "
+                   "before spending discovery effort.",
+        "criteria": [
+            "Named business sponsor",
+            "No existing solution / not a duplicate",
+            "Strategic alignment (theme, challenge, or initiative)",
+            "Intake guardrails met",
+        ],
+        "decisions": ["qualify", "reject", "feedback"],
+    },
+    {
+        "stage": "qualified",
+        "step": "Step 2 — Portfolio prioritization",
+        "gate": "Prioritization (portfolio register)",
+        "forum": "portfolio_oversight",
+        "purpose": "Rank qualified ideas by business impact against capability and "
+                   "capacity; only prioritized ideas earn a business case.",
+        "criteria": [
+            "Business impact (benefit estimate / matched savings)",
+            "Capability (grounding in detected data signal)",
+            "Capacity (portfolio balance and load)",
+        ],
+        "decisions": ["prioritize", "hold", "reject", "feedback"],
+    },
+    {
+        "stage": "prioritized",
+        "step": "Step 3 — Business case development",
+        "gate": "AI-developed business case",
+        "forum": "portfolio_oversight",
+        "purpose": "The hub develops the business case with AI — ROI plan, KPIs, "
+                   "frozen evidence baseline — ready for executive review.",
+        "criteria": [
+            "AI ROI plan with KPIs, baselines, and measurement design",
+            "Evidence baseline frozen from source data where matched",
+        ],
+        "decisions": ["develop", "hold", "feedback"],
+    },
+    {
+        "stage": "business_case",
+        "step": "Steps 4-5 — Executive review, funding, delivery",
+        "gate": "Business case approved → funded → mobilized",
+        "forum": "business_case_approval",
+        "purpose": "Executives review business value, opportunity cost, and ROI; "
+                   "approval unlocks funding, and a released tranche is required to "
+                   "mobilize into delivery.",
+        "criteria": [
+            "Business value and ROI reviewed",
+            "Funding tranche released before mobilization",
+            "Value verified against the frozen baseline after go-live",
+        ],
+        "decisions": [],
+    },
+]
+
+
+def gate_checklist(idea: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The qualification-gate checks, computed from what triage already knows —
+    shown to the screening forum so decisions are consistent and fast."""
+    assessment = idea.get("assessment") or {}
+    checks = [
+        ("Named business sponsor", bool(idea.get("submitter"))),
+        ("No existing solution / duplicate", not assessment.get("possible_duplicates")),
+        ("Strategic alignment", (assessment.get("score_components") or {}).get("alignment", 0) > 0
+         or bool(idea.get("initiative_id")) or bool(idea.get("challenge_id"))),
+        ("Intake guardrails met", not assessment.get("guardrail_flags")),
+    ]
+    return [{"check": name, "passed": passed} for name, passed in checks]

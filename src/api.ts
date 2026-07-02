@@ -202,7 +202,7 @@ export function getCommandQueue() {
 export function decide(body: {
   subject_type: 'idea' | 'case'
   subject_id: string
-  decision: 'approve' | 'reject' | 'feedback' | 'experiment'
+  decision: 'approve' | 'reject' | 'feedback' | 'experiment' | 'qualify' | 'prioritize' | 'hold' | 'develop'
   actor?: string
   comment?: string
 }) {
@@ -301,4 +301,8 @@ export function demoRevert() {
   return request<{ reverted: import('./types').DemoStatus }>('/api/demo/revert', {
     method: 'POST',
   })
+}
+
+export function getLifecycle() {
+  return request<import('./types').Lifecycle>('/api/lifecycle')
 }

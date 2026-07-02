@@ -167,7 +167,7 @@ function IdeaCard({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
         <div className="row">
           {a && <span className="score-chip">{a.score}</span>}
           {a && <span className={`pill rec-${a.recommendation}`}>{REC_LABELS[a.recommendation] ?? a.recommendation}</span>}
-          <span className={idea.status === 'promoted' ? 'badge badge-ok' : 'badge'}>{idea.status}</span>
+          <span className={idea.status === 'business_case' ? 'badge badge-ok' : 'badge'}>{idea.status.replace('_', ' ')}</span>
         </div>
       </div>
 
@@ -214,7 +214,7 @@ function IdeaCard({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
               )}
             </div>
           )}
-          {idea.status === 'triaged' && (
+          {['proposed', 'qualified', 'prioritized'].includes(idea.status) && (
             <div className="row">
               <button className="secondary" disabled={busy === 'evaluate'} onClick={() => act('evaluate')}>
                 {busy === 'evaluate' ? 'Evaluating…' : 'AI evaluate'}
@@ -426,9 +426,9 @@ export default function Ideas({ ideas, onChanged }: Props) {
       )}
 
       <div className="row filter-row">
-        {['all', 'triaged', 'promoted', 'declined'].map((s) => (
+        {['all', 'proposed', 'qualified', 'prioritized', 'business_case', 'backlog', 'declined'].map((s) => (
           <button key={s} className={filter === s ? 'chip chip-active' : 'chip'} onClick={() => setFilter(s)}>
-            {s === 'all' ? `All (${ideas.length})` : s}
+            {s === 'all' ? `All (${ideas.length})` : s.replace('_', ' ')}
           </button>
         ))}
         <input placeholder="Filter by submitter…" value={who} onChange={(e) => setWho(e.target.value)} style={{ maxWidth: 220 }} />

@@ -355,6 +355,15 @@ def test_metric_compute_and_validation():
         metrics.validate_definition({"metric": "sum", "source": "cloud"})  # no field
 
 
+def _walk_to_prioritized(client, idea_id, actor="lee"):
+    for decision in ("qualify", "prioritize"):
+        resp = client.post("/api/command/decide", json={
+            "subject_type": "idea", "subject_id": idea_id,
+            "decision": decision, "actor": actor,
+        })
+        assert resp.status_code == 200, resp.text
+
+
 def _cloud_idle_opp(client):
     opps = client.get("/api/opportunities").json()["opportunities"]
     return next(o for o in opps if o["category"] == "Idle cloud resources")
@@ -604,9 +613,13 @@ def test_idea_intake_triage_and_promotion(client):
     }).json()
     assert novel["assessment"]["recommendation"] == "investigate"
 
-    # promotion creates a linked case with a frozen baseline
+    # gates enforced: no business case before prioritization
+    assert client.post(f"/api/ideas/{idea['id']}/promote").status_code == 400
+    _walk_to_prioritized(client, idea["id"])
+
+    # promotion (business case development) creates a linked case with a frozen baseline
     result = client.post(f"/api/ideas/{idea['id']}/promote").json()
-    assert result["idea"]["status"] == "promoted"
+    assert result["idea"]["status"] == "business_case"
     case = result["case"]
     assert case["stage"] == "proposed"
     assert case["linked_opportunity"] is not None
@@ -687,24 +700,47 @@ def test_governance_and_command_center(client):
     })
     assert resp.status_code == 200
 
-    # assign idea screening to dana only
+    # assign idea screening to dana only — qualification gate enforces it
     client.put("/api/governance", json={"idea_screening": ["Dana"]})
     resp = client.post("/api/command/decide", json={
-        "subject_type": "idea", "subject_id": idea["id"], "decision": "approve", "actor": "sam",
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "qualify", "actor": "sam",
     })
     assert resp.status_code == 403
     resp = client.post("/api/command/decide", json={
-        "subject_type": "idea", "subject_id": idea["id"], "decision": "approve", "actor": "dana",
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "qualify", "actor": "dana",
+    })
+    assert resp.status_code == 200
+    assert resp.json()["result"]["status"] == "qualified"
+
+    # prioritization is a portfolio decision (area unassigned -> open), then AI develops
+    resp = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "prioritize", "actor": "lee",
+    })
+    assert resp.json()["result"]["status"] == "prioritized"
+    resp = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "develop", "actor": "lee",
     })
     assert resp.status_code == 200
     case = resp.json()["result"]["case"]
     assert case["stage"] == "proposed"
 
-    # case approval advances the lifecycle stage by stage
+    # case approval advances stage by stage; mobilization requires released funding
     resp = client.post("/api/command/decide", json={
         "subject_type": "case", "subject_id": case["id"], "decision": "approve", "actor": "lee",
     })
     assert resp.json()["result"]["stage"] == "approved"
+    resp = client.post("/api/command/decide", json={
+        "subject_type": "case", "subject_id": case["id"], "decision": "approve", "actor": "lee",
+    })
+    assert resp.status_code == 400
+    assert "Funding gate" in resp.json()["detail"]
+    tranched = client.post(f"/api/business-cases/{case['id']}/tranches", json={
+        "label": "Mobilization", "amount": 20000, "milestone": "Case approved",
+    }).json()
+    client.post(
+        f"/api/business-cases/{case['id']}/tranches/{tranched['funding']['tranches'][0]['id']}/release",
+        json={"actor": "lee"},
+    )
     resp = client.post("/api/command/decide", json={
         "subject_type": "case", "subject_id": case["id"], "decision": "approve", "actor": "lee",
     })
@@ -876,12 +912,15 @@ def test_notifications_close_the_loop(client):
         "subject_type": "idea", "subject_id": idea["id"],
         "decision": "feedback", "actor": "lee", "comment": "please add cost detail",
     })
+    _walk_to_prioritized(client, idea["id"])
     client.post("/api/command/decide", json={
-        "subject_type": "idea", "subject_id": idea["id"], "decision": "approve", "actor": "lee",
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "develop", "actor": "lee",
     })
     notes = client.get("/api/notifications", params={"recipient": "Maria"}).json()["notifications"]
     messages = " ".join(n["message"] for n in notes)
     assert "Feedback on your idea" in messages
+    assert "passed the qualification gate" in messages
+    assert "prioritized into the portfolio" in messages
     assert "promoted to business case" in messages
 
 
@@ -1107,6 +1146,7 @@ def test_initiative_tagging_and_rollup(client):
     }).status_code == 400
 
     # promotion carries the tag to the case; rollup aggregates the chain
+    _walk_to_prioritized(client, idea["id"])
     promoted = client.post(f"/api/ideas/{idea['id']}/promote").json()
     assert promoted["case"]["initiative_id"] == initiative["id"]
     rollup = client.get("/api/initiatives").json()["initiatives"][0]
@@ -1151,3 +1191,58 @@ def test_demo_generate_and_revert(client):
     assert client.get("/api/demo/status").json()["demo"] is None
     # nothing to revert twice
     assert client.post("/api/demo/revert").status_code == 400
+
+
+# ---------------------------------------------------------- stage-gate lifecycle
+
+def test_stage_gate_lifecycle(client):
+    client.post("/api/datasets/load-samples")
+    idea = client.post("/api/ideas", json={
+        "title": "Recover duplicate vendor invoices",
+        "description": "Detect duplicate invoices by vendor and amount and recover.",
+        "submitter": "maria",
+    }).json()
+    assert idea["status"] == "proposed"
+
+    # gates enforce order: cannot prioritize or develop from proposed
+    assert client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "prioritize",
+    }).status_code == 400
+    assert client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "develop",
+    }).status_code == 400
+
+    # queue exposes the gate checklist for screeners
+    queue = client.get("/api/command/queue").json()
+    pending = next(i for i in queue["idea_queues"]["screening"] if i["id"] == idea["id"])
+    checklist = {c["check"]: c["passed"] for c in pending["gate_checklist"]}
+    assert checklist["Named business sponsor"] is True
+
+    # 'approve' aliases the current stage's forward gate
+    r1 = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "approve",
+    }).json()["result"]
+    assert r1["status"] == "qualified"
+
+    # hold parks a qualified idea on the backlog
+    other = client.post("/api/ideas", json={
+        "title": "Robot greeter", "description": "Lobby robot to welcome guests.",
+    }).json()
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": other["id"], "decision": "qualify",
+    })
+    held = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": other["id"], "decision": "hold",
+    }).json()["result"]
+    assert held["status"] == "backlog"
+
+    # lifecycle endpoint: spec, live counts, and the portfolio register
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "prioritize",
+    })
+    lc = client.get("/api/lifecycle").json()
+    assert [s["stage"] for s in lc["spec"]] == ["proposed", "qualified", "prioritized", "business_case"]
+    assert lc["idea_counts"]["prioritized"] == 1
+    assert lc["idea_terminal"]["backlog"] == 1
+    entry = next(r for r in lc["register"] if r["id"] == idea["id"])
+    assert entry["impact"] > 0 and 0 <= entry["readiness"] <= 1

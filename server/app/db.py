@@ -204,6 +204,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE ideas ADD COLUMN pain_point TEXT")
     if idea_cols and "initiative_id" not in idea_cols:
         conn.execute("ALTER TABLE ideas ADD COLUMN initiative_id TEXT")
+    if idea_cols:
+        # stage-gate lifecycle: legacy statuses map onto the gated pipeline
+        conn.execute("UPDATE ideas SET status = 'proposed' WHERE status = 'triaged'")
+        conn.execute("UPDATE ideas SET status = 'business_case' WHERE status = 'promoted'")
     if "initiative_id" not in cols:
         conn.execute("ALTER TABLE business_cases ADD COLUMN initiative_id TEXT")
 
@@ -517,7 +521,7 @@ def create_idea(
             "INSERT INTO ideas (id, title, description, submitter, submitted_at, status, "
             "assessment_json, category, estimated_annual_benefit, source, benefit_type, "
             "horizon, challenge_id, beneficiary, pain_point, initiative_id) "
-            "VALUES (?, ?, ?, ?, ?, 'triaged', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (idea_id, title, description, submitter, submitted_at or _now(),
              json.dumps(assessment) if assessment else None,
              category, estimated_annual_benefit, source, benefit_type, horizon, challenge_id,

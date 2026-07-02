@@ -509,7 +509,7 @@ def _promote_idea(idea: Dict[str, Any]) -> Dict[str, Any]:
                 baseline_value=baseline["value"], baseline_rows=baseline["rows_matched"],
             )
             case = db.get_business_case(case["id"])
-    db.update_idea(idea["id"], "promoted", case["id"])
+    db.update_idea(idea["id"], "business_case", case["id"])
     return {"idea": db.get_idea(idea["id"]), "case": case}
 
 
@@ -518,8 +518,14 @@ def promote_idea(idea_id: str) -> Dict[str, Any]:
     idea = db.get_idea(idea_id)
     if idea is None:
         raise HTTPException(404, f"Idea '{idea_id}' not found")
-    if idea["status"] == "promoted":
-        raise HTTPException(400, "Idea is already promoted")
+    if idea["status"] == "business_case":
+        raise HTTPException(400, "Idea already has a business case")
+    if idea["status"] != "prioritized":
+        raise HTTPException(
+            400,
+            "Business cases are developed for prioritized ideas only — walk the gates: "
+            "qualify, then prioritize (Command Center).",
+        )
     return _promote_idea(idea)
 
 
@@ -577,9 +583,20 @@ def put_governance(body: Dict[str, List[str]], authorization: Optional[str] = He
 class DecisionRequest(BaseModel):
     subject_type: str  # 'idea' | 'case'
     subject_id: str
-    decision: str      # 'approve' | 'reject' | 'feedback'
+    decision: str      # ideas: qualify|prioritize|hold|develop|reject|feedback|approve(alias)
+                       # cases: approve|reject|feedback|experiment
     actor: Optional[str] = None
     comment: Optional[str] = None
+
+
+# stage -> what 'approve' means for an idea (alias for the stage's forward gate)
+_IDEA_APPROVE_ALIAS = {"proposed": "qualify", "qualified": "prioritize", "prioritized": "develop"}
+_IDEA_GATE_AREA = {
+    "qualify": "idea_screening",
+    "prioritize": "portfolio_oversight",
+    "hold": "portfolio_oversight",
+    "develop": "portfolio_oversight",
+}
 
 
 _CASE_APPROVE_NEXT = {
@@ -603,8 +620,17 @@ def _governance_area_for(subject_type: str, case: Optional[Dict[str, Any]]) -> s
 def command_queue() -> Dict[str, Any]:
     ideas = db.list_ideas()
     cases = db.list_business_cases()
+
+    def _with_checklist(items):
+        return [{**i, "gate_checklist": hub.gate_checklist(i)} for i in items]
+
     return {
-        "ideas_pending": [i for i in ideas if i["status"] == "triaged"],
+        "idea_queues": {
+            "screening": _with_checklist([i for i in ideas if i["status"] == "proposed"]),
+            "prioritization": _with_checklist([i for i in ideas if i["status"] == "qualified"]),
+            "development": _with_checklist([i for i in ideas if i["status"] == "prioritized"]),
+            "backlog": [i for i in ideas if i["status"] == "backlog"],
+        },
         "cases_pending_approval": [c for c in cases if c["stage"] in ("draft", "proposed")],
         "cases_in_experiment": [c for c in cases if c["stage"] == "experiment"],
         "cases_in_motion": [c for c in cases if c["stage"] in ("approved", "in_delivery")],
@@ -617,24 +643,51 @@ def command_queue() -> Dict[str, Any]:
 def command_decide(body: DecisionRequest) -> Dict[str, Any]:
     if body.subject_type not in ("idea", "case"):
         raise HTTPException(400, "subject_type must be 'idea' or 'case'")
-    if body.decision not in ("approve", "reject", "feedback", "experiment"):
-        raise HTTPException(400, "decision must be 'approve', 'reject', 'feedback', or 'experiment'")
+    valid = ("approve", "reject", "feedback", "experiment", "qualify", "prioritize", "hold", "develop")
+    if body.decision not in valid:
+        raise HTTPException(400, f"decision must be one of {valid}")
 
     if body.subject_type == "idea":
         idea = db.get_idea(body.subject_id)
         if idea is None:
             raise HTTPException(404, f"Idea '{body.subject_id}' not found")
-        blocked = hub.check_authority("idea_screening", body.actor)
+        decision = body.decision
+        if decision == "experiment":
+            raise HTTPException(400, "experiment applies to cases, not ideas")
+        if decision == "approve":  # alias: advance through the current stage's gate
+            decision = _IDEA_APPROVE_ALIAS.get(idea["status"])
+            if decision is None:
+                raise HTTPException(400, f"No forward gate from status '{idea['status']}'")
+
+        area = _IDEA_GATE_AREA.get(decision, "idea_screening")
+        blocked = hub.check_authority(area, body.actor)
         if blocked:
             raise HTTPException(403, blocked)
-        if body.decision == "experiment":
-            raise HTTPException(400, "experiment applies to cases, not ideas")
-        db.add_workflow_event("idea", body.subject_id, body.decision, body.actor, body.comment)
-        if body.decision == "approve":
-            if idea["status"] == "promoted":
-                raise HTTPException(400, "Idea is already promoted")
+        db.add_workflow_event("idea", body.subject_id, decision, body.actor, body.comment)
+
+        if decision == "qualify":
+            if idea["status"] != "proposed":
+                raise HTTPException(400, f"Only proposed ideas pass the qualification gate (status: {idea['status']})")
+            db.notify(idea.get("submitter"), "idea", idea["id"],
+                      f"Your idea '{idea['title']}' passed the qualification gate and moves to portfolio prioritization.")
+            return {"result": db.update_idea(body.subject_id, "qualified")}
+        if decision == "prioritize":
+            if idea["status"] != "qualified":
+                raise HTTPException(400, f"Only qualified ideas can be prioritized (status: {idea['status']})")
+            db.notify(idea.get("submitter"), "idea", idea["id"],
+                      f"'{idea['title']}' was prioritized into the portfolio — an AI business case is next.")
+            return {"result": db.update_idea(body.subject_id, "prioritized")}
+        if decision == "hold":
+            if idea["status"] not in ("qualified", "prioritized"):
+                raise HTTPException(400, "Only qualified/prioritized ideas can be held")
+            db.notify(idea.get("submitter"), "idea", idea["id"],
+                      f"'{idea['title']}' is on the backlog — qualified, awaiting portfolio capacity.")
+            return {"result": db.update_idea(body.subject_id, "backlog")}
+        if decision == "develop":
+            if idea["status"] != "prioritized":
+                raise HTTPException(400, "Business cases are developed for prioritized ideas only")
             return {"result": _promote_idea(idea)}
-        if body.decision == "reject":
+        if decision == "reject":
             db.notify(
                 idea.get("submitter"), "idea", idea["id"],
                 f"Your idea '{idea['title']}' was not taken forward."
@@ -667,6 +720,12 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
         if next_stage is None:
             raise HTTPException(
                 400, f"Cases in stage '{case['stage']}' advance via /implement or automation"
+            )
+        if case["stage"] == "approved" and case["funding"]["released"] <= 0:
+            raise HTTPException(
+                400,
+                "Funding gate: release a funding tranche before mobilizing into delivery "
+                "(plan and release tranches on this case).",
             )
         db.notify(submitter, "case", case["id"],
                   f"'{case['title']}' advanced to {next_stage.replace('_', ' ')}.")
@@ -780,6 +839,16 @@ def demo_generate(body: DemoRequest) -> Dict[str, Any]:
             source="demo",
         )
         created += 1
+    # walk the first ideas through the early gates so the stage-gate pipeline
+    # presents with life in it (no AI spend — cases stay ungenerated)
+    generated = [i for i in db.list_ideas() if i["source"] == "demo"]
+    for idea in generated[:3]:
+        db.update_idea(idea["id"], "qualified")
+        db.add_workflow_event("idea", idea["id"], "qualify", "demo studio", "seeded by demo studio")
+    for idea in generated[:1]:
+        db.update_idea(idea["id"], "prioritized")
+        db.add_workflow_event("idea", idea["id"], "prioritize", "demo studio", "seeded by demo studio")
+
     info = demo.mark_active(
         body.client.strip(), body.industry.strip(),
         portfolio_spec["generated_by"], len(initiative_ids), created,
@@ -1059,6 +1128,50 @@ def replicate_pattern(case_id: str, body: ReplicateRequest) -> Dict[str, Any]:
     )
     db.add_workflow_event("case", clone["id"], "replicated", None, f"from {source['id']}")
     return clone
+
+
+@app.get("/api/lifecycle")
+def lifecycle() -> Dict[str, Any]:
+    """The stage-gate model with live counts, plus the portfolio register
+    (impact vs readiness) for qualified/prioritized ideas."""
+    ideas = db.list_ideas()
+    cases = db.list_business_cases()
+    idea_counts = {stage: 0 for stage in hub.IDEA_STAGES}
+    for i in ideas:
+        if i["status"] in idea_counts:
+            idea_counts[i["status"]] += 1
+    case_counts = {stage: 0 for stage in db.STAGES}
+    for c in cases:
+        case_counts[c["stage"]] = case_counts.get(c["stage"], 0) + 1
+
+    register = []
+    for i in ideas:
+        if i["status"] not in ("qualified", "prioritized"):
+            continue
+        a = i.get("assessment") or {}
+        components = a.get("score_components") or {}
+        register.append({
+            "id": i["id"],
+            "title": i["title"],
+            "status": i["status"],
+            "impact": a.get("estimated_annual_benefit")
+                      or i.get("estimated_annual_benefit") or 0,
+            "readiness": round(
+                (components.get("data_grounding", 0) + components.get("completeness", 0)) / 2, 3),
+            "score": a.get("score", 0),
+            "votes": i.get("vote_count", 0),
+        })
+
+    return {
+        "spec": hub.LIFECYCLE_SPEC,
+        "idea_counts": idea_counts,
+        "idea_terminal": {
+            "backlog": sum(1 for i in ideas if i["status"] == "backlog"),
+            "declined": sum(1 for i in ideas if i["status"] == "declined"),
+        },
+        "case_counts": case_counts,
+        "register": register,
+    }
 
 
 @app.post("/api/automation/run")

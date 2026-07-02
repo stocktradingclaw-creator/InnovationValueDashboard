@@ -26,6 +26,16 @@ advancement — so leaders make decisions instead of doing paperwork.
   reject / feedback, stage-by-stage lifecycle advancement, a live pipeline
   board (stage columns with forecast + verified value), scoring-framework and
   governance editors, and a full decision history
+- **Stage-gate idea-to-portfolio lifecycle** — ideas advance through formal
+  gates modeled on enterprise portfolio governance: *proposed* →
+  (Qualification gate: sponsor, no existing solution, alignment, guardrails —
+  auto-computed checklist) → *qualified* → (Prioritization gate: impact vs
+  capability/capacity, with a portfolio-register 2×2) → *prioritized* →
+  (AI develops the business case with frozen evidence baseline) →
+  *business_case* → executive review → approval → **funding gate** (a
+  released tranche is required to mobilize into delivery). Each gate maps to
+  a governance area; a lifecycle strip shows live counts across every stage;
+  `hold` parks qualified ideas on the backlog
 - **AI-driven validation** — automatic heuristic triage on every idea
   (consistent, instant) plus on-demand Claude evaluation (measurability,
   categorization, missing information, duplicate risk)

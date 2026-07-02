@@ -220,7 +220,7 @@ export interface Idea {
   description: string
   submitter: string | null
   submitted_at: string
-  status: 'triaged' | 'promoted' | 'declined'
+  status: 'proposed' | 'qualified' | 'prioritized' | 'business_case' | 'backlog' | 'declined'
   assessment: IdeaAssessment | null
   promoted_case_id: string | null
   category: string | null
@@ -342,8 +342,48 @@ export interface WorkflowEvent {
   comment: string | null
 }
 
+export interface GateCheck {
+  check: string
+  passed: boolean
+}
+
+export interface QueuedIdea extends Idea {
+  gate_checklist: GateCheck[]
+}
+
+export interface LifecycleStage {
+  stage: string
+  step: string
+  gate: string
+  forum: string
+  purpose: string
+  criteria: string[]
+  decisions: string[]
+}
+
+export interface Lifecycle {
+  spec: LifecycleStage[]
+  idea_counts: Record<string, number>
+  idea_terminal: { backlog: number; declined: number }
+  case_counts: Record<string, number>
+  register: {
+    id: string
+    title: string
+    status: string
+    impact: number
+    readiness: number
+    score: number
+    votes: number
+  }[]
+}
+
 export interface CommandQueue {
-  ideas_pending: Idea[]
+  idea_queues: {
+    screening: QueuedIdea[]
+    prioritization: QueuedIdea[]
+    development: QueuedIdea[]
+    backlog: Idea[]
+  }
   cases_pending_approval: BusinessCase[]
   cases_in_experiment: BusinessCase[]
   cases_in_motion: BusinessCase[]
