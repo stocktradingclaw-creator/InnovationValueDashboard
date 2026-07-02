@@ -1477,12 +1477,22 @@ def test_idea_tags_multiple_objectives(client):
 
 def test_description_assist(client):
     # generate mode: scaffold from title, clearly labeled, nothing invented
+    client.post("/api/datasets/load-samples")
     r = client.post("/api/ideas/assist", json={"title": "Automate invoice matching"})
     assert r.status_code == 200
     body = r.json()
     assert body["mode"] == "generate"
     assert body["generated_by"] == "template"
-    assert "<" in body["draft"]  # placeholders, not fabricated facts
+    # a complete, populated draft — no fill-in placeholders
+    assert "<" not in body["draft"]
+    for section in ("Problem today:", "Proposed change:", "Who benefits:", "Expected outcome:"):
+        assert section in body["draft"]
+    assert "Automate invoice matching" in body["draft"]
+
+    # a title matching detected opportunities grounds the draft in real data
+    grounded = client.post("/api/ideas/assist",
+                           json={"title": "Decommission idle cloud instances"}).json()
+    assert "$" in grounded["draft"] or "cloud" in grounded["draft"].lower()
 
     # improve mode: heuristic suggestions for a thin description
     r = client.post("/api/ideas/assist", json={

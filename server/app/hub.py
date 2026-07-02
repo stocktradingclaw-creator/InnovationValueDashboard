@@ -429,7 +429,73 @@ def triage_idea(
 
 # ------------------------------------------------------------ AI evaluation
 
-def assist_idea_description(title: str, description: str = "") -> Dict[str, Any]:
+_DOMAIN_DRAFTS = [
+    (("cloud", "vm", "instance", "server", "infrastructure", "compute"),
+     "cloud infrastructure runs over-provisioned and partly idle, so spend grows faster than usage",
+     "the platform and finance teams", "reduce run-rate cloud spend within two quarters"),
+    (("license", "licenses", "software", "subscription", "tool", "tools"),
+     "overlapping tools and unused licenses accumulate quietly across teams",
+     "IT asset management and every budget owner", "cut software spend without losing capability"),
+    (("ticket", "support", "helpdesk", "service desk", "reset", "password"),
+     "high-volume, repetitive requests crowd the service desk and keep users waiting",
+     "service-desk agents and every employee who raises a ticket",
+     "deflect routine requests to self-service and cut resolution time"),
+    (("invoice", "payment", "procurement", "vendor", "finance", "expense"),
+     "finance staff manually reconcile and chase transactions that software could match",
+     "the finance operations team and suppliers awaiting payment",
+     "shrink manual exception handling and pay suppliers on time"),
+    (("onboarding", "hr", "employee", "provisioning", "training"),
+     "new joiners wait days for accounts, hardware, and access provisioned by checklist",
+     "new employees and the teams waiting for them to be productive",
+     "cut time-to-productive from days to hours"),
+    (("report", "reporting", "dashboard", "analytics", "data"),
+     "teams assemble reports by hand from scattered sources, so decisions wait on stale numbers",
+     "managers who decide with the numbers, and the analysts who compile them",
+     "give decision-makers live, trusted numbers without manual assembly"),
+    (("automate", "automation", "manual", "process", "workflow", "rpa"),
+     "a repetitive manual process consumes skilled people's time and introduces errors",
+     "the team performing the work today", "free capacity and remove rework"),
+]
+
+
+def _template_draft(title: str, opportunities: Optional[List[Dict[str, Any]]]) -> str:
+    """Compose a complete draft from what the hub already knows: the matched
+    opportunity from the customer's own data when one exists, otherwise a
+    domain template chosen by the title's subject matter."""
+    idea_tokens = _tokens(title)
+    best = None
+    for opp in opportunities or []:
+        overlap = len(idea_tokens & _tokens(f"{opp['title']} {opp['category']} {opp['description']}"))
+        if overlap >= 2 and (best is None or overlap > best[0]):
+            best = (overlap, opp)
+    if best:
+        opp = best[1]
+        return (
+            f"Problem today: {opp['description'].rstrip('.')} — detected in our own data, "
+            f"affecting {opp.get('affected_count', 'multiple')} items. "
+            f"Proposed change: {title.rstrip('.')}. "
+            f"Who benefits: the teams behind '{opp['category']}' operations. "
+            f"Expected outcome: approximately ${opp['estimated_annual_savings']:,.0f}/yr, "
+            f"based on the matched opportunity ({opp['id']})."
+        )
+    low = title.lower()
+    for keywords, problem, who, outcome in _DOMAIN_DRAFTS:
+        if any(k in low for k in keywords):
+            return (f"Problem today: {problem}. "
+                    f"Proposed change: {title.rstrip('.')}. "
+                    f"Who benefits: {who}. "
+                    f"Expected outcome: {outcome}; we will quantify the annual value "
+                    "against a measured baseline before approval.")
+    return (f"Problem today: the work this addresses is done manually or not at all, "
+            f"and its cost is invisible until measured. "
+            f"Proposed change: {title.rstrip('.')}. "
+            f"Who benefits: the team closest to this work — name them before submitting. "
+            f"Expected outcome: a measurable reduction in time or cost; add a rough "
+            "annual estimate so triage can prioritize it.")
+
+
+def assist_idea_description(title: str, description: str = "",
+                            opportunities: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Draft a description from the title, or review a submitter's own text and
     recommend improvements. Template mode never invents facts: it returns a
     fill-in scaffold or suggestions only, clearly labeled."""
@@ -459,15 +525,11 @@ def assist_idea_description(title: str, description: str = "") -> Dict[str, Any]
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         if mode == "generate":
-            draft = (
-                f"Problem today: <describe what is slow, manual, or costly that '{title}' addresses>. "
-                "Proposed change: <what would be built or changed>. "
-                "Who benefits: <the team or customer group affected>. "
-                "Expected outcome: <a measurable change, e.g. hours saved per week or $ per year>."
-            )
-            return {"mode": mode, "draft": draft, "generated_by": "template",
-                    "suggestions": ["No AI key configured — this is a fill-in scaffold, "
-                                    "not generated content. Replace each <placeholder>."]}
+            return {"mode": mode, "draft": _template_draft(title, opportunities),
+                    "generated_by": "template",
+                    "suggestions": ["Drafted from the hub's detected-opportunity data and "
+                                    "domain templates — verify the specifics and adjust "
+                                    "numbers before submitting."]}
         return {"mode": mode, "draft": description, "generated_by": "template",
                 "suggestions": _heuristic_suggestions(description)
                 or ["Reads well — covers the problem, beneficiary, and a measurable outcome."]}
@@ -514,8 +576,7 @@ def assist_idea_description(title: str, description: str = "") -> Dict[str, Any]
             base["draft"] = description
             base["suggestions"] += _heuristic_suggestions(description)
         else:
-            base["draft"] = (f"Problem today: <what '{title}' addresses>. Proposed change: <what changes>. "
-                             "Who benefits: <who>. Expected outcome: <measurable change>.")
+            base["draft"] = _template_draft(title, opportunities)
         return base
 
 

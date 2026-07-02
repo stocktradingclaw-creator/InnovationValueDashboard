@@ -469,7 +469,8 @@ class AssistRequest(BaseModel):
 def assist_description(body: AssistRequest) -> Dict[str, Any]:
     if not body.title.strip():
         raise HTTPException(400, "a title is required before the hub can help with the description")
-    return hub.assist_idea_description(body.title.strip(), (body.description or "").strip())
+    return hub.assist_idea_description(body.title.strip(), (body.description or "").strip(),
+                                       opportunities=_prioritized_opps())
 
 
 @app.post("/api/ideas")
