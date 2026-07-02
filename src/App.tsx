@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getBusinessCases, getDashboard, getDatasets, getIdeas, getOpportunities, getPortfolioDiagnostic } from './api'
+import { demoRevert, getBusinessCases, getDashboard, getDatasets, getDemoStatus, getIdeas, getOpportunities, getPortfolioDiagnostic } from './api'
 import BusinessCases from './components/BusinessCases'
 import CommandCenter from './components/CommandCenter'
 import Dashboard from './components/Dashboard'
@@ -11,6 +11,7 @@ import Tracking from './components/Tracking'
 import type {
   BusinessCase,
   DashboardData,
+  DemoStatus,
   Idea,
   Opportunity,
   PortfolioReport,
@@ -38,6 +39,7 @@ export default function App() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [portfolioReport, setPortfolioReport] = useState<PortfolioReport | null>(null)
   const [ideas, setIdeas] = useState<Idea[]>([])
+  const [demoStatus, setDemoStatus] = useState<DemoStatus | null>(null)
   const [sources, setSources] = useState<SourceStatus[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [total, setTotal] = useState(0)
@@ -61,6 +63,7 @@ export default function App() {
       setSummary(opps.prioritization.summary)
       setCases(bcs.business_cases)
       setIdeas((await getIdeas().catch(() => ({ ideas: [] }))).ideas)
+      setDemoStatus((await getDemoStatus().catch(() => ({ demo: null, industries: [] }))).demo)
       setPortfolioReport(await getPortfolioDiagnostic().catch(() => null))
       setOffline(false)
     } catch {
@@ -110,6 +113,24 @@ export default function App() {
           </button>
         </nav>
       </header>
+
+      {demoStatus && (
+        <div className="banner-demo">
+          <span>
+            <strong>Demo portfolio active:</strong> {demoStatus.client} ({demoStatus.industry}) —
+            data shown is illustrative for this presentation.
+          </span>
+          <button
+            className="secondary"
+            onClick={async () => {
+              await demoRevert().catch(() => {})
+              refresh()
+            }}
+          >
+            Revert to baseline
+          </button>
+        </div>
+      )}
 
       {offline && (
         <div className="banner-error">

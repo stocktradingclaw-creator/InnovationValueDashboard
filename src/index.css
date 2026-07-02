@@ -1106,3 +1106,35 @@ li {
   justify-content: center;
   margin-top: 1.2rem;
 }
+
+.banner-demo {
+  background: rgba(121, 184, 255, 0.1);
+  border: 1px solid #79b8ff;
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  margin-bottom: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.demo-studio {
+  border-color: #79b8ff;
+}
+
+.initiative-row {
+  margin-bottom: 0.9rem;
+}
+
+.initiative-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+}
+
+.funnel-track.thin {
+  height: 8px;
+  margin-top: 3px;
+}

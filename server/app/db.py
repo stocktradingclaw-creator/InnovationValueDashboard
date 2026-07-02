@@ -136,6 +136,12 @@ CREATE TABLE IF NOT EXISTS challenges (
     created_at TEXT NOT NULL,
     closes_at  TEXT
 );
+CREATE TABLE IF NOT EXISTS strategic_initiatives (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    objective  TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS idea_comments (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     idea_id    TEXT NOT NULL REFERENCES ideas(id),
@@ -196,6 +202,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if idea_cols and "beneficiary" not in idea_cols:
         conn.execute("ALTER TABLE ideas ADD COLUMN beneficiary TEXT")
         conn.execute("ALTER TABLE ideas ADD COLUMN pain_point TEXT")
+    if idea_cols and "initiative_id" not in idea_cols:
+        conn.execute("ALTER TABLE ideas ADD COLUMN initiative_id TEXT")
+    if "initiative_id" not in cols:
+        conn.execute("ALTER TABLE business_cases ADD COLUMN initiative_id TEXT")
 
 
 @contextmanager
@@ -278,19 +288,20 @@ def create_business_case(
     linked_opportunity: Optional[Dict[str, Any]],
     stage: str = "proposed",
     horizon: str = "h1",
+    initiative_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     case_id = f"BC-{uuid.uuid4().hex[:8]}"
     submitted_at = _now()
     with _conn() as conn:
         conn.execute(
             "INSERT INTO business_cases (id, title, description, estimated_cost, submitted_at, "
-            "roi_plan_json, generated_by, note, linked_opportunity_json, stage, horizon) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "roi_plan_json, generated_by, note, linked_opportunity_json, stage, horizon, "
+            "initiative_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 case_id, title, description, estimated_cost, submitted_at,
                 json.dumps(roi_plan), generated_by, note,
                 json.dumps(linked_opportunity) if linked_opportunity else None,
-                stage, horizon,
+                stage, horizon, initiative_id,
             ),
         )
         conn.execute(
@@ -390,6 +401,7 @@ def _case_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict[str, Any]
         "status": row["status"],
         "stage": row["stage"],
         "horizon": row["horizon"],
+        "initiative_id": row["initiative_id"],
         "go_live_date": row["go_live_date"],
         "experiments": experiments,
         "funding": {
@@ -497,18 +509,19 @@ def create_idea(
     challenge_id: Optional[str] = None,
     beneficiary: Optional[str] = None,
     pain_point: Optional[str] = None,
+    initiative_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     idea_id = f"IDEA-{uuid.uuid4().hex[:8]}"
     with _conn() as conn:
         conn.execute(
             "INSERT INTO ideas (id, title, description, submitter, submitted_at, status, "
             "assessment_json, category, estimated_annual_benefit, source, benefit_type, "
-            "horizon, challenge_id, beneficiary, pain_point) "
-            "VALUES (?, ?, ?, ?, ?, 'triaged', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "horizon, challenge_id, beneficiary, pain_point, initiative_id) "
+            "VALUES (?, ?, ?, ?, ?, 'triaged', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (idea_id, title, description, submitter, submitted_at or _now(),
              json.dumps(assessment) if assessment else None,
              category, estimated_annual_benefit, source, benefit_type, horizon, challenge_id,
-             beneficiary, pain_point),
+             beneficiary, pain_point, initiative_id),
         )
     return get_idea(idea_id)  # type: ignore[return-value]
 
@@ -547,6 +560,7 @@ def _idea_from_row(row: sqlite3.Row) -> Dict[str, Any]:
         "challenge_id": row["challenge_id"],
         "beneficiary": row["beneficiary"],
         "pain_point": row["pain_point"],
+        "initiative_id": row["initiative_id"],
         **_idea_social(row["id"]),
     }
 
@@ -898,5 +912,34 @@ def learnings(limit: int = 50) -> List[Dict[str, Any]]:
             "FROM experiments e JOIN business_cases b ON b.id = e.case_id "
             "WHERE e.concluded_at IS NOT NULL ORDER BY e.concluded_at DESC LIMIT ?",
             (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ------------------------------------------------------- strategic initiatives
+
+def create_initiative(name: str, objective: str) -> Dict[str, Any]:
+    initiative_id = f"SI-{uuid.uuid4().hex[:8]}"
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO strategic_initiatives (id, name, objective, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (initiative_id, name, objective, _now()),
+        )
+    return get_initiative(initiative_id)  # type: ignore[return-value]
+
+
+def get_initiative(initiative_id: str) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM strategic_initiatives WHERE id = ?", (initiative_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_initiatives() -> List[Dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM strategic_initiatives ORDER BY created_at"
         ).fetchall()
     return [dict(r) for r in rows]

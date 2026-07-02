@@ -231,6 +231,7 @@ export interface Idea {
   challenge_id: string | null
   beneficiary: string | null
   pain_point: string | null
+  initiative_id: string | null
   comments: IdeaComment[]
   voters: string[]
   vote_count: number
@@ -273,6 +274,27 @@ export interface Challenge {
   created_at: string
   closes_at: string | null
   ideas_count: number
+}
+
+export interface Initiative {
+  id: string
+  name: string
+  objective: string
+  created_at: string
+  ideas_count: number
+  cases_count: number
+  estimated_idea_benefit: number
+  forecast_annual_savings: number
+  verified_annual_savings: number
+}
+
+export interface DemoStatus {
+  client: string
+  industry: string
+  generated_by: string
+  initiatives: number
+  ideas: number
+  generated_at: string
 }
 
 export interface Notification {
@@ -454,6 +476,7 @@ export interface BusinessCase {
   status: 'proposed' | 'implemented'
   stage: Stage
   horizon: string
+  initiative_id: string | null
   experiments: Experiment[]
   funding: Funding
   stage_history: { stage: Stage; entered_at: string }[]

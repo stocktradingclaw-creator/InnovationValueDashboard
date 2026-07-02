@@ -205,6 +205,7 @@ def triage_idea(
     benefit_type: Optional[str] = None,
     horizon: Optional[str] = None,
     challenge: Optional[Dict[str, Any]] = None,
+    initiative: Optional[Dict[str, Any]] = None,
     existing_ideas: Optional[List[Dict[str, Any]]] = None,
     beneficiary: Optional[str] = None,
     pain_point: Optional[str] = None,
@@ -286,6 +287,8 @@ def triage_idea(
     alignment_score = 1.0 if idea_tokens & theme_tokens else 0.0
     if challenge and challenge.get("status") == "active":
         alignment_score = 1.0  # answering a leadership challenge is aligned by definition
+    if initiative:
+        alignment_score = 1.0  # tagged to a declared strategic initiative
     provided = [
         bool(category), estimated_annual_benefit is not None, len(description) >= 80,
     ]

@@ -1083,3 +1083,71 @@ def test_pattern_story_format(client):
     assert pattern["story"]["problem"].startswith("Idle instances")
     assert "what_we_tried" in pattern["story"]
     assert "human_evidence" in pattern["story"]
+
+
+# --------------------------------------------- strategic initiatives & demo
+
+def test_initiative_tagging_and_rollup(client):
+    client.post("/api/datasets/load-samples")
+    initiative = client.post("/api/initiatives", json={
+        "name": "Cloud cost excellence",
+        "objective": "Cut cloud run-rate 20% without slowing delivery.",
+    }).json()
+
+    idea = client.post("/api/ideas", json={
+        "title": "Terminate idle cloud instances",
+        "description": "Several instances run under 5% CPU; terminate them.",
+        "initiative_id": initiative["id"],
+    }).json()
+    assert idea["initiative_id"] == initiative["id"]
+    # initiative tag counts as strategic alignment
+    assert idea["assessment"]["score_components"]["alignment"] == 1.0
+    assert client.post("/api/ideas", json={
+        "title": "x", "description": "y", "initiative_id": "SI-nope",
+    }).status_code == 400
+
+    # promotion carries the tag to the case; rollup aggregates the chain
+    promoted = client.post(f"/api/ideas/{idea['id']}/promote").json()
+    assert promoted["case"]["initiative_id"] == initiative["id"]
+    rollup = client.get("/api/initiatives").json()["initiatives"][0]
+    assert rollup["ideas_count"] == 1
+    assert rollup["cases_count"] == 1
+    assert rollup["forecast_annual_savings"] == 27360.0
+
+
+def test_demo_generate_and_revert(client):
+    client.post("/api/datasets/load-samples")
+    baseline_ideas = len(client.get("/api/ideas").json()["ideas"])
+    baseline_initiatives = len(client.get("/api/initiatives").json()["initiatives"])
+
+    resp = client.post("/api/demo/generate", json={
+        "client": "Meridian Health", "industry": "healthcare",
+    })
+    assert resp.status_code == 200
+    info = resp.json()["demo"]
+    assert info["generated_by"] == "template"  # no API key in tests
+    assert info["initiatives"] == 3 and info["ideas"] == 6
+
+    # portfolio is live: tagged, triaged, client-branded
+    ideas = client.get("/api/ideas").json()["ideas"]
+    demo_ideas = [i for i in ideas if i["source"] == "demo"]
+    assert len(demo_ideas) == 6
+    assert all(i["initiative_id"] for i in demo_ideas)
+    assert all(i["assessment"]["score"] > 0 for i in demo_ideas)
+    first_initiative = client.get("/api/initiatives").json()["initiatives"][0]
+    assert "Meridian Health" in first_initiative["objective"]
+    assert client.get("/api/demo/status").json()["demo"]["client"] == "Meridian Health"
+
+    # one demo at a time
+    assert client.post("/api/demo/generate", json={
+        "client": "Other Co", "industry": "retail",
+    }).status_code == 400
+
+    # revert restores the exact pre-demo state — no bloat
+    resp = client.post("/api/demo/revert")
+    assert resp.status_code == 200
+    assert len(client.get("/api/ideas").json()["ideas"]) == baseline_ideas
+    assert len(client.get("/api/initiatives").json()["initiatives"]) == baseline_initiatives
+    assert client.get("/api/demo/status").json()["demo"] is None
+    # nothing to revert twice
+    assert client.post("/api/demo/revert").status_code == 400

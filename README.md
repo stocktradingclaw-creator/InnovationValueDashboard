@@ -37,6 +37,16 @@ advancement — so leaders make decisions instead of doing paperwork.
 - **Pipeline visualization** — stage funnel, automation activity, and
   time-to-value medians on the executive Overview; full board in the
   command center
+- **Strategic initiatives** — declare leadership objectives; ideas tag to an
+  initiative at intake (counting as strategic alignment in scoring), cases
+  inherit the tag on promotion, and the dashboard rolls value up per
+  initiative (ideas → cases → proposed → verified)
+- **Demo studio** — pick an industry and client name and generate a tailored
+  portfolio of initiatives + triaged ideas (Claude-generated with an API key,
+  deterministic industry templates without). The database is snapshotted
+  before generation; **Revert to baseline** restores the exact pre-demo state
+  so presentation data never bloats. A banner marks demo data as illustrative
+  while active
 
 ## Architecture
 

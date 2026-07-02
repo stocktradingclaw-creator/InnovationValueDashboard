@@ -151,6 +151,7 @@ export function submitIdea(body: {
   challenge_id?: string
   beneficiary?: string
   pain_point?: string
+  initiative_id?: string
 }) {
   return request<import('./types').Idea>('/api/ideas', json(body))
 }
@@ -276,4 +277,28 @@ export function voteIdea(id: string, voter: string) {
 
 export function getLearnings() {
   return request<{ learnings: import('./types').Learning[] }>('/api/learnings')
+}
+
+export function getInitiatives() {
+  return request<{ initiatives: import('./types').Initiative[] }>('/api/initiatives')
+}
+
+export function createInitiative(body: { name: string; objective: string }) {
+  return request<import('./types').Initiative>('/api/initiatives', json(body))
+}
+
+export function getDemoStatus() {
+  return request<{ demo: import('./types').DemoStatus | null; industries: string[] }>(
+    '/api/demo/status',
+  )
+}
+
+export function demoGenerate(body: { client: string; industry: string; notes?: string }) {
+  return request<{ demo: import('./types').DemoStatus }>('/api/demo/generate', json(body))
+}
+
+export function demoRevert() {
+  return request<{ reverted: import('./types').DemoStatus }>('/api/demo/revert', {
+    method: 'POST',
+  })
 }

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useEffect } from 'react'
-import { commentOnIdea, evaluateIdea, getChallenges, getNotifications, importIdeas, money, submitIdea, voteIdea } from '../api'
-import type { Challenge, Idea, Notification } from '../types'
+import { commentOnIdea, evaluateIdea, getChallenges, getInitiatives, getNotifications, importIdeas, money, submitIdea, voteIdea } from '../api'
+import type { Challenge, Idea, Initiative, Notification } from '../types'
 
 interface Props {
   ideas: Idea[]
@@ -23,7 +23,7 @@ const BENEFIT_TYPES = [
   ['strategic', 'Strategic capability'],
 ]
 
-function SubmitForm({ challenges, onChanged }: { challenges: Challenge[]; onChanged: () => void }) {
+function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challenge[]; initiatives: Initiative[]; onChanged: () => void }) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [submitter, setSubmitter] = useState('')
@@ -31,6 +31,7 @@ function SubmitForm({ challenges, onChanged }: { challenges: Challenge[]; onChan
   const [benefit, setBenefit] = useState('')
   const [benefitType, setBenefitType] = useState('')
   const [challengeId, setChallengeId] = useState('')
+  const [initiativeId, setInitiativeId] = useState('')
   const [beneficiary, setBeneficiary] = useState('')
   const [painPoint, setPainPoint] = useState('')
   const [busy, setBusy] = useState(false)
@@ -59,11 +60,12 @@ function SubmitForm({ challenges, onChanged }: { challenges: Challenge[]; onChan
         estimated_annual_benefit: benefit ? Number(benefit) : null,
         benefit_type: benefitType || undefined,
         challenge_id: challengeId || undefined,
+        initiative_id: initiativeId || undefined,
         beneficiary: beneficiary || undefined,
         pain_point: painPoint || undefined,
       })
       setTitle(''); setDescription(''); setSubmitter(''); setCategory(''); setBenefit('')
-      setBenefitType(''); setChallengeId(''); setBeneficiary(''); setPainPoint('')
+      setBenefitType(''); setChallengeId(''); setInitiativeId(''); setBeneficiary(''); setPainPoint('')
       onChanged()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -104,6 +106,14 @@ function SubmitForm({ challenges, onChanged }: { challenges: Challenge[]; onChan
           <option value="">Benefit type (hub will default to cost reduction)</option>
           {BENEFIT_TYPES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
+        {initiatives.length > 0 && (
+          <select value={initiativeId} onChange={(e) => setInitiativeId(e.target.value)}>
+            <option value="">No strategic initiative</option>
+            {initiatives.map((i) => (
+              <option key={i.id} value={i.id}>Initiative: {i.name}</option>
+            ))}
+          </select>
+        )}
         {activeChallenges.length > 0 && (
           <select value={challengeId} onChange={(e) => setChallengeId(e.target.value)}>
             <option value="">Not answering a challenge</option>
@@ -292,15 +302,19 @@ export default function Ideas({ ideas, onChanged }: Props) {
   const [filter, setFilter] = useState('all')
   const [who, setWho] = useState('')
   const [challenges, setChallenges] = useState<Challenge[]>([])
+  const [initiatives, setInitiatives] = useState<Initiative[]>([])
+  const [initiativeFilter, setInitiativeFilter] = useState('all')
   const [notifyName, setNotifyName] = useState('')
   const [notifications, setNotifications] = useState<Notification[] | null>(null)
 
   useEffect(() => {
     getChallenges().then((r) => setChallenges(r.challenges)).catch(() => {})
+    getInitiatives().then((r) => setInitiatives(r.initiatives)).catch(() => {})
   }, [ideas.length])
 
   const filtered = ideas.filter((i) => {
     if (filter !== 'all' && i.status !== filter) return false
+    if (initiativeFilter !== 'all' && i.initiative_id !== initiativeFilter) return false
     if (who && !(i.submitter ?? '').toLowerCase().includes(who.toLowerCase())) return false
     return true
   })
@@ -355,7 +369,7 @@ export default function Ideas({ ideas, onChanged }: Props) {
         </div>
       )}
 
-      <SubmitForm challenges={challenges} onChanged={onChanged} />
+      <SubmitForm challenges={challenges} initiatives={initiatives} onChanged={onChanged} />
 
       <div className="card">
         <div className="row">
@@ -388,6 +402,28 @@ export default function Ideas({ ideas, onChanged }: Props) {
           )
         )}
       </div>
+
+      {initiatives.length > 0 && (
+        <div className="row filter-row">
+          <span className="muted small">Group by initiative:</span>
+          <button
+            className={initiativeFilter === 'all' ? 'chip chip-active' : 'chip'}
+            onClick={() => setInitiativeFilter('all')}
+          >
+            All
+          </button>
+          {initiatives.map((i) => (
+            <button
+              key={i.id}
+              className={initiativeFilter === i.id ? 'chip chip-active' : 'chip'}
+              onClick={() => setInitiativeFilter(i.id)}
+              title={i.objective}
+            >
+              {i.name} ({i.ideas_count})
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="row filter-row">
         {['all', 'triaged', 'promoted', 'declined'].map((s) => (

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { loadSamples, money } from '../api'
-import type { DashboardData, Decision, Quadrant, TimelineMonth } from '../types'
+import { useEffect } from 'react'
+import { getInitiatives } from '../api'
+import type { DashboardData, Decision, Initiative, Quadrant, TimelineMonth } from '../types'
 
 type NavTab = 'ideas' | 'command' | 'sources' | 'opportunities' | 'cases' | 'tracking' | 'portfolio'
 
@@ -120,6 +122,51 @@ function ValueOverTime({ months, breakEven }: { months: TimelineMonth[]; breakEv
           ) : null,
         )}
       </svg>
+    </div>
+  )
+}
+
+function InitiativeRollup() {
+  const [initiatives, setInitiatives] = useState<Initiative[]>([])
+  useEffect(() => {
+    getInitiatives().then((r) => setInitiatives(r.initiatives)).catch(() => {})
+  }, [])
+  const withActivity = initiatives.filter((i) => i.ideas_count + i.cases_count > 0)
+  if (withActivity.length === 0) return null
+  const maxValue = Math.max(
+    ...withActivity.map((i) =>
+      Math.max(i.forecast_annual_savings + i.estimated_idea_benefit, i.verified_annual_savings)),
+    1,
+  )
+  return (
+    <div className="card">
+      <h3>Value by strategic initiative</h3>
+      <p className="muted small">
+        Every idea and case rolls up to a leadership objective — proposed value in blue,
+        verified value in green.
+      </p>
+      {withActivity.map((i) => {
+        const proposed = i.forecast_annual_savings + i.estimated_idea_benefit
+        return (
+          <div key={i.id} className="initiative-row">
+            <div className="initiative-head">
+              <strong>{i.name}</strong>
+              <span className="muted small">
+                {i.ideas_count} ideas · {i.cases_count} cases
+              </span>
+            </div>
+            <div className="funnel-track">
+              <div className="funnel-bar stage-committed" style={{ width: `${(proposed / maxValue) * 100}%` }} />
+            </div>
+            <div className="funnel-track thin">
+              <div className="funnel-bar stage-verified" style={{ width: `${(i.verified_annual_savings / maxValue) * 100}%` }} />
+            </div>
+            <div className="muted small">
+              {money(proposed)}/yr proposed · <span className="savings">{money(i.verified_annual_savings)}/yr verified</span>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -267,6 +314,8 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
       </div>
 
       <DecisionQueue decisions={data.decisions} onNavigate={onNavigate} />
+
+      <InitiativeRollup />
 
       <div className="card hub-strip">
         <div className="hub-pipeline">

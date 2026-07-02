@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import (
-    calibration, connectors, db, hub, metrics, opportunities,
+    calibration, connectors, db, demo, hub, metrics, opportunities,
     portfolio, prioritization, roi, timeline,
 )
 from .ingestion import SOURCE_TYPES, IngestionError, normalize_rows, parse_csv
@@ -341,6 +341,7 @@ class IdeaRequest(BaseModel):
     challenge_id: Optional[str] = None
     beneficiary: Optional[str] = None
     pain_point: Optional[str] = None
+    initiative_id: Optional[str] = None
 
 
 def _prioritized_opps() -> List[Dict[str, Any]]:
@@ -357,12 +358,15 @@ def _ingest_idea(body: IdeaRequest, source: str,
     challenge = db.get_challenge(body.challenge_id) if body.challenge_id else None
     if body.challenge_id and challenge is None:
         raise HTTPException(400, f"Challenge '{body.challenge_id}' not found")
+    initiative = db.get_initiative(body.initiative_id) if body.initiative_id else None
+    if body.initiative_id and initiative is None:
+        raise HTTPException(400, f"Initiative '{body.initiative_id}' not found")
     opps = _prioritized_opps()
     assessment = hub.triage_idea(
         body.title, body.description, opps,
         category=body.category, estimated_annual_benefit=body.estimated_annual_benefit,
         benefit_type=body.benefit_type, horizon=body.horizon, challenge=challenge,
-        existing_ideas=db.list_ideas(),
+        initiative=initiative, existing_ideas=db.list_ideas(),
         beneficiary=body.beneficiary, pain_point=body.pain_point,
     )
     idea = db.create_idea(
@@ -376,6 +380,7 @@ def _ingest_idea(body: IdeaRequest, source: str,
         challenge_id=body.challenge_id,
         beneficiary=(body.beneficiary or "").strip() or None,
         pain_point=(body.pain_point or "").strip() or None,
+        initiative_id=body.initiative_id,
     )
     db.log_automation(
         "idea_triage", assessment["recommendation"], idea["id"],
@@ -484,6 +489,7 @@ def _promote_idea(idea: Dict[str, Any]) -> Dict[str, Any]:
         linked_opportunity=linked_opportunity,
         stage="proposed",
         horizon=idea.get("horizon") or "h1",
+        initiative_id=idea.get("initiative_id"),
     )
     db.notify(
         idea.get("submitter"), "idea", idea["id"],
@@ -691,6 +697,110 @@ def set_case_stage(case_id: str, body: StageRequest) -> Dict[str, Any]:
     return db.set_stage(case_id, body.stage)
 
 
+# ------------------------------------------------------ strategic initiatives
+
+class InitiativeRequest(BaseModel):
+    name: str
+    objective: str
+
+
+@app.post("/api/initiatives")
+def create_initiative(body: InitiativeRequest) -> Dict[str, Any]:
+    if not body.name.strip() or not body.objective.strip():
+        raise HTTPException(400, "name and objective are required")
+    return db.create_initiative(body.name.strip(), body.objective.strip())
+
+
+@app.get("/api/initiatives")
+def list_initiatives() -> Dict[str, Any]:
+    """Initiatives with value rollups: ideas -> cases -> forecast -> verified."""
+    ideas = db.list_ideas()
+    cases = db.list_business_cases()
+    rollups = []
+    for initiative in db.list_initiatives():
+        tagged_ideas = [i for i in ideas if i.get("initiative_id") == initiative["id"]]
+        tagged_cases = [c for c in cases if c.get("initiative_id") == initiative["id"]]
+        rollups.append({
+            **initiative,
+            "ideas_count": len(tagged_ideas),
+            "cases_count": len(tagged_cases),
+            "estimated_idea_benefit": round(sum(
+                i.get("estimated_annual_benefit") or
+                (i.get("assessment") or {}).get("estimated_annual_benefit") or 0
+                for i in tagged_ideas), 2),
+            "forecast_annual_savings": round(sum(
+                (c["linked_opportunity"] or {}).get("estimated_annual_savings") or 0
+                for c in tagged_cases), 2),
+            "verified_annual_savings": round(sum(
+                (c["tracking"] or {}).get("measured_annual_savings") or 0
+                for c in tagged_cases), 2),
+        })
+    return {"initiatives": rollups}
+
+
+# ------------------------------------------------------------------ demo studio
+
+class DemoRequest(BaseModel):
+    client: str
+    industry: str
+    notes: Optional[str] = None
+
+
+@app.post("/api/demo/generate")
+def demo_generate(body: DemoRequest) -> Dict[str, Any]:
+    if not body.client.strip() or not body.industry.strip():
+        raise HTTPException(400, "client and industry are required")
+    try:
+        demo.snapshot()  # baseline first — revert restores this exact state
+    except demo.DemoError as exc:
+        raise HTTPException(400, str(exc))
+
+    portfolio_spec = demo.build_portfolio(body.industry.strip(), body.client.strip(), body.notes)
+    initiative_ids = [
+        db.create_initiative(i["name"], i["objective"])["id"]
+        for i in portfolio_spec["initiatives"]
+    ]
+    created = 0
+    for spec in portfolio_spec["ideas"]:
+        index = spec.get("initiative_index") or 0
+        initiative_id = initiative_ids[index] if 0 <= index < len(initiative_ids) else None
+        benefit_type = spec.get("benefit_type")
+        if benefit_type not in hub.BENEFIT_TYPES:
+            benefit_type = "cost_reduction"
+        _ingest_idea(
+            IdeaRequest(
+                title=spec["title"], description=spec["description"],
+                submitter=f"{body.client.strip()} workshop",
+                category=spec.get("category"),
+                estimated_annual_benefit=spec.get("estimated_annual_benefit"),
+                benefit_type=benefit_type,
+                beneficiary=spec.get("beneficiary"), pain_point=spec.get("pain_point"),
+                initiative_id=initiative_id,
+            ),
+            source="demo",
+        )
+        created += 1
+    info = demo.mark_active(
+        body.client.strip(), body.industry.strip(),
+        portfolio_spec["generated_by"], len(initiative_ids), created,
+    )
+    return {"demo": info}
+
+
+@app.get("/api/demo/status")
+def demo_status() -> Dict[str, Any]:
+    return {"demo": demo.status(), "industries": demo.INDUSTRIES}
+
+
+@app.post("/api/demo/revert")
+def demo_revert() -> Dict[str, Any]:
+    try:
+        info = demo.revert()
+    except demo.DemoError as exc:
+        raise HTTPException(400, str(exc))
+    return {"reverted": info}
+
+
 # ------------------------------------------------------------------ challenges
 
 class ChallengeRequest(BaseModel):
@@ -825,13 +935,14 @@ def _rescore_idea(idea_id: str) -> Dict[str, Any]:
     evaluation, if present, is preserved."""
     idea = db.get_idea(idea_id)
     challenge = db.get_challenge(idea["challenge_id"]) if idea.get("challenge_id") else None
+    initiative = db.get_initiative(idea["initiative_id"]) if idea.get("initiative_id") else None
     others = [i for i in db.list_ideas() if i["id"] != idea_id]
     fresh = hub.triage_idea(
         idea["title"], idea["description"], _prioritized_opps(),
         category=idea.get("category"),
         estimated_annual_benefit=idea.get("estimated_annual_benefit"),
         benefit_type=idea.get("benefit_type"), horizon=idea.get("horizon"),
-        challenge=challenge, existing_ideas=others,
+        challenge=challenge, initiative=initiative, existing_ideas=others,
         beneficiary=idea.get("beneficiary"), pain_point=idea.get("pain_point"),
         votes=idea.get("vote_count", 0),
         build_ons=sum(1 for c in idea.get("comments", []) if c["build_on"]),
