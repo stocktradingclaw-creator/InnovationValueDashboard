@@ -1667,24 +1667,27 @@ main > section {
 
 .content { position: relative; }
 
-/* end-to-end lifecycle map */
-.lc-map { display: flex; gap: 0.8rem; align-items: stretch; margin-top: 0.8rem; flex-wrap: wrap; }
-.lc-phase { flex: 1; min-width: 260px; }
-.lc-phase-label {
-  display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--muted); margin-bottom: 0.5rem;
+/* end-to-end lifecycle map: phase bands on top, gates underneath */
+.lc-map { display: flex; gap: 0.5rem; align-items: stretch; margin-top: 0.8rem; flex-wrap: wrap; }
+.lc-phase-wrap { display: flex; gap: 0.5rem; flex: 1; min-width: 240px; }
+.lc-phase { flex: 1; display: flex; flex-direction: column; gap: 0.5rem; }
+.lc-phase-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem;
+  border-radius: 10px; padding: 0.5rem 0.8rem; border: 1px solid var(--border);
 }
-.lc-nodes { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.lc-phase-head strong { font-size: 0.9rem; }
+.lc-tone-idea { background: rgba(121, 184, 255, 0.10); border-color: rgba(121, 184, 255, 0.35); }
+.lc-tone-case { background: rgba(255, 171, 112, 0.10); border-color: rgba(255, 171, 112, 0.35); }
+.lc-tone-value { background: rgba(76, 195, 138, 0.10); border-color: rgba(76, 195, 138, 0.35); }
+.lc-nodes { display: flex; flex-wrap: wrap; gap: 0.45rem; align-content: flex-start; }
 .lc-node {
   display: flex; flex-direction: column; gap: 0.1rem;
   border: 1px solid var(--border); border-radius: 10px;
-  padding: 0.5rem 0.7rem; max-width: 190px; background: var(--surface-2);
+  padding: 0.5rem 0.7rem; flex: 1; min-width: 130px; max-width: 210px;
+  background: var(--surface-2);
 }
 .lc-node strong { font-size: 0.82rem; }
 .lc-node .small { font-size: 0.72rem; line-height: 1.25; }
-.lc-idea { border-left: 3px solid var(--info); }
-.lc-case { border-left: 3px solid var(--warn); }
-.lc-value { border-left: 3px solid var(--accent); }
 .lc-arrow { align-self: center; color: var(--accent-dim); font-size: 1.3rem; }
 
 .matrix-note { margin: 0.35rem 0 0; text-align: center; }

@@ -418,10 +418,13 @@ function DemoStudio({ onDone }: { onDone: () => void }) {
   )
 }
 
-const DELIVERY_PHASES: [string, string][] = [
+const CASE_GATES: [string, string][] = [
   ['AI business case', 'Hub drafts the ROI plan with frozen metric baselines'],
   ['Executive review', 'Value, opportunity cost, and ROI on the table'],
   ['Funding gate', 'A released tranche is required to mobilize'],
+]
+
+const VALUE_GATES: [string, string][] = [
   ['Delivery', 'Build and implement'],
   ['Live', 'Go-live starts the measurement clock'],
   ['Value verified', 'Re-observed against the frozen baseline'],
@@ -431,38 +434,44 @@ const DELIVERY_PHASES: [string, string][] = [
 function LifecycleMap() {
   const [steps, setSteps] = useState<WorkflowStep[]>([])
   useEffect(() => { getWorkflow().then((r) => setSteps(r.steps)).catch(() => {}) }, [])
+  const phases: { name: string; hint: string; tone: string; gates: [string, string][] }[] = [
+    {
+      name: 'Ideation',
+      hint: 'configurable below',
+      tone: 'lc-tone-idea',
+      gates: steps.map((st, i) => [`${i + 1}. ${st.label}`, st.gate] as [string, string]),
+    },
+    { name: 'Business case & funding', hint: 'fixed', tone: 'lc-tone-case', gates: CASE_GATES },
+    { name: 'Delivery & value', hint: 'fixed', tone: 'lc-tone-value', gates: VALUE_GATES },
+  ]
   return (
     <div className="card">
       <h3>The end-to-end innovation lifecycle</h3>
       <p className="muted small">
-        Every idea travels this path. The ideation gates below are yours to shape in the
-        workflow editor; the business-case, funding, and value phases are fixed so verified
-        ROI always means the same thing.
+        Every idea travels this path. The ideation gates are yours to shape in the workflow
+        editor below; the business-case, funding, and value phases are fixed so verified ROI
+        always means the same thing.
       </p>
       <div className="lc-map">
-        <div className="lc-phase">
-          <span className="lc-phase-label">Ideation — configurable</span>
-          <div className="lc-nodes">
-            {steps.map((st, i) => (
-              <span key={st.key} className="lc-node lc-idea" title={st.purpose}>
-                <strong>{i + 1}. {st.label}</strong>
-                <span className="muted small">{st.gate}</span>
-              </span>
-            ))}
+        {phases.map((ph, pi) => (
+          <div key={ph.name} className="lc-phase-wrap">
+            {pi > 0 && <span className="lc-arrow" aria-hidden="true">➜</span>}
+            <div className="lc-phase">
+              <div className={`lc-phase-head ${ph.tone}`}>
+                <strong>{ph.name}</strong>
+                <span className="muted small">{ph.hint}</span>
+              </div>
+              <div className="lc-nodes">
+                {ph.gates.map(([label, hint]) => (
+                  <span key={label} className="lc-node" title={hint}>
+                    <strong>{label}</strong>
+                    <span className="muted small">{hint}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
-        <span className="lc-arrow" aria-hidden="true">➜</span>
-        <div className="lc-phase">
-          <span className="lc-phase-label">Business case, funding &amp; value — fixed</span>
-          <div className="lc-nodes">
-            {DELIVERY_PHASES.map(([label, hint], i) => (
-              <span key={label} className={`lc-node ${i < 3 ? 'lc-case' : 'lc-value'}`} title={hint}>
-                <strong>{label}</strong>
-                <span className="muted small">{hint}</span>
-              </span>
-            ))}
-          </div>
-        </div>
+        ))}
       </div>
     </div>
   )
