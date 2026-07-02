@@ -421,16 +421,22 @@ def _ingest_idea(body: IdeaRequest, source: str,
     challenge = db.get_challenge(body.challenge_id) if body.challenge_id else None
     if body.challenge_id and challenge is None:
         raise HTTPException(400, f"Challenge '{body.challenge_id}' not found")
+    # tolerate stale tags (demo data can reset under an open browser): keep the
+    # idea, drop tags that no longer resolve, and say so in the assessment
     tag_ids: List[str] = []
+    dropped: List[str] = []
+    seen: List[str] = []
     for iid in ([body.initiative_id] if body.initiative_id else []) + (body.initiative_ids or []):
-        if iid and iid not in tag_ids:
-            tag_ids.append(iid)
+        if iid and iid not in seen:
+            seen.append(iid)
     initiatives = []
-    for iid in tag_ids:
+    for iid in seen:
         found = db.get_initiative(iid)
         if found is None:
-            raise HTTPException(400, f"Initiative '{iid}' not found")
-        initiatives.append(found)
+            dropped.append(iid)
+        else:
+            tag_ids.append(iid)
+            initiatives.append(found)
     initiative = initiatives[0] if initiatives else None
     opps = _prioritized_opps()
     assessment = hub.triage_idea(
@@ -440,6 +446,10 @@ def _ingest_idea(body: IdeaRequest, source: str,
         initiative=initiative, existing_ideas=db.list_ideas(),
         beneficiary=body.beneficiary, pain_point=body.pain_point,
     )
+    if dropped:
+        assessment.setdefault("enrichment", []).append(
+            "Dropped strategic-objective tag(s) that no longer exist "
+            f"({', '.join(dropped)}) — likely stale after a demo data reset.")
     idea = db.create_idea(
         body.title.strip(), body.description.strip(),
         (body.submitter or "").strip() or _session_name(), assessment,

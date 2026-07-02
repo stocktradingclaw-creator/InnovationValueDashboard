@@ -1141,9 +1141,10 @@ def test_initiative_tagging_and_rollup(client):
     assert idea["initiative_id"] == initiative["id"]
     # initiative tag counts as strategic alignment
     assert idea["assessment"]["score_components"]["alignment"] == 1.0
-    assert client.post("/api/ideas", json={
+    stale = client.post("/api/ideas", json={
         "title": "x", "description": "y", "initiative_id": "SI-nope",
-    }).status_code == 400
+    })
+    assert stale.status_code == 200 and stale.json()["initiative_ids"] == []
 
     # promotion carries the tag to the case; rollup aggregates the chain
     _walk_to_prioritized(client, idea["id"])
@@ -1463,10 +1464,14 @@ def test_idea_tags_multiple_objectives(client):
     assert rollups[a["id"]]["ideas_count"] == 1
     assert rollups[b["id"]]["ideas_count"] == 1
 
-    # unknown objective refused; legacy single-tag field still accepted
-    assert client.post("/api/ideas", json={
-        "title": "x", "description": "y", "initiative_ids": ["SI-nope"],
-    }).status_code == 400
+    # stale objective tags are dropped with a note, not fatal
+    r = client.post("/api/ideas", json={
+        "title": "Reduce paper archives", "description": "Digitize the records room.",
+        "initiative_ids": ["SI-nope"],
+    })
+    assert r.status_code == 200
+    assert r.json()["initiative_ids"] == []
+    assert any("no longer exist" in e for e in r.json()["assessment"]["enrichment"])
     legacy = client.post("/api/ideas", json={
         "title": "Warehouse slotting optimizer",
         "description": "Re-slot by velocity to cut picker travel time.",
@@ -1626,3 +1631,89 @@ def test_e2e_workflow_and_data_integrity(client):
                      "reject", "feedback", "approve", "experiment"}
     for i in mine["ideas"]:
         assert {h["action"] for h in i["history"]} <= legal_actions
+
+
+def test_e2e_uat_user_journeys(client):
+    """UAT: three personas walk the product end to end; assert that what each
+    of them sees at every moment is coherent with what actually happened."""
+    client.post("/api/datasets/load-samples")
+
+    # --- Sana (submitter) shares a thin idea, then a strong one -------------
+    thin = client.post("/api/ideas", json={
+        "title": "Better reports", "description": "Improve reports.",
+        "submitter": "Sana"}).json()
+    strong = client.post("/api/ideas", json={
+        "title": "Decommission idle cloud instances",
+        "description": "Instances idle under 5% CPU around the clock cost real money; "
+                       "schedule or decommission them with owner sign-off.",
+        "submitter": "Sana", "estimated_annual_benefit": 120000,
+        "beneficiary": "Platform team", "pain_point": "Budget overruns every quarter",
+    }).json()
+    # triage is coherent: substance scores above vagueness
+    assert strong["assessment"]["score"] > thin["assessment"]["score"]
+
+    # --- Rio (reviewer) sees exactly those ideas at the first gate ----------
+    q = client.get("/api/command/queue").json()
+    gate1 = {i["id"] for i in q["idea_steps"][0]["ideas"]}
+    assert {thin["id"], strong["id"]} <= gate1
+    # the gate checklist mirrors reality: strong idea has a sponsor, thin does too
+    checks = {c["check"]: c["passed"]
+              for c in next(i for i in q["idea_steps"][0]["ideas"]
+                            if i["id"] == strong["id"])["gate_checklist"]}
+    assert checks["Named business sponsor"] is True
+
+    # Rio asks for more info on the thin idea; Sana hears about it in her words
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": thin["id"], "decision": "feedback",
+        "actor": "Rio", "comment": "Which reports, and what decision do they drive?"})
+    notes = client.get("/api/notifications", params={"recipient": "Sana"}).json()["notifications"]
+    assert any("Better reports" in n["message"] for n in notes)
+    mine = client.get("/api/my-submissions", params={"submitter": "sana"}).json()
+    assert thin["id"] in mine["updates_needed"]
+    assert strong["id"] not in mine["updates_needed"]
+
+    # Rio advances the strong idea through both gates; the queue follows
+    for decision in ("qualify", "prioritize"):
+        client.post("/api/command/decide", json={
+            "subject_type": "idea", "subject_id": strong["id"],
+            "decision": decision, "actor": "Rio"})
+    q = client.get("/api/command/queue").json()
+    assert strong["id"] not in {i["id"] for i in q["idea_steps"][0]["ideas"]}
+    assert strong["id"] in {i["id"] for i in q["idea_steps"][-1]["ideas"]}
+
+    # develop: Sana is told her idea became a business case, and can see it
+    case = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": strong["id"],
+        "decision": "develop", "actor": "Rio"}).json()["result"]["case"]
+    notes = client.get("/api/notifications", params={"recipient": "Sana"}).json()["notifications"]
+    assert any(case["id"] in n["message"] for n in notes)
+    mine = client.get("/api/my-submissions", params={"submitter": "sana"}).json()
+    sana_strong = next(i for i in mine["ideas"] if i["id"] == strong["id"])
+    assert sana_strong["case_stage"] == "proposed"
+
+    # --- Eve (executive) finds the case waiting, funds it coherently --------
+    q = client.get("/api/command/queue").json()
+    assert case["id"] in {c["id"] for c in q["cases_pending_approval"]}
+    client.post("/api/command/decide", json={
+        "subject_type": "case", "subject_id": case["id"],
+        "decision": "approve", "actor": "Eve"})
+    client.post(f"/api/business-cases/{case['id']}/tranches", json={
+        "label": "Delivery", "amount": 40000, "milestone": "Go-live"})
+    fresh = client.get("/api/business-cases").json()["business_cases"]
+    fresh_case = next(c for c in fresh if c["id"] == case["id"])
+    tranche = fresh_case["funding"]["tranches"][0]
+    client.post(f"/api/business-cases/{case['id']}/tranches/{tranche['id']}/release",
+                json={"actor": "Eve"})
+
+    # after go-live, the value story stays honest: claimed is claimed,
+    # verified is computed, and the released tranche is the cost basis
+    client.post(f"/api/business-cases/{case['id']}/implement",
+                json={"go_live_date": "2026-04-01"})
+    client.post(f"/api/business-cases/{case['id']}/savings", json={
+        "entry_date": "2026-06-01", "amount": 9000, "note": "First month"})
+    fresh_case = next(c for c in client.get("/api/business-cases").json()["business_cases"]
+                      if c["id"] == case["id"])
+    t = fresh_case["tracking"]
+    assert t["total_realized_savings"] == 9000
+    assert t["measured_annual_savings"] != t["total_realized_savings"] or \
+           t["measured_annual_savings"] == 0  # never silently equated

@@ -448,6 +448,10 @@ const VALUE_GATES: [string, string][] = [
 function LifecycleMap() {
   const [steps, setSteps] = useState<WorkflowStep[]>([])
   useEffect(() => { getWorkflow().then((r) => setSteps(r.steps)).catch(() => {}) }, [])
+  // one continuous numbering across the whole lifecycle
+  const n = steps.length
+  const numbered = (gates: [string, string][], start: number): [string, string][] =>
+    gates.map(([label, hint], i) => [`${start + i}. ${label}`, hint])
   const phases: { name: string; hint: string; tone: string; gates: [string, string][] }[] = [
     {
       name: 'Ideation',
@@ -455,8 +459,10 @@ function LifecycleMap() {
       tone: 'lc-tone-idea',
       gates: steps.map((st, i) => [`${i + 1}. ${st.label}`, st.gate] as [string, string]),
     },
-    { name: 'Business case & funding', hint: 'fixed', tone: 'lc-tone-case', gates: CASE_GATES },
-    { name: 'Delivery & value', hint: 'fixed', tone: 'lc-tone-value', gates: VALUE_GATES },
+    { name: 'Business case & funding', hint: 'fixed', tone: 'lc-tone-case',
+      gates: numbered(CASE_GATES, n + 1) },
+    { name: 'Delivery & value', hint: 'fixed', tone: 'lc-tone-value',
+      gates: numbered(VALUE_GATES, n + 1 + CASE_GATES.length) },
   ]
   return (
     <div className="card">
