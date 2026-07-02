@@ -153,17 +153,107 @@ export interface CalibrationReport {
 }
 
 export interface Decision {
-  action: 'approve' | 'fund' | 'verify' | 'intervene'
+  action: 'approve' | 'fund' | 'verify' | 'intervene' | 'review'
   title: string
   detail: string
   annual_value: number
   nav: 'opportunities' | 'cases' | 'tracking' | 'portfolio'
 }
 
+export type Stage =
+  | 'draft' | 'proposed' | 'approved' | 'in_delivery'
+  | 'live' | 'value_realized' | 'closed'
+
+export interface IdeaAssessment {
+  matched_opportunity: {
+    id: string
+    title: string
+    category: string
+    estimated_annual_savings: number
+    quadrant: string | null
+  } | null
+  match_strength: number
+  impact_band: string
+  score: number
+  score_components: Record<string, number>
+  derived_category: string | null
+  estimated_annual_benefit: number | null
+  guardrail_flags: string[]
+  enrichment: string[]
+  recommendation: string
+  rationale: string
+  ai_evaluation?: {
+    validated: boolean
+    validation_notes: string
+    category: string
+    missing_information: string[]
+    suggested_priority: string
+    duplicate_risk: string
+    generated_by: string
+  }
+}
+
+export interface Idea {
+  id: string
+  title: string
+  description: string
+  submitter: string | null
+  submitted_at: string
+  status: 'triaged' | 'promoted' | 'declined'
+  assessment: IdeaAssessment | null
+  promoted_case_id: string | null
+  category: string | null
+  estimated_annual_benefit: number | null
+  source: 'manual' | 'import'
+}
+
+export interface ScoringConfig {
+  idea_weights: Record<string, number>
+  priority_themes: string[]
+  guardrails: {
+    min_annual_benefit: number
+    require_category: boolean
+    require_benefit_estimate: boolean
+  }
+  opportunity_weights: { value: number; efficiency: number; speed: number; simplicity: number }
+}
+
+export interface WorkflowEvent {
+  created_at: string
+  subject_type: string
+  subject_id: string
+  action: string
+  actor: string | null
+  comment: string | null
+}
+
+export interface CommandQueue {
+  ideas_pending: Idea[]
+  cases_pending_approval: BusinessCase[]
+  cases_in_motion: BusinessCase[]
+  history: WorkflowEvent[]
+  governance: Record<string, string[]>
+}
+
+export interface HubMetrics {
+  pipeline_stages: Record<Stage, number>
+  time_to_value: {
+    median_days_to_live: number | null
+    median_days_live_to_evidence: number | null
+  }
+  ideas: { total: number; by_status: Record<string, number> }
+  automation: {
+    last_run: string | null
+    actions_by_rule: Record<string, number>
+    recent: { run_at: string; rule: string; action: string; subject: string | null; detail: string }[]
+  }
+}
+
 export interface DashboardData {
   headline: string
   decisions: Decision[]
   portfolio_health: number | null
+  hub: HubMetrics
   funnel: {
     identified_annual_savings: number
     risk_adjusted_annual_savings: number
@@ -257,10 +347,12 @@ export interface BusinessCase {
   estimated_cost: number | null
   submitted_at: string
   roi_plan: ROIPlan
-  generated_by: 'claude' | 'template'
+  generated_by: 'claude' | 'template' | 'automation'
   note: string | null
   linked_opportunity: LinkedOpportunity | null
   status: 'proposed' | 'implemented'
+  stage: Stage
+  stage_history: { stage: Stage; entered_at: string }[]
   go_live_date: string | null
   kpi_readings: KpiReading[]
   savings_entries: SavingsEntry[]

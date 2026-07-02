@@ -67,7 +67,51 @@ CREATE TABLE IF NOT EXISTS metric_observations (
     value        REAL NOT NULL,
     rows_matched INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ideas (
+    id                      TEXT PRIMARY KEY,
+    title                   TEXT NOT NULL,
+    description             TEXT NOT NULL,
+    submitter               TEXT,
+    submitted_at            TEXT NOT NULL,
+    status                  TEXT NOT NULL DEFAULT 'triaged',
+    assessment_json         TEXT,
+    promoted_case_id        TEXT,
+    category                TEXT,
+    estimated_annual_benefit REAL,
+    source                  TEXT NOT NULL DEFAULT 'manual'
+);
+CREATE TABLE IF NOT EXISTS workflow_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at   TEXT NOT NULL,
+    subject_type TEXT NOT NULL,
+    subject_id   TEXT NOT NULL,
+    action       TEXT NOT NULL,
+    actor        TEXT,
+    comment      TEXT
+);
+CREATE TABLE IF NOT EXISTS automation_log (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_at  TEXT NOT NULL,
+    rule    TEXT NOT NULL,
+    action  TEXT NOT NULL,
+    subject TEXT,
+    detail  TEXT
+);
+CREATE TABLE IF NOT EXISTS stage_history (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id    TEXT NOT NULL REFERENCES business_cases(id),
+    stage      TEXT NOT NULL,
+    entered_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
+
+# Innovation lifecycle stages, in order. `status` (proposed/implemented) is kept
+# for tracking math; `stage` is the richer pipeline position.
+STAGES = ["draft", "proposed", "approved", "in_delivery", "live", "value_realized", "closed"]
 
 
 def _db_path() -> str:
@@ -77,12 +121,27 @@ def _db_path() -> str:
     )
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(business_cases)")}
+    if "stage" not in cols:
+        conn.execute(
+            "ALTER TABLE business_cases ADD COLUMN stage TEXT NOT NULL DEFAULT 'proposed'"
+        )
+        conn.execute("UPDATE business_cases SET stage = 'live' WHERE status = 'implemented'")
+    idea_cols = {r[1] for r in conn.execute("PRAGMA table_info(ideas)")}
+    if idea_cols and "category" not in idea_cols:
+        conn.execute("ALTER TABLE ideas ADD COLUMN category TEXT")
+        conn.execute("ALTER TABLE ideas ADD COLUMN estimated_annual_benefit REAL")
+        conn.execute("ALTER TABLE ideas ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+
+
 @contextmanager
 def _conn() -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(_db_path())
     conn.row_factory = sqlite3.Row
     try:
         conn.executescript(_SCHEMA)
+        _migrate(conn)
         yield conn
         conn.commit()
     finally:
@@ -154,21 +213,41 @@ def create_business_case(
     generated_by: str,
     note: Optional[str],
     linked_opportunity: Optional[Dict[str, Any]],
+    stage: str = "proposed",
 ) -> Dict[str, Any]:
     case_id = f"BC-{uuid.uuid4().hex[:8]}"
     submitted_at = _now()
     with _conn() as conn:
         conn.execute(
             "INSERT INTO business_cases (id, title, description, estimated_cost, submitted_at, "
-            "roi_plan_json, generated_by, note, linked_opportunity_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "roi_plan_json, generated_by, note, linked_opportunity_json, stage) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 case_id, title, description, estimated_cost, submitted_at,
                 json.dumps(roi_plan), generated_by, note,
                 json.dumps(linked_opportunity) if linked_opportunity else None,
+                stage,
             ),
         )
+        conn.execute(
+            "INSERT INTO stage_history (case_id, stage, entered_at) VALUES (?, ?, ?)",
+            (case_id, stage, submitted_at),
+        )
     return get_business_case(case_id)  # type: ignore[return-value]
+
+
+def set_stage(case_id: str, stage: str) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE business_cases SET stage = ? WHERE id = ?", (stage, case_id)
+        )
+        if cur.rowcount == 0:
+            return None
+        conn.execute(
+            "INSERT INTO stage_history (case_id, stage, entered_at) VALUES (?, ?, ?)",
+            (case_id, stage, _now()),
+        )
+    return get_business_case(case_id)
 
 
 def _binding_payload(conn: sqlite3.Connection, b: sqlite3.Row) -> Dict[str, Any]:
@@ -232,10 +311,17 @@ def _case_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict[str, Any]
         "linked_opportunity": json.loads(row["linked_opportunity_json"])
         if row["linked_opportunity_json"] else None,
         "status": row["status"],
+        "stage": row["stage"],
         "go_live_date": row["go_live_date"],
         "kpi_readings": readings,
         "savings_entries": savings,
         "metric_bindings": bindings,
+        "stage_history": [
+            dict(r) for r in conn.execute(
+                "SELECT stage, entered_at FROM stage_history WHERE case_id = ? ORDER BY id",
+                (row["id"],),
+            ).fetchall()
+        ],
     }
     case["tracking"] = _tracking_metrics(case)
     return case
@@ -296,12 +382,148 @@ def list_business_cases() -> List[Dict[str, Any]]:
 def mark_implemented(case_id: str, go_live_date: str) -> Optional[Dict[str, Any]]:
     with _conn() as conn:
         cur = conn.execute(
-            "UPDATE business_cases SET status = 'implemented', go_live_date = ? WHERE id = ?",
+            "UPDATE business_cases SET status = 'implemented', go_live_date = ?, "
+            "stage = 'live' WHERE id = ?",
             (go_live_date, case_id),
         )
         if cur.rowcount == 0:
             return None
+        conn.execute(
+            "INSERT INTO stage_history (case_id, stage, entered_at) VALUES (?, ?, ?)",
+            (case_id, "live", _now()),
+        )
     return get_business_case(case_id)
+
+
+# ------------------------------------------------------------------------ ideas
+
+def create_idea(
+    title: str,
+    description: str,
+    submitter: Optional[str],
+    assessment: Optional[Dict[str, Any]],
+    category: Optional[str] = None,
+    estimated_annual_benefit: Optional[float] = None,
+    source: str = "manual",
+    submitted_at: Optional[str] = None,
+) -> Dict[str, Any]:
+    idea_id = f"IDEA-{uuid.uuid4().hex[:8]}"
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO ideas (id, title, description, submitter, submitted_at, status, "
+            "assessment_json, category, estimated_annual_benefit, source) "
+            "VALUES (?, ?, ?, ?, ?, 'triaged', ?, ?, ?, ?)",
+            (idea_id, title, description, submitter, submitted_at or _now(),
+             json.dumps(assessment) if assessment else None,
+             category, estimated_annual_benefit, source),
+        )
+    return get_idea(idea_id)  # type: ignore[return-value]
+
+
+def _idea_from_row(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "description": row["description"],
+        "submitter": row["submitter"],
+        "submitted_at": row["submitted_at"],
+        "status": row["status"],
+        "assessment": json.loads(row["assessment_json"]) if row["assessment_json"] else None,
+        "promoted_case_id": row["promoted_case_id"],
+        "category": row["category"],
+        "estimated_annual_benefit": row["estimated_annual_benefit"],
+        "source": row["source"],
+    }
+
+
+def update_idea_assessment(idea_id: str, assessment: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE ideas SET assessment_json = ? WHERE id = ?",
+            (json.dumps(assessment), idea_id),
+        )
+        if cur.rowcount == 0:
+            return None
+    return get_idea(idea_id)
+
+
+def add_workflow_event(subject_type: str, subject_id: str, action: str,
+                       actor: Optional[str], comment: Optional[str]) -> None:
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO workflow_events (created_at, subject_type, subject_id, action, "
+            "actor, comment) VALUES (?, ?, ?, ?, ?, ?)",
+            (_now(), subject_type, subject_id, action, actor, comment),
+        )
+
+
+def workflow_events(limit: int = 50) -> List[Dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT created_at, subject_type, subject_id, action, actor, comment "
+            "FROM workflow_events ORDER BY id DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_idea(idea_id: str) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        row = conn.execute("SELECT * FROM ideas WHERE id = ?", (idea_id,)).fetchone()
+    return _idea_from_row(row) if row else None
+
+
+def list_ideas() -> List[Dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute("SELECT * FROM ideas ORDER BY submitted_at DESC").fetchall()
+    return [_idea_from_row(r) for r in rows]
+
+
+def update_idea(idea_id: str, status: str,
+                promoted_case_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE ideas SET status = ?, promoted_case_id = COALESCE(?, promoted_case_id) "
+            "WHERE id = ?",
+            (status, promoted_case_id, idea_id),
+        )
+        if cur.rowcount == 0:
+            return None
+    return get_idea(idea_id)
+
+
+# -------------------------------------------------------------- automation log
+
+def log_automation(rule: str, action: str, subject: Optional[str], detail: str) -> None:
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO automation_log (run_at, rule, action, subject, detail) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (_now(), rule, action, subject, detail),
+        )
+
+
+def automation_log_entries(limit: int = 50) -> List[Dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT run_at, rule, action, subject, detail FROM automation_log "
+            "ORDER BY id DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def meta_get(key: str) -> Optional[str]:
+    with _conn() as conn:
+        row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def meta_set(key: str, value: str) -> None:
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
 
 
 def add_kpi_reading(

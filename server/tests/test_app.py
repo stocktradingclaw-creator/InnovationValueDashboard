@@ -541,14 +541,20 @@ def test_dashboard_headline_and_decisions(client):
     client.post("/api/datasets/load-samples")
     dash = client.get("/api/dashboard").json()
 
-    # plain-English headline reflects the no-cases-yet state
-    assert "quick wins" in dash["headline"]
+    # first dashboard read triggers the automation pass: the hub auto-drafts
+    # cases for the top quick wins, so value is already "committed"
+    assert "committed" in dash["headline"]
     assert dash["portfolio_health"] is not None  # sample portfolio loaded
+    hub_metrics = dash["hub"]
+    assert hub_metrics["automation"]["last_run"] is not None
+    assert hub_metrics["automation"]["actions_by_rule"].get("auto_draft", 0) >= 1
+    assert hub_metrics["pipeline_stages"]["draft"] >= 1
 
     decisions = dash["decisions"]
     assert 0 < len(decisions) <= 6
     actions = {d["action"] for d in decisions}
-    assert "approve" in actions          # unaddressed quick wins
+    assert "approve" in actions          # sub-threshold quick wins remain manual
+    assert "review" in actions           # auto-drafted cases await review
     assert "intervene" in actions        # high-severity portfolio findings
     values = [d["annual_value"] for d in decisions]
     assert values == sorted(values, reverse=True)
@@ -571,3 +577,199 @@ def test_dashboard_headline_and_decisions(client):
     approve_titles = [d["title"] for d in dash["decisions"] if d["action"] == "approve"]
     assert opp["title"] not in approve_titles
     assert any(d["action"] == "verify" for d in dash["decisions"])
+
+
+# -------------------------------------------------------------- innovation hub
+
+def test_idea_intake_triage_and_promotion(client):
+    client.post("/api/datasets/load-samples")
+
+    # idea matching a detected quick win gets fast-tracked with enrichment noted
+    idea = client.post("/api/ideas", json={
+        "title": "Recover duplicate vendor invoices",
+        "description": "AP sometimes pays the same invoice twice. Detect duplicate "
+                       "invoices by vendor and amount and recover the payments.",
+        "submitter": "maria",
+    }).json()
+    a = idea["assessment"]
+    assert a["matched_opportunity"] is not None
+    assert a["recommendation"] == "fast_track"
+    assert a["score"] > 0
+    assert any("derived" in note.lower() for note in a["enrichment"])
+    assert idea["category"] is not None  # enriched from the match
+
+    # unmatched idea -> investigate
+    novel = client.post("/api/ideas", json={
+        "title": "Robot greeter", "description": "Put a robot in the lobby to welcome guests.",
+    }).json()
+    assert novel["assessment"]["recommendation"] == "investigate"
+
+    # promotion creates a linked case with a frozen baseline
+    result = client.post(f"/api/ideas/{idea['id']}/promote").json()
+    assert result["idea"]["status"] == "promoted"
+    case = result["case"]
+    assert case["stage"] == "proposed"
+    assert case["linked_opportunity"] is not None
+    assert len(case["metric_bindings"]) == 1
+    assert client.post(f"/api/ideas/{idea['id']}/promote").status_code == 400
+
+
+def test_idea_bulk_import_with_enrichment(client):
+    client.post("/api/datasets/load-samples")
+    csv_body = (
+        "title,description,submitter,estimated_annual_benefit\n"
+        "Terminate idle cloud instances,Several EC2 instances run under 5% CPU and "
+        "could be terminated to cut monthly cloud cost,sam,\n"
+        ",missing title should be skipped,x,\n"
+        "Automate password resets,Self-service password reset portal to cut service "
+        "desk request tickets,ana,20000\n"
+    )
+    resp = client.post("/api/ideas/import", files={"file": ("backlog.csv", csv_body, "text/csv")})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["imported"] == 2 and body["skipped"] == 1
+
+    ideas = client.get("/api/ideas").json()["ideas"]
+    imported = [i for i in ideas if i["source"] == "import"]
+    assert len(imported) == 2
+    cloud_idea = next(i for i in imported if "cloud" in i["title"].lower())
+    assert cloud_idea["assessment"]["matched_opportunity"] is not None
+    assert cloud_idea["assessment"]["enrichment"]  # benefit derived, noted
+
+
+def test_scoring_framework_guardrails(client):
+    client.post("/api/datasets/load-samples")
+
+    # leader tightens the guardrails and reweights toward alignment
+    resp = client.put("/api/scoring-config", json={
+        "idea_weights": {"impact": 0.2, "data_grounding": 0.2, "alignment": 0.5, "completeness": 0.1},
+        "priority_themes": ["sustainability"],
+        "guardrails": {"min_annual_benefit": 100000, "require_category": True,
+                       "require_benefit_estimate": False},
+    })
+    assert resp.status_code == 200
+
+    idea = client.post("/api/ideas", json={
+        "title": "Recover duplicate vendor invoices",
+        "description": "Detect duplicate invoices by vendor and amount.",
+    }).json()
+    a = idea["assessment"]
+    assert a["recommendation"] == "needs_info"
+    assert any("minimum benefit guardrail" in f for f in a["guardrail_flags"])
+    assert any("Category is required" in f for f in a["guardrail_flags"])
+    assert a["score_components"]["alignment"] == 0.0  # 'sustainability' not mentioned
+
+    # invalid config rejected
+    assert client.put("/api/scoring-config", json={
+        "idea_weights": {"impact": -1, "data_grounding": 0, "alignment": 0, "completeness": 0},
+    }).status_code == 400
+
+    # opportunity weights from config drive the default prioritization
+    resp = client.put("/api/scoring-config", json={
+        "opportunity_weights": {"value": 1, "efficiency": 0, "speed": 0, "simplicity": 0},
+    })
+    assert resp.status_code == 200
+    weights = client.get("/api/opportunities").json()["prioritization"]["weights"]
+    assert weights["value"] == 1
+
+
+def test_governance_and_command_center(client):
+    client.post("/api/datasets/load-samples")
+    idea = client.post("/api/ideas", json={
+        "title": "Recover duplicate vendor invoices",
+        "description": "Detect duplicate invoices by vendor and amount and recover.",
+    }).json()
+
+    # no governance configured -> anyone can decide
+    resp = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"],
+        "decision": "feedback", "actor": "sam", "comment": "needs cost detail",
+    })
+    assert resp.status_code == 200
+
+    # assign idea screening to dana only
+    client.put("/api/governance", json={"idea_screening": ["Dana"]})
+    resp = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "approve", "actor": "sam",
+    })
+    assert resp.status_code == 403
+    resp = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "approve", "actor": "dana",
+    })
+    assert resp.status_code == 200
+    case = resp.json()["result"]["case"]
+    assert case["stage"] == "proposed"
+
+    # case approval advances the lifecycle stage by stage
+    resp = client.post("/api/command/decide", json={
+        "subject_type": "case", "subject_id": case["id"], "decision": "approve", "actor": "lee",
+    })
+    assert resp.json()["result"]["stage"] == "approved"
+    resp = client.post("/api/command/decide", json={
+        "subject_type": "case", "subject_id": case["id"], "decision": "approve", "actor": "lee",
+    })
+    assert resp.json()["result"]["stage"] == "in_delivery"
+
+    queue = client.get("/api/command/queue").json()
+    assert any(c["id"] == case["id"] for c in queue["cases_in_motion"])
+    assert len(queue["history"]) >= 4
+    assert queue["governance"]["idea_screening"] == ["Dana"]
+
+    # rejection closes a case
+    other = client.post("/api/business-cases", json={"title": "r", "description": "d"}).json()
+    resp = client.post("/api/command/decide", json={
+        "subject_type": "case", "subject_id": other["id"], "decision": "reject",
+        "actor": "lee", "comment": "duplicate scope",
+    })
+    assert resp.json()["result"]["stage"] == "closed"
+
+
+def test_automation_rules_and_idempotency(client):
+    client.post("/api/datasets/load-samples")
+
+    run1 = client.post("/api/automation/run").json()["summary"]
+    assert run1["drafted"] >= 1  # quick wins above threshold get drafted
+
+    # converges: drafting is capped per run, but repeated runs reach quiescence
+    for _ in range(3):
+        summary = client.post("/api/automation/run").json()["summary"]
+        if summary == {"observed": 0, "drafted": 0, "advanced": 0}:
+            break
+    assert summary == {"observed": 0, "drafted": 0, "advanced": 0}
+
+    # find the auto-drafted cloud idle case, take it live
+    cases = client.get("/api/business-cases").json()["business_cases"]
+    draft = next(c for c in cases if c["stage"] == "draft"
+                 and c["linked_opportunity"]["category"] == "Idle cloud resources")
+    assert draft["generated_by"] == "automation"
+    assert len(draft["metric_bindings"]) == 1  # baseline frozen at draft time
+    client.post(f"/api/business-cases/{draft['id']}/implement",
+                json={"go_live_date": "2026-06-01"})
+
+    # remediation lands in the data -> auto_observe + auto_advance
+    survivors = "resource_id,service,monthly_cost,state,avg_cpu_pct\nx-1,EC2,100,running,50\n"
+    client.post("/api/datasets/cloud", files={"file": ("c.csv", survivors, "text/csv")})
+    run3 = client.post("/api/automation/run").json()["summary"]
+    assert run3["observed"] >= 1
+    assert run3["advanced"] >= 1
+
+    final = next(c for c in client.get("/api/business-cases").json()["business_cases"]
+                 if c["id"] == draft["id"])
+    assert final["stage"] == "value_realized"
+    assert final["tracking"]["measured_annual_savings"] == 27360.0
+
+    log = client.get("/api/automation").json()
+    rules = {e["rule"] for e in log["recent"]}
+    assert {"auto_draft", "auto_observe", "auto_advance"} <= rules
+
+
+def test_ai_evaluate_template_path(client):
+    client.post("/api/datasets/load-samples")
+    idea = client.post("/api/ideas", json={
+        "title": "Terminate idle cloud instances",
+        "description": "Several instances run under 5% CPU; terminate them.",
+    }).json()
+    evaluated = client.post(f"/api/ideas/{idea['id']}/evaluate").json()
+    ai = evaluated["assessment"]["ai_evaluation"]
+    assert ai["generated_by"] == "template"   # no API key in tests
+    assert ai["validated"] is True            # grounded in a detected opportunity

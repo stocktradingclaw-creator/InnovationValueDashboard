@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import (
-    calibration, connectors, db, metrics, opportunities,
+    calibration, connectors, db, hub, metrics, opportunities,
     portfolio, prioritization, roi, timeline,
 )
 from .ingestion import SOURCE_TYPES, IngestionError, normalize_rows, parse_csv
@@ -160,9 +160,12 @@ def get_opportunities(
     simplicity_weight: Optional[float] = Query(None, description="Weight for low complexity"),
 ) -> Dict[str, Any]:
     try:
-        weights = prioritization.normalize_weights(
-            value_weight, efficiency_weight, speed_weight, simplicity_weight
-        )
+        if all(w is None for w in (value_weight, efficiency_weight, speed_weight, simplicity_weight)):
+            weights = hub.get_scoring_config()["opportunity_weights"]
+        else:
+            weights = prioritization.normalize_weights(
+                value_weight, efficiency_weight, speed_weight, simplicity_weight
+            )
     except prioritization.WeightError as exc:
         raise HTTPException(400, str(exc))
 
@@ -325,6 +328,316 @@ def get_calibration() -> Dict[str, Any]:
     return calibration.report()
 
 
+# ------------------------------------------------------------------ ideas & hub
+
+class IdeaRequest(BaseModel):
+    title: str
+    description: str
+    submitter: Optional[str] = None
+    category: Optional[str] = None
+    estimated_annual_benefit: Optional[float] = None
+
+
+def _prioritized_opps() -> List[Dict[str, Any]]:
+    weights = hub.get_scoring_config()["opportunity_weights"]
+    return prioritization.prioritize(_analyze(), weights, calibration.factors())["opportunities"]
+
+
+def _ingest_idea(body: IdeaRequest, source: str,
+                 submitted_at: Optional[str] = None) -> Dict[str, Any]:
+    opps = _prioritized_opps()
+    assessment = hub.triage_idea(
+        body.title, body.description, opps,
+        category=body.category, estimated_annual_benefit=body.estimated_annual_benefit,
+    )
+    idea = db.create_idea(
+        body.title.strip(), body.description.strip(),
+        (body.submitter or "").strip() or None, assessment,
+        category=(body.category or "").strip() or assessment.get("derived_category"),
+        estimated_annual_benefit=body.estimated_annual_benefit,
+        source=source, submitted_at=submitted_at,
+    )
+    db.log_automation(
+        "idea_triage", assessment["recommendation"], idea["id"],
+        assessment["rationale"][:200],
+    )
+    return idea
+
+
+@app.post("/api/ideas")
+def submit_idea(body: IdeaRequest) -> Dict[str, Any]:
+    if not body.title.strip() or not body.description.strip():
+        raise HTTPException(400, "title and description are required")
+    return _ingest_idea(body, source="manual")
+
+
+@app.post("/api/ideas/import")
+async def import_ideas(file: UploadFile = File(...)) -> Dict[str, Any]:
+    """Bulk-ingest a client's existing idea backlog. Expected columns:
+    title, description; optional: submitter, category, estimated_annual_benefit,
+    submitted_at. Every row is triaged, scored, and enriched on the way in."""
+    import csv as csv_module
+    import io
+
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "File must be UTF-8 encoded CSV")
+    reader = csv_module.DictReader(io.StringIO(text))
+    headers = {(h or "").strip().lower() for h in (reader.fieldnames or [])}
+    if not {"title", "description"} <= headers:
+        raise HTTPException(400, "CSV needs at least 'title' and 'description' columns")
+
+    imported, skipped = [], 0
+    for row in reader:
+        row = {(k or "").strip().lower(): (v or "").strip() for k, v in row.items() if k}
+        if not row.get("title") or not row.get("description"):
+            skipped += 1
+            continue
+        benefit = None
+        if row.get("estimated_annual_benefit"):
+            try:
+                benefit = float(row["estimated_annual_benefit"].replace("$", "").replace(",", ""))
+            except ValueError:
+                benefit = None
+        idea = _ingest_idea(
+            IdeaRequest(
+                title=row["title"], description=row["description"],
+                submitter=row.get("submitter") or None,
+                category=row.get("category") or None,
+                estimated_annual_benefit=benefit,
+            ),
+            source="import",
+            submitted_at=row.get("submitted_at") or None,
+        )
+        imported.append(idea["id"])
+    return {"imported": len(imported), "skipped": skipped, "ids": imported}
+
+
+@app.get("/api/ideas")
+def list_ideas() -> Dict[str, Any]:
+    return {"ideas": db.list_ideas()}
+
+
+@app.post("/api/ideas/{idea_id}/evaluate")
+def evaluate_idea(idea_id: str) -> Dict[str, Any]:
+    idea = db.get_idea(idea_id)
+    if idea is None:
+        raise HTTPException(404, f"Idea '{idea_id}' not found")
+    evaluation = hub.ai_evaluate_idea(idea, _prioritized_opps())
+    assessment = dict(idea.get("assessment") or {})
+    assessment["ai_evaluation"] = evaluation
+    db.log_automation(
+        "ai_evaluate", evaluation["suggested_priority"], idea_id,
+        evaluation["validation_notes"][:200],
+    )
+    return db.update_idea_assessment(idea_id, assessment)
+
+
+def _promote_idea(idea: Dict[str, Any]) -> Dict[str, Any]:
+    matched = (idea.get("assessment") or {}).get("matched_opportunity") or {}
+    linked_opportunity = None
+    if matched.get("id"):
+        current = next((o for o in _analyze() if o["id"] == matched["id"]), None)
+        if current:
+            linked_opportunity = {
+                k: current[k]
+                for k in ("id", "title", "category", "source",
+                          "estimated_annual_savings", "description")
+            }
+
+    result = roi.generate_roi_plan(
+        idea["title"], idea["description"], None,
+        opportunity_context=linked_opportunity,
+    )
+    case = db.create_business_case(
+        title=idea["title"],
+        description=idea["description"],
+        estimated_cost=None,
+        roi_plan=result["plan"],
+        generated_by=result["generated_by"],
+        note=f"Promoted from idea {idea['id']}"
+             + (f" (submitted by {idea['submitter']})" if idea["submitter"] else ""),
+        linked_opportunity=linked_opportunity,
+        stage="proposed",
+    )
+    if linked_opportunity:
+        measure = next(
+            (o.get("measure") for o in _analyze() if o["id"] == linked_opportunity["id"]),
+            None,
+        )
+        if measure:
+            definition = {k: v for k, v in measure.items() if k != "label"}
+            baseline = metrics.compute(definition, _loaded_datasets())
+            db.create_metric_binding(
+                case_id=case["id"], label=measure["label"], kpi_name=None,
+                definition=definition, unit=metrics.unit_for(definition),
+                baseline_value=baseline["value"], baseline_rows=baseline["rows_matched"],
+            )
+            case = db.get_business_case(case["id"])
+    db.update_idea(idea["id"], "promoted", case["id"])
+    return {"idea": db.get_idea(idea["id"]), "case": case}
+
+
+@app.post("/api/ideas/{idea_id}/promote")
+def promote_idea(idea_id: str) -> Dict[str, Any]:
+    idea = db.get_idea(idea_id)
+    if idea is None:
+        raise HTTPException(404, f"Idea '{idea_id}' not found")
+    if idea["status"] == "promoted":
+        raise HTTPException(400, "Idea is already promoted")
+    return _promote_idea(idea)
+
+
+@app.post("/api/ideas/{idea_id}/decline")
+def decline_idea(idea_id: str) -> Dict[str, Any]:
+    idea = db.update_idea(idea_id, "declined")
+    if idea is None:
+        raise HTTPException(404, f"Idea '{idea_id}' not found")
+    return idea
+
+
+# ------------------------------------------------- scoring framework & governance
+
+@app.get("/api/scoring-config")
+def get_scoring_config() -> Dict[str, Any]:
+    return hub.get_scoring_config()
+
+
+@app.put("/api/scoring-config")
+def put_scoring_config(body: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return hub.save_scoring_config(body)
+    except hub.ConfigError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/governance")
+def get_governance() -> Dict[str, Any]:
+    return {"areas": hub.GOVERNANCE_AREAS, "assignments": hub.get_governance()}
+
+
+@app.put("/api/governance")
+def put_governance(body: Dict[str, List[str]]) -> Dict[str, Any]:
+    try:
+        return {"areas": hub.GOVERNANCE_AREAS, "assignments": hub.save_governance(body)}
+    except hub.ConfigError as exc:
+        raise HTTPException(400, str(exc))
+
+
+# --------------------------------------------------------------- command center
+
+class DecisionRequest(BaseModel):
+    subject_type: str  # 'idea' | 'case'
+    subject_id: str
+    decision: str      # 'approve' | 'reject' | 'feedback'
+    actor: Optional[str] = None
+    comment: Optional[str] = None
+
+
+_CASE_APPROVE_NEXT = {"draft": "proposed", "proposed": "approved", "approved": "in_delivery"}
+
+
+def _governance_area_for(subject_type: str, case: Optional[Dict[str, Any]]) -> str:
+    if subject_type == "idea":
+        return "idea_screening"
+    stage = (case or {}).get("stage", "proposed")
+    if stage in ("draft", "proposed", "approved"):
+        return "business_case_approval"
+    if stage == "in_delivery":
+        return "delivery"
+    return "value_verification"
+
+
+@app.get("/api/command/queue")
+def command_queue() -> Dict[str, Any]:
+    ideas = db.list_ideas()
+    cases = db.list_business_cases()
+    return {
+        "ideas_pending": [i for i in ideas if i["status"] == "triaged"],
+        "cases_pending_approval": [c for c in cases if c["stage"] in ("draft", "proposed")],
+        "cases_in_motion": [c for c in cases if c["stage"] in ("approved", "in_delivery")],
+        "history": db.workflow_events(30),
+        "governance": hub.get_governance(),
+    }
+
+
+@app.post("/api/command/decide")
+def command_decide(body: DecisionRequest) -> Dict[str, Any]:
+    if body.subject_type not in ("idea", "case"):
+        raise HTTPException(400, "subject_type must be 'idea' or 'case'")
+    if body.decision not in ("approve", "reject", "feedback"):
+        raise HTTPException(400, "decision must be 'approve', 'reject', or 'feedback'")
+
+    if body.subject_type == "idea":
+        idea = db.get_idea(body.subject_id)
+        if idea is None:
+            raise HTTPException(404, f"Idea '{body.subject_id}' not found")
+        blocked = hub.check_authority("idea_screening", body.actor)
+        if blocked:
+            raise HTTPException(403, blocked)
+        db.add_workflow_event("idea", body.subject_id, body.decision, body.actor, body.comment)
+        if body.decision == "approve":
+            if idea["status"] == "promoted":
+                raise HTTPException(400, "Idea is already promoted")
+            return {"result": _promote_idea(idea)}
+        if body.decision == "reject":
+            return {"result": db.update_idea(body.subject_id, "declined")}
+        return {"result": idea}
+
+    case = db.get_business_case(body.subject_id)
+    if case is None:
+        raise HTTPException(404, f"Business case '{body.subject_id}' not found")
+    area = _governance_area_for("case", case)
+    blocked = hub.check_authority(area, body.actor)
+    if blocked:
+        raise HTTPException(403, blocked)
+    db.add_workflow_event("case", body.subject_id, body.decision, body.actor, body.comment)
+    if body.decision == "approve":
+        next_stage = _CASE_APPROVE_NEXT.get(case["stage"])
+        if next_stage is None:
+            raise HTTPException(
+                400, f"Cases in stage '{case['stage']}' advance via /implement or automation"
+            )
+        return {"result": db.set_stage(body.subject_id, next_stage)}
+    if body.decision == "reject":
+        return {"result": db.set_stage(body.subject_id, "closed")}
+    return {"result": case}
+
+
+class StageRequest(BaseModel):
+    stage: str
+
+
+@app.post("/api/business-cases/{case_id}/stage")
+def set_case_stage(case_id: str, body: StageRequest) -> Dict[str, Any]:
+    if body.stage not in db.STAGES:
+        raise HTTPException(400, f"stage must be one of {db.STAGES}")
+    case = db.get_business_case(case_id)
+    if case is None:
+        raise HTTPException(404, f"Business case '{case_id}' not found")
+    if body.stage == "live":
+        raise HTTPException(400, "use /implement to go live — it requires a go-live date")
+    if body.stage == "value_realized" and case["status"] != "implemented":
+        raise HTTPException(400, "case must be implemented before value can be realized")
+    return db.set_stage(case_id, body.stage)
+
+
+@app.post("/api/automation/run")
+def run_automation() -> Dict[str, Any]:
+    summary = hub.run_automation(_prioritized_opps(), _loaded_datasets(), db.dataset_meta())
+    return {"summary": summary, "recent": db.automation_log_entries(10)}
+
+
+@app.get("/api/automation")
+def automation_status() -> Dict[str, Any]:
+    return {
+        "last_run": db.meta_get("automation_last_run"),
+        "recent": db.automation_log_entries(50),
+    }
+
+
 @app.get("/api/portfolio/diagnostic")
 def portfolio_diagnostic() -> Dict[str, Any]:
     rows = normalize_rows("portfolio", db.load_dataset("portfolio"))
@@ -425,6 +738,17 @@ def _decision_queue(
                 "nav": "tracking",
             })
 
+    for c in cases:
+        if c.get("stage") == "draft":
+            forecast = (c["linked_opportunity"] or {}).get("estimated_annual_savings") or 0
+            decisions.append({
+                "action": "review",
+                "title": f"Review auto-drafted case: {c['title'].replace('[Auto-draft] ', '')}",
+                "detail": "drafted by the hub with a frozen baseline — confirm cost and promote",
+                "annual_value": forecast,
+                "nav": "cases",
+            })
+
     if portfolio_report:
         for f in portfolio_report["findings"]:
             if f["severity"] == "high":
@@ -445,10 +769,21 @@ def dashboard() -> Dict[str, Any]:
     """Everything an executive overview needs, in one call: a plain-English
     headline, the value funnel, a ranked decision queue, trajectory, case
     pipeline, calibration quality, and data freshness."""
-    result = prioritization.prioritize(_analyze(), None, calibration.factors())
+    result = prioritization.prioritize(
+        _analyze(), hub.get_scoring_config()["opportunity_weights"], calibration.factors()
+    )
     opps = result["opportunities"]
-    cases = db.list_business_cases()
     meta = db.dataset_meta()
+
+    # Serverless-friendly automation: the hub runs itself whenever the
+    # dashboard is read and the last run is stale. Rules are idempotent.
+    if meta and hub.automation_is_stale():
+        try:
+            hub.run_automation(opps, _loaded_datasets(), meta)
+        except Exception:
+            pass  # automation must never take the dashboard down
+
+    cases = db.list_business_cases()
 
     portfolio_rows = db.load_dataset("portfolio")
     portfolio_report = (
@@ -490,6 +825,7 @@ def dashboard() -> Dict[str, Any]:
         "headline": _headline(funnel, timeline_data["summary"], opps),
         "decisions": _decision_queue(opps, cases, portfolio_report),
         "portfolio_health": portfolio_report["health_score"] if portfolio_report else None,
+        "hub": hub.hub_metrics(cases, db.list_ideas()),
         "funnel": funnel,
         "opportunities": {
             "count": len(opps),

@@ -1,7 +1,7 @@
 import { money } from '../api'
 import type { DashboardData, Decision, Quadrant, TimelineMonth } from '../types'
 
-type NavTab = 'sources' | 'opportunities' | 'cases' | 'tracking' | 'portfolio'
+type NavTab = 'ideas' | 'command' | 'sources' | 'opportunities' | 'cases' | 'tracking' | 'portfolio'
 
 interface Props {
   data: DashboardData | null
@@ -22,6 +22,17 @@ const ACTION_LABELS: Record<Decision['action'], string> = {
   fund: 'Fund',
   verify: 'Verify',
   intervene: 'Intervene',
+  review: 'Review',
+}
+
+const STAGE_SHORT: Record<string, string> = {
+  draft: 'Draft',
+  proposed: 'Proposed',
+  approved: 'Approved',
+  in_delivery: 'Delivery',
+  live: 'Live',
+  value_realized: 'Realized',
+  closed: 'Closed',
 }
 
 const compactMoney = (n: number) =>
@@ -229,6 +240,48 @@ export default function Dashboard({ data, onNavigate }: Props) {
       </div>
 
       <DecisionQueue decisions={data.decisions} onNavigate={onNavigate} />
+
+      <div className="card hub-strip">
+        <div className="hub-pipeline">
+          <span className="hero-label">Innovation pipeline</span>
+          <div className="row">
+            {Object.entries(data.hub.pipeline_stages)
+              .filter(([stage]) => stage !== 'closed')
+              .map(([stage, count]) => (
+                <button
+                  key={stage}
+                  className="chip"
+                  onClick={() => onNavigate('command')}
+                  title="Open the command center"
+                >
+                  {STAGE_SHORT[stage]} <strong>{count}</strong>
+                </button>
+              ))}
+            <button className="chip" onClick={() => onNavigate('ideas')}>
+              Ideas <strong>{data.hub.ideas.total}</strong>
+            </button>
+          </div>
+        </div>
+        <div className="hub-facts muted small">
+          <span>
+            <strong>Automation:</strong>{' '}
+            {Object.entries(data.hub.automation.actions_by_rule).length > 0
+              ? Object.entries(data.hub.automation.actions_by_rule)
+                  .map(([rule, n]) => `${rule.replace('_', ' ')} ×${n}`)
+                  .join(' · ')
+              : 'no actions yet'}
+            {data.hub.automation.last_run && ` · last run ${data.hub.automation.last_run.slice(0, 16).replace('T', ' ')}`}
+          </span>
+          <span>
+            <strong>Time to value:</strong>{' '}
+            {data.hub.time_to_value.median_days_to_live != null
+              ? `${data.hub.time_to_value.median_days_to_live}d to live`
+              : 'no cases live yet'}
+            {data.hub.time_to_value.median_days_live_to_evidence != null &&
+              ` · ${data.hub.time_to_value.median_days_live_to_evidence}d live → first evidence`}
+          </span>
+        </div>
+      </div>
 
       {ts && <ValueOverTime months={data.timeline.months} breakEven={ts.break_even_month} />}
 

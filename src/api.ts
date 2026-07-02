@@ -140,5 +140,72 @@ export function getPortfolioDiagnostic() {
   return request<import('./types').PortfolioReport>('/api/portfolio/diagnostic')
 }
 
+export function submitIdea(body: {
+  title: string
+  description: string
+  submitter?: string
+  category?: string
+  estimated_annual_benefit?: number | null
+}) {
+  return request<import('./types').Idea>('/api/ideas', json(body))
+}
+
+export function importIdeas(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  return request<{ imported: number; skipped: number }>('/api/ideas/import', {
+    method: 'POST',
+    body: form,
+  })
+}
+
+export function getIdeas() {
+  return request<{ ideas: import('./types').Idea[] }>('/api/ideas')
+}
+
+export function evaluateIdea(id: string) {
+  return request<import('./types').Idea>(`/api/ideas/${id}/evaluate`, { method: 'POST' })
+}
+
+export function getScoringConfig() {
+  return request<import('./types').ScoringConfig>('/api/scoring-config')
+}
+
+export function putScoringConfig(config: Partial<import('./types').ScoringConfig>) {
+  return request<import('./types').ScoringConfig>('/api/scoring-config', {
+    ...json(config),
+    method: 'PUT',
+  })
+}
+
+export function getGovernance() {
+  return request<{ areas: string[]; assignments: Record<string, string[]> }>('/api/governance')
+}
+
+export function putGovernance(assignments: Record<string, string[]>) {
+  return request<{ areas: string[]; assignments: Record<string, string[]> }>('/api/governance', {
+    ...json(assignments),
+    method: 'PUT',
+  })
+}
+
+export function getCommandQueue() {
+  return request<import('./types').CommandQueue>('/api/command/queue')
+}
+
+export function decide(body: {
+  subject_type: 'idea' | 'case'
+  subject_id: string
+  decision: 'approve' | 'reject' | 'feedback'
+  actor?: string
+  comment?: string
+}) {
+  return request<{ result: unknown }>('/api/command/decide', json(body))
+}
+
+export function runAutomation() {
+  return request<{ summary: Record<string, number> }>('/api/automation/run', { method: 'POST' })
+}
+
 export const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })

@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getBusinessCases, getDashboard, getDatasets, getOpportunities, getPortfolioDiagnostic } from './api'
+import { getBusinessCases, getDashboard, getDatasets, getIdeas, getOpportunities, getPortfolioDiagnostic } from './api'
 import BusinessCases from './components/BusinessCases'
+import CommandCenter from './components/CommandCenter'
 import Dashboard from './components/Dashboard'
 import DataSources from './components/DataSources'
+import Ideas from './components/Ideas'
 import Opportunities from './components/Opportunities'
 import Portfolio from './components/Portfolio'
 import Tracking from './components/Tracking'
 import type {
   BusinessCase,
   DashboardData,
+  Idea,
   Opportunity,
   PortfolioReport,
   PrioritizationSummary,
@@ -16,7 +19,9 @@ import type {
   Weights,
 } from './types'
 
-type Tab = 'overview' | 'sources' | 'opportunities' | 'cases' | 'tracking' | 'portfolio'
+type Tab =
+  | 'overview' | 'ideas' | 'command' | 'sources'
+  | 'opportunities' | 'cases' | 'tracking' | 'portfolio'
 
 const DEFAULT_WEIGHTS: Weights = { value: 35, efficiency: 30, speed: 15, simplicity: 20 }
 
@@ -24,6 +29,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('overview')
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [portfolioReport, setPortfolioReport] = useState<PortfolioReport | null>(null)
+  const [ideas, setIdeas] = useState<Idea[]>([])
   const [sources, setSources] = useState<SourceStatus[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [total, setTotal] = useState(0)
@@ -46,6 +52,7 @@ export default function App() {
       setTotal(opps.total_estimated_annual_savings)
       setSummary(opps.prioritization.summary)
       setCases(bcs.business_cases)
+      setIdeas((await getIdeas().catch(() => ({ ideas: [] }))).ideas)
       setPortfolioReport(await getPortfolioDiagnostic().catch(() => null))
       setOffline(false)
     } catch {
@@ -63,11 +70,17 @@ export default function App() {
     <div className="app">
       <header>
         <h1>
-          Innovation<span className="accent">Value</span>Dashboard
+          Innovation<span className="accent">Hub</span>
         </h1>
         <nav>
           <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>
             Overview
+          </button>
+          <button className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>
+            Ideas{ideas.length > 0 && ` (${ideas.length})`}
+          </button>
+          <button className={tab === 'command' ? 'active' : ''} onClick={() => setTab('command')}>
+            Command Center
           </button>
           <button className={tab === 'sources' ? 'active' : ''} onClick={() => setTab('sources')}>
             Data Sources
@@ -99,6 +112,8 @@ export default function App() {
 
       <main>
         {tab === 'overview' && <Dashboard data={dashboard} onNavigate={setTab} />}
+        {tab === 'ideas' && <Ideas ideas={ideas} onChanged={refresh} />}
+        {tab === 'command' && <CommandCenter onChanged={refresh} />}
         {tab === 'sources' && <DataSources sources={sources} onChanged={refresh} />}
         {tab === 'opportunities' && (
           <Opportunities

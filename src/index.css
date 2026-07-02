@@ -857,6 +857,142 @@ select {
   border-top: 1px solid var(--border);
 }
 
+/* ------------------------------------------------------------ innovation hub */
+
+.act-review { background: rgba(179, 146, 240, 0.16); color: #b392f0; }
+
+.score-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 0.25rem 0.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rec-fast_track { background: rgba(76, 195, 138, 0.18); color: var(--accent); }
+.rec-business_case { background: rgba(121, 184, 255, 0.16); color: #79b8ff; }
+.rec-investigate { background: rgba(139, 154, 168, 0.15); color: var(--muted); }
+.rec-needs_info { background: rgba(255, 171, 112, 0.16); color: #ffab70; }
+
+.banner-ok {
+  background: rgba(76, 195, 138, 0.1);
+  border: 1px solid var(--accent-dim);
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  margin: 0.8rem 0;
+  font-size: 0.9rem;
+}
+
+.prompt-list {
+  margin: 0.2rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.idea-card {
+  margin-bottom: 0.8rem;
+}
+
+button.danger {
+  background: rgba(229, 83, 75, 0.18);
+  color: #ff8a84;
+}
+
+button.danger:hover:not(:disabled) {
+  background: var(--error);
+  color: #fff;
+}
+
+.decide-row {
+  margin-top: 0.6rem;
+}
+
+.decide-row input {
+  flex: 2;
+}
+
+.pipeline-board {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.6rem;
+  margin: 0.8rem 0 1.2rem;
+}
+
+@media (max-width: 1000px) {
+  .pipeline-board {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.pipeline-col {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.6rem;
+  min-height: 90px;
+}
+
+.pipeline-col-head {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.pipeline-item {
+  background: var(--surface-2);
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+  margin-bottom: 0.4rem;
+}
+
+.gov-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 0.6rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.guardrail-row {
+  margin: 0.6rem 0;
+}
+
+.guardrail-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+}
+
+.guardrail-row input[type='number'] {
+  width: 120px;
+}
+
+.guardrail-row input[type='checkbox'] {
+  width: auto;
+}
+
+.hub-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.hub-pipeline .row {
+  margin-top: 0.4rem;
+}
+
+.hub-facts {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  padding-top: 0.6rem;
+}
+
 textarea {
   resize: vertical;
 }

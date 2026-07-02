@@ -1,11 +1,42 @@
-# InnovationValueDashboard
+# Innovation Hub
 
-A value-engineering dashboard in the spirit of Celonis: feed in a customer's
-**CMDB, ERP, cloud billing, and ITSM** data and it surfaces ranked
-**cost-reduction opportunities**. Then feed in a **business case** for an
-improvement idea and it digests the text (via the Claude API) into a concrete
-**ROI measurement plan** — KPIs, baselines, data sources, cadence, and the ROI
-formula to apply after implementation.
+An automated, scalable innovation platform: ingest a customer's **CMDB, ERP,
+cloud billing, ITSM, and existing idea backlog**, surface and prioritize
+**cost-reduction opportunities**, run ideas through an **automated intake →
+screening → business case → delivery → value-realized lifecycle**, and prove
+ROI with **evidence computed from the data itself**. The hub automates the
+manual steps — triage, scoring, case drafting, evidence refresh, stage
+advancement — so leaders make decisions instead of doing paperwork.
+
+## Innovation Hub capabilities
+
+- **Idea intake** — submission page with missing-info prompting, plus bulk
+  import of a client's existing backlog (CSV); every idea is stored in a
+  standard format, automatically validated, scored, matched to detected
+  opportunities, and **enriched where intake was incomplete (enrichment is
+  recorded on the idea)**
+- **Customizable scoring framework** — leaders tune idea-scoring weights
+  (impact / data grounding / strategic alignment / completeness), declare
+  priority themes, and set intake guardrails (minimum benefit, required
+  fields); opportunity prioritization weights persist in the same config
+- **Governance module** — assign owners to workflow areas (idea screening,
+  business-case approval, delivery, value verification, portfolio oversight);
+  areas with owners only accept decisions from those people
+- **Command center** — centralized approval queue with built-in approve /
+  reject / feedback, stage-by-stage lifecycle advancement, a live pipeline
+  board (stage columns with forecast + verified value), scoring-framework and
+  governance editors, and a full decision history
+- **AI-driven validation** — automatic heuristic triage on every idea
+  (consistent, instant) plus on-demand Claude evaluation (measurability,
+  categorization, missing information, duplicate risk)
+- **Automation engine** — idempotent rules run on read (serverless-friendly)
+  or on demand: auto-refresh metric-binding evidence when source data
+  updates, auto-draft business cases for top quick wins (baseline frozen at
+  draft), auto-advance cases to value-realized when evidence reaches
+  threshold; every action logged
+- **Pipeline visualization** — stage funnel, automation activity, and
+  time-to-value medians on the executive Overview; full board in the
+  command center
 
 ## Architecture
 
