@@ -145,7 +145,7 @@ export default function App() {
       )}
 
       <main>
-        {tab === 'overview' && <Dashboard data={dashboard} onNavigate={setTab} />}
+        {tab === 'overview' && <Dashboard data={dashboard} onNavigate={setTab} onChanged={refresh} />}
         {tab === 'ideas' && <Ideas ideas={ideas} onChanged={refresh} />}
         {tab === 'command' && <CommandCenter onChanged={refresh} />}
         {tab === 'sources' && <DataSources sources={sources} onChanged={refresh} />}

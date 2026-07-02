@@ -1,4 +1,5 @@
-import { money } from '../api'
+import { useState } from 'react'
+import { loadSamples, money } from '../api'
 import type { DashboardData, Decision, Quadrant, TimelineMonth } from '../types'
 
 type NavTab = 'ideas' | 'command' | 'sources' | 'opportunities' | 'cases' | 'tracking' | 'portfolio'
@@ -6,6 +7,7 @@ type NavTab = 'ideas' | 'command' | 'sources' | 'opportunities' | 'cases' | 'tra
 interface Props {
   data: DashboardData | null
   onNavigate: (tab: NavTab) => void
+  onChanged: () => void
 }
 
 const QUADRANT_LABELS: Record<string, string> = {
@@ -149,19 +151,44 @@ function DecisionQueue({ decisions, onNavigate }: { decisions: Decision[]; onNav
   )
 }
 
-export default function Dashboard({ data, onNavigate }: Props) {
+export default function Dashboard({ data, onNavigate, onChanged }: Props) {
+  const [seeding, setSeeding] = useState(false)
   if (!data) return <section><p className="muted">Loading…</p></section>
 
   const hasData = data.sources.some((s) => s.rows_loaded > 0)
   if (!hasData) {
     return (
-      <section>
-        <h2>Overview</h2>
+      <section className="first-run">
+        <h2>See the hub working in one click</h2>
         <p className="muted">
-          No customer data loaded yet. Start in{' '}
-          <button className="linklike" onClick={() => onNavigate('sources')}>Data Sources</button>{' '}
-          — upload exports, sync a connector, or load the sample data.
+          Nothing is connected yet. Load the sample dataset to watch the full flow — detected
+          opportunities, auto-drafted business cases, and the value funnel — or connect your own
+          data sources.
         </p>
+        <div className="row first-run-actions">
+          <button
+            disabled={seeding}
+            onClick={async () => {
+              setSeeding(true)
+              try {
+                await loadSamples()
+                onChanged()
+              } finally {
+                setSeeding(false)
+              }
+            }}
+          >
+            {seeding ? 'Loading sample data…' : 'Load sample data'}
+          </button>
+          <button className="secondary" onClick={() => onNavigate('sources')}>
+            Connect your data
+          </button>
+        </div>
+        {seeding && (
+          <p className="muted small">
+            Seeding five sources and running the first automation pass — a few seconds…
+          </p>
+        )}
       </section>
     )
   }

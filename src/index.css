@@ -1091,3 +1091,18 @@ li {
 .role-option strong {
   font-size: 1.05rem;
 }
+
+.first-run {
+  max-width: 560px;
+  margin: 3rem auto;
+  text-align: center;
+}
+
+.first-run h2 {
+  font-size: 1.4rem;
+}
+
+.first-run-actions {
+  justify-content: center;
+  margin-top: 1.2rem;
+}
