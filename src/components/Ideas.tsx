@@ -15,6 +15,14 @@ const REC_LABELS: Record<string, string> = {
   needs_info: 'Needs info',
 }
 
+const BENEFIT_GLYPHS: Record<string, [string, string]> = {
+  cost_reduction: ['▼', 'g-cost'],
+  revenue_growth: ['↗', 'g-rev'],
+  risk_avoidance: ['⛨', 'g-risk'],
+  experience: ['♥', 'g-exp'],
+  strategic: ['♟', 'g-strat'],
+}
+
 const BENEFIT_TYPES = [
   ['cost_reduction', 'Cost reduction'],
   ['revenue_growth', 'Revenue growth'],
@@ -154,6 +162,11 @@ function IdeaCard({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
   return (
     <div className="card idea-card">
       <div className="card-header clickable" role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded) } }} onClick={() => setExpanded(!expanded)}>
+        <div className="idea-identity">
+          <span className={`benefit-glyph ${BENEFIT_GLYPHS[idea.benefit_type ?? 'cost_reduction']?.[1] ?? 'g-cost'}`} aria-hidden="true">
+            {BENEFIT_GLYPHS[idea.benefit_type ?? 'cost_reduction']?.[0] ?? '▼'}
+          </span>
+          <span className="avatar" aria-hidden="true">{(idea.submitter ?? '?').slice(0, 1).toUpperCase()}</span>
         <div>
           <h3>{idea.title}</h3>
           <p className="muted small">
@@ -164,8 +177,18 @@ function IdeaCard({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
             {idea.horizon ? ` · ${idea.horizon.toUpperCase()}` : ''}
           </p>
         </div>
+        </div>
         <div className="row">
-          {a && <span className="score-chip">{a.score}</span>}
+          {a && (
+            <span className="score-ring" title={`Triage score ${a.score}`}>
+              <svg viewBox="0 0 36 36" aria-hidden="true">
+                <circle className="gauge-bg" cx="18" cy="18" r="14" pathLength={100} />
+                <circle className={`gauge-fg ${a.score >= 60 ? 'g-good' : a.score >= 35 ? 'g-warn' : 'g-bad'}`}
+                        cx="18" cy="18" r="14" pathLength={100} strokeDasharray={`${a.score} 100`} />
+              </svg>
+              <b>{Math.round(a.score)}</b>
+            </span>
+          )}
           {a && <span className={`pill rec-${a.recommendation}`}>{REC_LABELS[a.recommendation] ?? a.recommendation}</span>}
           <span className={idea.status === 'business_case' ? 'badge badge-ok' : 'badge'}>{idea.status.replace('_', ' ')}</span>
         </div>

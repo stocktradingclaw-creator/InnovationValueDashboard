@@ -32,6 +32,7 @@ function SourceCard({ source, onChanged }: { source: SourceStatus; onChanged: ()
       <div className="card-header">
         <h3>{source.label}</h3>
         <span className={source.rows_loaded > 0 ? 'badge badge-ok' : 'badge'}>
+          {source.rows_loaded > 0 && <i className="live-dot" aria-hidden="true" />}
           {source.rows_loaded > 0
             ? `${source.rows_loaded} rows${source.origin ? ` · ${source.origin}` : ''}`
             : 'no data'}

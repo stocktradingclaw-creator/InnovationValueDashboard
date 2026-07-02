@@ -1392,3 +1392,159 @@ main > section {
 .g-good { stroke: var(--accent); }
 .g-warn { stroke: #ffab70; }
 .g-bad { stroke: #ff8a84; }
+
+/* ------------------------------------------- per-tab visual identity pass */
+
+.idea-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.benefit-glyph {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.g-cost { background: rgba(76, 195, 138, 0.15); color: var(--accent); }
+.g-rev { background: rgba(121, 184, 255, 0.15); color: #79b8ff; }
+.g-risk { background: rgba(229, 83, 75, 0.15); color: #ff8a84; }
+.g-exp { background: rgba(246, 146, 206, 0.15); color: #f692ce; }
+.g-strat { background: rgba(179, 146, 240, 0.15); color: #b392f0; }
+
+.avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.score-ring {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+
+.score-ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.score-ring b {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+}
+
+/* pipeline: phase tints, connectors, aging heat */
+.phase-A .pipeline-col { border-top: 2px solid rgba(121, 184, 255, 0.5); }
+.phase-B .pipeline-col { border-top: 2px solid rgba(255, 171, 112, 0.5); }
+.phase-C .pipeline-col { border-top: 2px solid rgba(76, 195, 138, 0.5); }
+
+.pipeline-board {
+  position: relative;
+}
+
+.pipeline-col:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 22px;
+  margin-left: calc(100% - 2px);
+  top: 14px;
+  background: linear-gradient(90deg, var(--accent-dim), transparent);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  opacity: 0.7;
+}
+
+.pipeline-col {
+  position: relative;
+}
+
+.pipeline-item.item-aging { border-left: 3px solid #ffab70; }
+.pipeline-item.item-hot { border-left: 3px solid var(--error); box-shadow: 0 0 10px rgba(229, 83, 75, 0.15); }
+
+/* quadrant matrix tints */
+.matrix {
+  background:
+    linear-gradient(135deg, rgba(76, 195, 138, 0.06), transparent 45%),
+    linear-gradient(225deg, rgba(121, 184, 255, 0.06), transparent 45%),
+    linear-gradient(var(--border), var(--border)) 50% 0 / 1px 100% no-repeat,
+    linear-gradient(var(--border), var(--border)) 0 50% / 100% 1px no-repeat,
+    var(--surface-2);
+}
+
+.matrix .dot {
+  opacity: 0.85;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+/* KPI objectivity edges + formula block */
+.obj-row-hard td:first-child { border-left: 3px solid var(--accent); }
+.obj-row-medium td:first-child { border-left: 3px dashed #ffab70; }
+.obj-row-soft td:first-child { border-left: 3px dashed #ff8a84; }
+
+.formula {
+  font-size: 1rem;
+  border-left: 3px solid var(--accent-dim);
+}
+
+/* severity-tinted findings */
+.finding.sev-border-high { border-left: 4px solid var(--error); }
+.finding.sev-border-medium { border-left: 4px solid #ffab70; }
+.finding.sev-border-low { border-left: 4px solid var(--border); }
+
+/* live pulse dot on connected sources */
+.live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 0.4rem;
+  animation: pulse 2s ease infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(76, 195, 138, 0.5); }
+  50% { box-shadow: 0 0 0 5px rgba(76, 195, 138, 0); }
+}
+
+/* evidence slope lines */
+.slope {
+  width: 44px;
+  height: 18px;
+  vertical-align: middle;
+  margin-right: 0.4rem;
+}
+
+.slope line { stroke-width: 2; stroke-linecap: round; }
+.slope-good { stroke: var(--accent); }
+.slope-flat { stroke: var(--muted); }
+.slope-dot-good { fill: var(--accent); }
+.slope-dot-flat { fill: var(--muted); }
+
+/* verdict-weight approve buttons in decision rows */
+.decide-row button:not(.secondary):not(.danger) {
+  font-weight: 700;
+  box-shadow: 0 0 14px rgba(76, 195, 138, 0.2);
+}

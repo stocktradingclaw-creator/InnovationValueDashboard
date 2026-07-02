@@ -73,10 +73,12 @@ function QuadrantMatrix({ opportunities }: { opportunities: Opportunity[] }) {
       (a, b) => a.priority.risk_adjusted_annual_savings - b.priority.risk_adjusted_annual_savings,
     )
     const n = Math.max(opportunities.length - 1, 1)
+    const maxV = Math.max(...opportunities.map((o) => o.priority.risk_adjusted_annual_savings), 1)
     return opportunities.map((o) => ({
       o,
       x: (byCost.indexOf(o) / n) * 90 + 5,
       y: 95 - (byValue.indexOf(o) / n) * 90,
+      size: 8 + Math.sqrt(o.priority.risk_adjusted_annual_savings / maxV) * 16,
     }))
   }, [opportunities])
 
@@ -88,11 +90,11 @@ function QuadrantMatrix({ opportunities }: { opportunities: Opportunity[] }) {
         <span className="matrix-corner tr">Strategic bets</span>
         <span className="matrix-corner bl">Fill-ins</span>
         <span className="matrix-corner br">Deprioritize</span>
-        {dots.map(({ o, x, y }) => (
+        {dots.map(({ o, x, y, size }) => (
           <span
             key={o.id}
             className={`dot dot-${o.priority.quadrant}`}
-            style={{ left: `${x}%`, top: `${y}%` }}
+            style={{ left: `${x}%`, top: `${y}%`, width: size, height: size }}
             title={`${o.title}\nscore ${o.priority.score} · ${money(
               o.priority.risk_adjusted_annual_savings,
             )}/yr risk-adj · ~${money(o.priority.est_implementation_cost)} to implement`}

@@ -62,7 +62,7 @@ export default function PipelineView() {
       </div>
 
       {data.phases.map((phase) => (
-        <div key={phase.phase} className="phase-band">
+        <div key={phase.phase} className={`phase-band phase-${phase.phase[0]}`}>
           <h3 className="phase-title">{phase.phase}</h3>
           <div className="pipeline-board">
             {phase.stages.map((s) => (
@@ -82,7 +82,7 @@ export default function PipelineView() {
                   )}
                 </div>
                 {s.items.map((item) => (
-                  <div key={item.id} className="pipeline-item">
+                  <div key={item.id} className={`pipeline-item${(item.days_in_stage ?? 0) > data.aging_threshold_days * 2 ? ' item-hot' : (item.days_in_stage ?? 0) > data.aging_threshold_days ? ' item-aging' : ''}`}>
                     <div className="small"><strong>{item.title}</strong></div>
                     <div className="muted small">
                       {item.value > 0 ? `${money(item.value)}/yr` : 'unsized'}

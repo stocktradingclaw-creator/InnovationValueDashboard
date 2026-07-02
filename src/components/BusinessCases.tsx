@@ -51,7 +51,7 @@ function PlanView({ plan }: { plan: ROIPlan }) {
         </thead>
         <tbody>
           {plan.kpis.map((k) => (
-            <tr key={k.name}>
+            <tr key={k.name} className={k.objectivity ? `obj-row-${k.objectivity}` : ''}>
               <td><strong>{k.name}</strong></td>
               <td>{k.formula}</td>
               <td>{k.baseline_method}</td>

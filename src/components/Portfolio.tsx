@@ -80,7 +80,14 @@ export default function Portfolio({ report, hasPortfolio, onChanged }: Props) {
           <div className="metrics-row headline-row">
             <div className={`metric headline score ${scoreClass(report.health_score)}`}>
               <span className="muted small">Portfolio health</span>
-              <strong>{report.health_score}/100</strong>
+              <span className="gauge-wrap">
+                <svg viewBox="0 0 42 42" className="gauge" aria-hidden="true">
+                  <circle className="gauge-bg" cx="21" cy="21" r="16" pathLength={100} />
+                  <circle className={`gauge-fg ${report.health_score >= 70 ? 'g-good' : report.health_score >= 40 ? 'g-warn' : 'g-bad'}`}
+                          cx="21" cy="21" r="16" pathLength={100} strokeDasharray={`${report.health_score} 100`} />
+                </svg>
+                <strong>{report.health_score}/100</strong>
+              </span>
             </div>
             <div className="metric headline">
               <span className="muted small">Initiatives</span>
@@ -122,7 +129,7 @@ export default function Portfolio({ report, hasPortfolio, onChanged }: Props) {
             Findings ({report.findings.length})
           </h3>
           {report.findings.map((f) => (
-            <div key={f.title} className="card finding">
+            <div key={f.title} className={`card finding sev-border-${f.severity}`}>
               <div
                 className="card-header clickable"
                 role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(expanded === f.title ? null : f.title) } }} onClick={() => setExpanded(expanded === f.title ? null : f.title)}

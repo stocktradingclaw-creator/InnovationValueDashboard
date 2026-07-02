@@ -26,6 +26,15 @@ function Evidence({ bc, onChanged }: { bc: BusinessCase; onChanged: () => void }
               <td className="num">{b.latest_value != null ? b.latest_value.toLocaleString() : '—'}</td>
               <td className="num">{b.delta != null ? b.delta.toLocaleString() : '—'}</td>
               <td className="num savings">
+                {b.latest_value != null && b.baseline_value > 0 && (
+                  <svg className="slope" viewBox="0 0 44 18" aria-hidden="true">
+                    <line x1="4" y1="5" x2="40"
+                          y2={5 + 9 * Math.max(0, Math.min(1, 1 - b.latest_value / b.baseline_value))}
+                          className={b.latest_value < b.baseline_value ? 'slope-good' : 'slope-flat'} />
+                    <circle cx="40" cy={5 + 9 * Math.max(0, Math.min(1, 1 - b.latest_value / b.baseline_value))} r="2.5"
+                            className={b.latest_value < b.baseline_value ? 'slope-dot-good' : 'slope-dot-flat'} />
+                  </svg>
+                )}
                 {b.annualized_delta != null ? money(b.annualized_delta) : '—'}
               </td>
               <td>
