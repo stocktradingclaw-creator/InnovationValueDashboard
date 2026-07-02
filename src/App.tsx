@@ -25,8 +25,16 @@ type Tab =
 
 const DEFAULT_WEIGHTS: Weights = { value: 35, efficiency: 30, speed: 15, simplicity: 20 }
 
+const ROLE_TAB: Record<string, Tab> = {
+  contributor: 'ideas',
+  reviewer: 'command',
+  executive: 'overview',
+}
+
 export default function App() {
-  const [tab, setTab] = useState<Tab>('overview')
+  const storedRole = localStorage.getItem('ivd_role')
+  const [role, setRole] = useState<string | null>(storedRole)
+  const [tab, setTab] = useState<Tab>(storedRole ? (ROLE_TAB[storedRole] ?? 'overview') : 'overview')
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [portfolioReport, setPortfolioReport] = useState<PortfolioReport | null>(null)
   const [ideas, setIdeas] = useState<Idea[]>([])
@@ -107,6 +115,32 @@ export default function App() {
         <div className="banner-error">
           Cannot reach the API. Start it with:{' '}
           <code>cd server && uvicorn app.main:app --port 8000</code>
+        </div>
+      )}
+
+      {!role && (
+        <div className="role-picker card">
+          <h2>Welcome to the Innovation Hub — what brings you here?</h2>
+          <div className="role-options">
+            {[
+              ['contributor', 'I have an idea', 'Share it in two minutes — the hub does the paperwork.'],
+              ['reviewer', 'I review and decide', 'Your approval queue, experiments, and governance.'],
+              ['executive', 'I want the value picture', 'Verified ROI, trajectory, and decisions on the table.'],
+            ].map(([id, label, hint]) => (
+              <button
+                key={id}
+                className="role-option"
+                onClick={() => {
+                  localStorage.setItem('ivd_role', id)
+                  setRole(id)
+                  setTab(ROLE_TAB[id])
+                }}
+              >
+                <strong>{label}</strong>
+                <span className="muted small">{hint}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

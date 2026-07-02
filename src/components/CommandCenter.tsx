@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import {
   addExperiment, addTranche, concludeExperiment, createChallenge, decide,
-  getCommandQueue, getPatterns, getScoringConfig, money, putGovernance,
+  getCommandQueue, getLearnings, getPatterns, getScoringConfig, money, putGovernance,
   putScoringConfig, releaseTranche, replicatePattern, runAutomation,
 } from '../api'
-import type { BusinessCase, CommandQueue, Idea, Pattern, ScoringConfig, Stage } from '../types'
+import type { BusinessCase, CommandQueue, Idea, Learning, Pattern, ScoringConfig, Stage } from '../types'
 
 interface Props {
   onChanged: () => void
@@ -263,6 +263,29 @@ function ChallengeCreator({ onDone }: { onDone: () => void }) {
   )
 }
 
+function LearningLibrary() {
+  const [lessons, setLessons] = useState<Learning[]>([])
+  useEffect(() => {
+    getLearnings().then((r) => setLessons(r.learnings)).catch(() => {})
+  }, [])
+  if (lessons.length === 0) return null
+  return (
+    <>
+      <h3 className="spaced">Learning library <span className="muted small">kills are tuition, not failure</span></h3>
+      <div className="card">
+        {lessons.map((l, i) => (
+          <div key={i} className="comment-row small">
+            <span className={`pill ${l.outcome === 'proceed' ? 'act-approve' : l.outcome === 'kill' ? 'act-intervene' : 'act-verify'}`}>
+              {l.outcome}
+            </span>{' '}
+            <strong>{l.case_title}</strong> <span className="muted">— {l.learnings}</span>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
 function PatternLibrary({ onDone }: { onDone: () => void }) {
   const [patterns, setPatterns] = useState<Pattern[]>([])
   const [busy, setBusy] = useState<string | null>(null)
@@ -280,6 +303,7 @@ function PatternLibrary({ onDone }: { onDone: () => void }) {
               <h3>{p.title}</h3>
               <p className="muted small">
                 {p.category} · verified {p.measured_annual_savings ? money(p.measured_annual_savings) : '—'}/yr at origin
+                {p.story.credited_to ? ` · started by ${p.story.credited_to}` : ''}
               </p>
             </div>
             <button
@@ -296,6 +320,21 @@ function PatternLibrary({ onDone }: { onDone: () => void }) {
             >
               {busy === p.case_id ? 'Replicating…' : 'Replicate elsewhere'}
             </button>
+          </div>
+          <div className="story small">
+            <p><strong>The problem:</strong> {p.story.problem}</p>
+            {p.story.what_we_tried.length > 0 && (
+              <p>
+                <strong>What we tried:</strong>{' '}
+                {p.story.what_we_tried.map((e) => `${e.hypothesis} → ${e.outcome}: ${e.learnings}`).join(' · ')}
+              </p>
+            )}
+            {p.story.human_evidence.length > 0 && (
+              <p>
+                <strong>Human evidence:</strong>{' '}
+                {p.story.human_evidence.map((h) => `${h.kpi}: ${h.value}`).join(' · ')}
+              </p>
+            )}
           </div>
         </div>
       ))}
@@ -608,6 +647,8 @@ export default function CommandCenter({ onChanged }: Props) {
 
       <h3 className="spaced">Innovation pipeline</h3>
       <Pipeline cases={allCases} />
+
+      <LearningLibrary />
 
       <PatternLibrary onDone={refresh} />
 

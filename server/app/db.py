@@ -136,6 +136,21 @@ CREATE TABLE IF NOT EXISTS challenges (
     created_at TEXT NOT NULL,
     closes_at  TEXT
 );
+CREATE TABLE IF NOT EXISTS idea_comments (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    idea_id    TEXT NOT NULL REFERENCES ideas(id),
+    author     TEXT NOT NULL,
+    comment    TEXT NOT NULL,
+    build_on   INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS idea_votes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    idea_id    TEXT NOT NULL REFERENCES ideas(id),
+    voter      TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (idea_id, voter)
+);
 CREATE TABLE IF NOT EXISTS funding_tranches (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     case_id     TEXT NOT NULL REFERENCES business_cases(id),
@@ -178,6 +193,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE ideas ADD COLUMN benefit_type TEXT")
         conn.execute("ALTER TABLE ideas ADD COLUMN horizon TEXT")
         conn.execute("ALTER TABLE ideas ADD COLUMN challenge_id TEXT")
+    if idea_cols and "beneficiary" not in idea_cols:
+        conn.execute("ALTER TABLE ideas ADD COLUMN beneficiary TEXT")
+        conn.execute("ALTER TABLE ideas ADD COLUMN pain_point TEXT")
 
 
 @contextmanager
@@ -477,19 +495,38 @@ def create_idea(
     benefit_type: Optional[str] = None,
     horizon: Optional[str] = None,
     challenge_id: Optional[str] = None,
+    beneficiary: Optional[str] = None,
+    pain_point: Optional[str] = None,
 ) -> Dict[str, Any]:
     idea_id = f"IDEA-{uuid.uuid4().hex[:8]}"
     with _conn() as conn:
         conn.execute(
             "INSERT INTO ideas (id, title, description, submitter, submitted_at, status, "
             "assessment_json, category, estimated_annual_benefit, source, benefit_type, "
-            "horizon, challenge_id) "
-            "VALUES (?, ?, ?, ?, ?, 'triaged', ?, ?, ?, ?, ?, ?, ?)",
+            "horizon, challenge_id, beneficiary, pain_point) "
+            "VALUES (?, ?, ?, ?, ?, 'triaged', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (idea_id, title, description, submitter, submitted_at or _now(),
              json.dumps(assessment) if assessment else None,
-             category, estimated_annual_benefit, source, benefit_type, horizon, challenge_id),
+             category, estimated_annual_benefit, source, benefit_type, horizon, challenge_id,
+             beneficiary, pain_point),
         )
     return get_idea(idea_id)  # type: ignore[return-value]
+
+
+def _idea_social(idea_id: str) -> Dict[str, Any]:
+    with _conn() as conn:
+        comments = [
+            dict(r) for r in conn.execute(
+                "SELECT id, author, comment, build_on, created_at FROM idea_comments "
+                "WHERE idea_id = ? ORDER BY id", (idea_id,),
+            ).fetchall()
+        ]
+        voters = [
+            r["voter"] for r in conn.execute(
+                "SELECT voter FROM idea_votes WHERE idea_id = ? ORDER BY id", (idea_id,),
+            ).fetchall()
+        ]
+    return {"comments": comments, "voters": voters, "vote_count": len(voters)}
 
 
 def _idea_from_row(row: sqlite3.Row) -> Dict[str, Any]:
@@ -508,6 +545,9 @@ def _idea_from_row(row: sqlite3.Row) -> Dict[str, Any]:
         "benefit_type": row["benefit_type"],
         "horizon": row["horizon"],
         "challenge_id": row["challenge_id"],
+        "beneficiary": row["beneficiary"],
+        "pain_point": row["pain_point"],
+        **_idea_social(row["id"]),
     }
 
 
@@ -820,3 +860,43 @@ def release_tranche(case_id: str, tranche_id: int,
         if cur.rowcount == 0:
             return None
     return get_business_case(case_id)
+
+
+# ------------------------------------------------------------- social ideation
+
+def add_comment(idea_id: str, author: str, comment: str,
+                build_on: bool) -> Optional[Dict[str, Any]]:
+    if get_idea(idea_id) is None:
+        return None
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO idea_comments (idea_id, author, comment, build_on, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (idea_id, author, comment, 1 if build_on else 0, _now()),
+        )
+    return get_idea(idea_id)
+
+
+def add_vote(idea_id: str, voter: str) -> Optional[Dict[str, Any]]:
+    """Idempotent: voting twice is a no-op. Votes are signal, never decision."""
+    if get_idea(idea_id) is None:
+        return None
+    with _conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO idea_votes (idea_id, voter, created_at) VALUES (?, ?, ?)",
+            (idea_id, voter.strip(), _now()),
+        )
+    return get_idea(idea_id)
+
+
+def learnings(limit: int = 50) -> List[Dict[str, Any]]:
+    """The learning library: every concluded experiment's lesson, newest first."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT e.outcome, e.learnings, e.concluded_at, e.hypothesis, "
+            "b.id AS case_id, b.title AS case_title "
+            "FROM experiments e JOIN business_cases b ON b.id = e.case_id "
+            "WHERE e.concluded_at IS NOT NULL ORDER BY e.concluded_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]

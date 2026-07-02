@@ -197,6 +197,23 @@ export interface IdeaAssessment {
   }
 }
 
+export interface IdeaComment {
+  id: number
+  author: string
+  comment: string
+  build_on: number
+  created_at: string
+}
+
+export interface Learning {
+  outcome: string
+  learnings: string
+  concluded_at: string
+  hypothesis: string
+  case_id: string
+  case_title: string
+}
+
 export interface Idea {
   id: string
   title: string
@@ -212,6 +229,11 @@ export interface Idea {
   benefit_type: string | null
   horizon: string | null
   challenge_id: string | null
+  beneficiary: string | null
+  pain_point: string | null
+  comments: IdeaComment[]
+  voters: string[]
+  vote_count: number
 }
 
 export interface Experiment {
@@ -270,6 +292,12 @@ export interface Pattern {
   measured_annual_savings: number | null
   summary: string
   stage: Stage
+  story: {
+    problem: string
+    what_we_tried: { hypothesis: string; outcome: string | null; learnings: string | null }[]
+    human_evidence: { kpi: string; value: number; date: string }[]
+    credited_to: string | null
+  }
 }
 
 export interface ScoringConfig {

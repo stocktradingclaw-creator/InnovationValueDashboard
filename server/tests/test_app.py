@@ -991,3 +991,95 @@ def test_admin_token_guard(client, monkeypatch):
     assert client.put("/api/scoring-config", json={
         "priority_themes": ["x"],
     }, headers={"Authorization": "Bearer s3cret"}).status_code == 200
+
+
+# ------------------------------------------------------- human-centered layer
+
+def test_desirability_axis(client):
+    client.post("/api/datasets/load-samples")
+    anchored = client.post("/api/ideas", json={
+        "title": "Self-service laptop refresh",
+        "description": "Let employees schedule their own hardware refresh instead of "
+                       "waiting on tickets and losing a day of work.",
+        "beneficiary": "All 2,400 employees on the 3-year refresh cycle",
+        "pain_point": "People lose most of a day waiting at the IT desk for a swap",
+    }).json()
+    unanchored = client.post("/api/ideas", json={
+        "title": "Self-service laptop refresh v2",
+        "description": "Let employees schedule their own hardware refresh instead of "
+                       "waiting on tickets and losing a day of work again.",
+    }).json()
+
+    assert anchored["assessment"]["score_components"]["desirability"] == 0.8
+    assert unanchored["assessment"]["score_components"]["desirability"] == 0.0
+    assert anchored["assessment"]["score"] > unanchored["assessment"]["score"]
+    assert any("who is this for" in n for n in unanchored["assessment"]["enrichment"])
+
+
+def test_social_signal_rescores_ideas(client):
+    client.post("/api/datasets/load-samples")
+    idea = client.post("/api/ideas", json={
+        "title": "Recover duplicate vendor invoices",
+        "description": "Detect duplicate invoices by vendor and amount and recover them.",
+        "submitter": "maria",
+        "beneficiary": "AP team", "pain_point": "Manual reconciliation misses duplicates",
+    }).json()
+    base_desirability = idea["assessment"]["score_components"]["desirability"]
+
+    # votes are idempotent signal
+    client.post(f"/api/ideas/{idea['id']}/vote", json={"voter": "sam"})
+    client.post(f"/api/ideas/{idea['id']}/vote", json={"voter": "sam"})   # no double count
+    voted = client.post(f"/api/ideas/{idea['id']}/vote", json={"voter": "lee"}).json()
+    assert voted["vote_count"] == 2
+    assert voted["assessment"]["score_components"]["desirability"] > base_desirability
+
+    # build-on comment notifies the submitter and counts double
+    built = client.post(f"/api/ideas/{idea['id']}/comments", json={
+        "author": "sam", "comment": "Extend it to credit notes too — same detection logic.",
+        "build_on": True,
+    }).json()
+    assert built["comments"][0]["build_on"] == 1
+    notes = client.get("/api/notifications", params={"recipient": "maria"}).json()["notifications"]
+    assert any("built on your idea" in n["message"] for n in notes)
+
+
+def test_learning_library(client):
+    client.post("/api/datasets/load-samples")
+    case = client.post("/api/business-cases", json={
+        "title": "Kiosk pilot", "description": "d",
+    }).json()
+    client.post("/api/command/decide", json={
+        "subject_type": "case", "subject_id": case["id"], "decision": "experiment",
+    })
+    client.post(f"/api/business-cases/{case['id']}/experiments", json={
+        "hypothesis": "h", "method": "m", "success_criteria": "s",
+    })
+    exp = client.get("/api/business-cases").json()["business_cases"]
+    exp = next(c for c in exp if c["id"] == case["id"])["experiments"][0]
+    client.post(f"/api/business-cases/{case['id']}/experiments/{exp['id']}/conclude",
+                json={"outcome": "kill", "learnings": "Users preferred the mobile flow."})
+
+    lessons = client.get("/api/learnings").json()["learnings"]
+    assert lessons[0]["learnings"] == "Users preferred the mobile flow."
+    assert lessons[0]["case_title"] == "Kiosk pilot"
+
+
+def test_pattern_story_format(client):
+    client.post("/api/datasets/load-samples")
+    opp = _cloud_idle_opp(client)
+    case = client.post("/api/business-cases", json={
+        "title": "t", "description": "Idle instances burn money with no user impact.",
+        "estimated_cost": 5000, "linked_opportunity_id": opp["id"],
+    }).json()
+    client.post(f"/api/business-cases/{case['id']}/implement",
+                json={"go_live_date": "2026-05-01"})
+    survivors = "resource_id,service,monthly_cost,state,avg_cpu_pct\nx-1,EC2,100,running,50\n"
+    client.post("/api/datasets/cloud", files={"file": ("c.csv", survivors, "text/csv")})
+    binding = case["metric_bindings"][0]
+    client.post(f"/api/business-cases/{case['id']}/bindings/{binding['id']}/observe")
+    client.post("/api/automation/run")
+
+    pattern = client.get("/api/patterns").json()["patterns"][0]
+    assert pattern["story"]["problem"].startswith("Idle instances")
+    assert "what_we_tried" in pattern["story"]
+    assert "human_evidence" in pattern["story"]

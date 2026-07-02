@@ -76,10 +76,11 @@ def _impact_band(savings: float) -> str:
 DEFAULT_SCORING_CONFIG: Dict[str, Any] = {
     # idea scoring: leaders tune these to match evolving priorities
     "idea_weights": {
-        "impact": 0.40,        # size of the benefit claim / matched savings
-        "data_grounding": 0.25,  # how strongly the idea matches detected signal
-        "alignment": 0.20,     # overlap with declared strategic priority themes
-        "completeness": 0.15,  # how much of the intake information was provided
+        "impact": 0.30,          # size of the benefit claim / matched savings
+        "data_grounding": 0.20,  # how strongly the idea matches detected signal
+        "alignment": 0.15,       # overlap with declared strategic priority themes
+        "completeness": 0.10,    # how much of the intake information was provided
+        "desirability": 0.25,    # human evidence: who it serves, their pain, peer signal
     },
     "priority_themes": [
         "cost reduction", "automation", "cloud efficiency", "customer experience",
@@ -106,7 +107,13 @@ def get_scoring_config() -> Dict[str, Any]:
     if raw:
         stored = json.loads(raw)
         for key in config:
-            if key in stored:
+            if key not in stored:
+                continue
+            if isinstance(config[key], dict) and isinstance(stored[key], dict):
+                # merge per-key so configs saved before a new component existed
+                # pick up its default weight instead of breaking scoring
+                config[key] = {**config[key], **stored[key]}
+            else:
                 config[key] = stored[key]
     return config
 
@@ -116,7 +123,10 @@ def save_scoring_config(config: Dict[str, Any]) -> Dict[str, Any]:
     merged = get_scoring_config()
     for key in DEFAULT_SCORING_CONFIG:
         if key in config:
-            merged[key] = config[key]
+            if isinstance(DEFAULT_SCORING_CONFIG[key], dict) and isinstance(config[key], dict):
+                merged[key] = {**merged[key], **config[key]}
+            else:
+                merged[key] = config[key]
     for weights_key in ("idea_weights", "opportunity_weights"):
         weights = merged[weights_key]
         expected = set(DEFAULT_SCORING_CONFIG[weights_key])
@@ -196,6 +206,10 @@ def triage_idea(
     horizon: Optional[str] = None,
     challenge: Optional[Dict[str, Any]] = None,
     existing_ideas: Optional[List[Dict[str, Any]]] = None,
+    beneficiary: Optional[str] = None,
+    pain_point: Optional[str] = None,
+    votes: int = 0,
+    build_ons: int = 0,
 ) -> Dict[str, Any]:
     """Automatic validation, categorization, and prioritization of one idea,
     scored under the (leader-configurable) scoring framework. Enrichment
@@ -277,6 +291,18 @@ def triage_idea(
     ]
     completeness_score = sum(provided) / len(provided)
 
+    # desirability: does a human need anchor this idea, and do peers recognize it?
+    social_signal = min((votes + 2 * build_ons) / 5.0, 1.0)
+    desirability_score = round(
+        0.4 * (1.0 if (beneficiary or "").strip() else 0.0)
+        + 0.4 * (1.0 if (pain_point or "").strip() else 0.0)
+        + 0.2 * social_signal, 3,
+    )
+    if not (beneficiary or "").strip():
+        enrichment.append("No beneficiary named — who is this for?")
+    if not (pain_point or "").strip():
+        enrichment.append("No pain point described — what human problem does this solve?")
+
     weights = config["idea_weights"]
     total_weight = sum(weights.values()) or 1.0
     score = round(100 * (
@@ -284,6 +310,7 @@ def triage_idea(
         + weights["data_grounding"] * grounding_score
         + weights["alignment"] * alignment_score
         + weights["completeness"] * completeness_score
+        + weights.get("desirability", 0) * desirability_score
     ) / total_weight, 1)
 
     # guardrails: leaders' hard constraints, flagged not silently dropped
@@ -337,6 +364,7 @@ def triage_idea(
             "data_grounding": round(grounding_score, 2),
             "alignment": round(alignment_score, 2),
             "completeness": round(completeness_score, 2),
+            "desirability": round(desirability_score, 2),
         },
         "derived_category": derived_category,
         "estimated_annual_benefit": benefit,

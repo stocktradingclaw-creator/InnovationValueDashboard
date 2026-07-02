@@ -1044,3 +1044,50 @@ li {
   justify-content: space-between;
   padding: 0.2rem 0;
 }
+
+.social-box {
+  border-top: 1px solid var(--border);
+  margin-top: 0.8rem;
+  padding-top: 0.6rem;
+}
+
+.comment-row {
+  padding: 0.3rem 0;
+}
+
+.story p {
+  margin: 0.35rem 0;
+}
+
+.role-picker {
+  text-align: center;
+  padding: 2rem;
+}
+
+.role-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 1.2rem;
+}
+
+.role-option {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  text-align: left;
+}
+
+.role-option:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.role-option strong {
+  font-size: 1.05rem;
+}

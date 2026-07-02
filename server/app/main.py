@@ -339,6 +339,8 @@ class IdeaRequest(BaseModel):
     benefit_type: Optional[str] = None
     horizon: Optional[str] = None
     challenge_id: Optional[str] = None
+    beneficiary: Optional[str] = None
+    pain_point: Optional[str] = None
 
 
 def _prioritized_opps() -> List[Dict[str, Any]]:
@@ -361,6 +363,7 @@ def _ingest_idea(body: IdeaRequest, source: str,
         category=body.category, estimated_annual_benefit=body.estimated_annual_benefit,
         benefit_type=body.benefit_type, horizon=body.horizon, challenge=challenge,
         existing_ideas=db.list_ideas(),
+        beneficiary=body.beneficiary, pain_point=body.pain_point,
     )
     idea = db.create_idea(
         body.title.strip(), body.description.strip(),
@@ -371,6 +374,8 @@ def _ingest_idea(body: IdeaRequest, source: str,
         benefit_type=assessment.get("benefit_type"),
         horizon=assessment.get("horizon"),
         challenge_id=body.challenge_id,
+        beneficiary=(body.beneficiary or "").strip() or None,
+        pain_point=(body.pain_point or "").strip() or None,
     )
     db.log_automation(
         "idea_triage", assessment["recommendation"], idea["id"],
@@ -422,6 +427,8 @@ async def import_ideas(file: UploadFile = File(...)) -> Dict[str, Any]:
                 submitter=row.get("submitter") or None,
                 category=row.get("category") or None,
                 estimated_annual_benefit=benefit,
+                beneficiary=row.get("beneficiary") or None,
+                pain_point=row.get("pain_point") or None,
             ),
             source="import",
             submitted_at=row.get("submitted_at") or None,
@@ -761,7 +768,9 @@ def conclude_experiment(case_id: str, experiment_id: int,
         db.log_automation("experiment", "killed", case_id,
                           f"experiment {experiment_id}: {body.learnings[:150]}")
         db.notify(submitter, "case", case_id,
-                  f"'{case['title']}' was killed after an experiment. Learning: {body.learnings[:150]}")
+                  f"Thank you — the experiment on '{case['title']}' saved us from a bigger miss. "
+                  f"What we learned: {body.learnings[:150]} This learning is now in the library "
+                  "for the next team.")
     else:
         db.notify(submitter, "case", case_id,
                   f"Experiment on '{case['title']}' concluded: {body.outcome}.")
@@ -810,6 +819,73 @@ def get_notifications(recipient: str = Query(...)) -> Dict[str, Any]:
     return {"notifications": db.notifications_for(recipient)}
 
 
+def _rescore_idea(idea_id: str) -> Dict[str, Any]:
+    """Re-run triage with stored intake fields plus current social signal so
+    peer recognition (votes, build-ons) moves the desirability score. The AI
+    evaluation, if present, is preserved."""
+    idea = db.get_idea(idea_id)
+    challenge = db.get_challenge(idea["challenge_id"]) if idea.get("challenge_id") else None
+    others = [i for i in db.list_ideas() if i["id"] != idea_id]
+    fresh = hub.triage_idea(
+        idea["title"], idea["description"], _prioritized_opps(),
+        category=idea.get("category"),
+        estimated_annual_benefit=idea.get("estimated_annual_benefit"),
+        benefit_type=idea.get("benefit_type"), horizon=idea.get("horizon"),
+        challenge=challenge, existing_ideas=others,
+        beneficiary=idea.get("beneficiary"), pain_point=idea.get("pain_point"),
+        votes=idea.get("vote_count", 0),
+        build_ons=sum(1 for c in idea.get("comments", []) if c["build_on"]),
+    )
+    old = idea.get("assessment") or {}
+    if "ai_evaluation" in old:
+        fresh["ai_evaluation"] = old["ai_evaluation"]
+    return db.update_idea_assessment(idea_id, fresh)
+
+
+class CommentRequest(BaseModel):
+    author: str
+    comment: str
+    build_on: bool = False
+
+
+@app.post("/api/ideas/{idea_id}/comments")
+def add_comment(idea_id: str, body: CommentRequest) -> Dict[str, Any]:
+    if not body.author.strip() or not body.comment.strip():
+        raise HTTPException(400, "author and comment are required")
+    idea = db.add_comment(idea_id, body.author.strip(), body.comment.strip(), body.build_on)
+    if idea is None:
+        raise HTTPException(404, f"Idea '{idea_id}' not found")
+    if idea.get("submitter") and idea["submitter"].lower() != body.author.strip().lower():
+        db.notify(
+            idea["submitter"], "idea", idea_id,
+            (f"{body.author} built on your idea '{idea['title']}': {body.comment[:120]}"
+             if body.build_on else
+             f"{body.author} commented on your idea '{idea['title']}': {body.comment[:120]}"),
+        )
+    return _rescore_idea(idea_id)
+
+
+class VoteRequest(BaseModel):
+    voter: str
+
+
+@app.post("/api/ideas/{idea_id}/vote")
+def vote_idea(idea_id: str, body: VoteRequest) -> Dict[str, Any]:
+    if not body.voter.strip():
+        raise HTTPException(400, "voter is required")
+    idea = db.add_vote(idea_id, body.voter)
+    if idea is None:
+        raise HTTPException(404, f"Idea '{idea_id}' not found")
+    return _rescore_idea(idea_id)
+
+
+@app.get("/api/learnings")
+def get_learnings() -> Dict[str, Any]:
+    """The learning library — what experiments taught us, kills included.
+    Kills are tuition, not failure."""
+    return {"learnings": db.learnings()}
+
+
 # ------------------------------------------------------------- pattern library
 
 @app.get("/api/patterns")
@@ -818,6 +894,10 @@ def list_patterns() -> Dict[str, Any]:
     patterns = []
     for c in db.list_business_cases():
         if c["stage"] in ("value_realized", "scale"):
+            experience_readings = [
+                {"kpi": r["kpi_name"], "value": r["value"], "date": r["reading_date"]}
+                for r in c["kpi_readings"]
+            ][-3:]
             patterns.append({
                 "case_id": c["id"],
                 "title": c["title"].replace("[Auto-draft] ", ""),
@@ -828,6 +908,17 @@ def list_patterns() -> Dict[str, Any]:
                 "measured_annual_savings": (c["tracking"] or {}).get("measured_annual_savings"),
                 "summary": c["roi_plan"].get("summary", ""),
                 "stage": c["stage"],
+                # the story: problem -> what we tried -> what we learned -> proof
+                "story": {
+                    "problem": c["description"],
+                    "what_we_tried": [
+                        {"hypothesis": e["hypothesis"], "outcome": e["outcome"],
+                         "learnings": e["learnings"]}
+                        for e in c["experiments"] if e["concluded_at"]
+                    ],
+                    "human_evidence": experience_readings,
+                    "credited_to": db.submitter_for_case(c["id"]),
+                },
             })
     return {"patterns": patterns}
 

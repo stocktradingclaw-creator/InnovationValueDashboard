@@ -149,6 +149,8 @@ export function submitIdea(body: {
   benefit_type?: string
   horizon?: string
   challenge_id?: string
+  beneficiary?: string
+  pain_point?: string
 }) {
   return request<import('./types').Idea>('/api/ideas', json(body))
 }
@@ -262,4 +264,16 @@ export function getPatterns() {
 
 export function replicatePattern(caseId: string) {
   return request<BusinessCase>(`/api/patterns/${caseId}/replicate`, json({}))
+}
+
+export function commentOnIdea(id: string, body: { author: string; comment: string; build_on?: boolean }) {
+  return request<import('./types').Idea>(`/api/ideas/${id}/comments`, json(body))
+}
+
+export function voteIdea(id: string, voter: string) {
+  return request<import('./types').Idea>(`/api/ideas/${id}/vote`, json({ voter }))
+}
+
+export function getLearnings() {
+  return request<{ learnings: import('./types').Learning[] }>('/api/learnings')
 }

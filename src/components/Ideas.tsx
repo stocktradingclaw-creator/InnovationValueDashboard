@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useEffect } from 'react'
-import { evaluateIdea, getChallenges, getNotifications, importIdeas, money, submitIdea } from '../api'
+import { commentOnIdea, evaluateIdea, getChallenges, getNotifications, importIdeas, money, submitIdea, voteIdea } from '../api'
 import type { Challenge, Idea, Notification } from '../types'
 
 interface Props {
@@ -31,6 +31,8 @@ function SubmitForm({ challenges, onChanged }: { challenges: Challenge[]; onChan
   const [benefit, setBenefit] = useState('')
   const [benefitType, setBenefitType] = useState('')
   const [challengeId, setChallengeId] = useState('')
+  const [beneficiary, setBeneficiary] = useState('')
+  const [painPoint, setPainPoint] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const activeChallenges = challenges.filter((c) => c.status === 'active')
@@ -42,6 +44,8 @@ function SubmitForm({ challenges, onChanged }: { challenges: Challenge[]; onChan
   if (title && !benefit) prompts.push('An annual benefit estimate (even rough) sharpens prioritization; without one the hub derives it from matched data.')
   if (title && !category) prompts.push('A category helps routing; the hub will derive one from matched opportunities if omitted.')
   if (title && !submitter) prompts.push('Add your name so reviewers can follow up.')
+  if (title && !beneficiary) prompts.push('Who is this for? Ideas anchored to a named beneficiary score higher on desirability.')
+  if (title && !painPoint) prompts.push('What human pain does this solve? Describing the problem people feel is the strongest signal reviewers look for.')
 
   const submit = async () => {
     setBusy(true)
@@ -55,9 +59,11 @@ function SubmitForm({ challenges, onChanged }: { challenges: Challenge[]; onChan
         estimated_annual_benefit: benefit ? Number(benefit) : null,
         benefit_type: benefitType || undefined,
         challenge_id: challengeId || undefined,
+        beneficiary: beneficiary || undefined,
+        pain_point: painPoint || undefined,
       })
       setTitle(''); setDescription(''); setSubmitter(''); setCategory(''); setBenefit('')
-      setBenefitType(''); setChallengeId('')
+      setBenefitType(''); setChallengeId(''); setBeneficiary(''); setPainPoint('')
       onChanged()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -80,6 +86,18 @@ function SubmitForm({ challenges, onChanged }: { challenges: Challenge[]; onChan
         <input placeholder="Your name" value={submitter} onChange={(e) => setSubmitter(e.target.value)} />
         <input placeholder="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} />
         <input type="number" placeholder="Est. annual benefit $ (optional)" value={benefit} onChange={(e) => setBenefit(e.target.value)} />
+      </div>
+      <div className="row">
+        <input
+          placeholder="Who is this for? (beneficiary)"
+          value={beneficiary}
+          onChange={(e) => setBeneficiary(e.target.value)}
+        />
+        <input
+          placeholder="What pain does it solve for them?"
+          value={painPoint}
+          onChange={(e) => setPainPoint(e.target.value)}
+        />
       </div>
       <div className="row">
         <select value={benefitType} onChange={(e) => setBenefitType(e.target.value)}>
@@ -155,7 +173,14 @@ function IdeaCard({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
           <p className="muted small">
             Score {a.score} — impact {a.score_components.impact} · grounding {a.score_components.data_grounding} ·
             alignment {a.score_components.alignment} · completeness {a.score_components.completeness}
+            {a.score_components.desirability != null && <> · desirability {a.score_components.desirability}</>}
           </p>
+          {(idea.beneficiary || idea.pain_point) && (
+            <p className="small">
+              {idea.beneficiary && <><strong>For:</strong> {idea.beneficiary} </>}
+              {idea.pain_point && <><strong>· Pain:</strong> {idea.pain_point}</>}
+            </p>
+          )}
           {a.possible_duplicates && a.possible_duplicates.length > 0 && (
             <div className="banner-warn">
               Possible duplicate of{' '}
@@ -190,8 +215,72 @@ function IdeaCard({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
           {idea.promoted_case_id && (
             <p className="muted small">Promoted to case {idea.promoted_case_id}.</p>
           )}
+          <Social idea={idea} onChanged={onChanged} />
         </div>
       )}
+    </div>
+  )
+}
+
+function Social({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
+  const [name, setName] = useState('')
+  const [text, setText] = useState('')
+  const [buildOn, setBuildOn] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
+  return (
+    <div className="social-box">
+      {idea.comments.map((c) => (
+        <div key={c.id} className="small comment-row">
+          <span className={c.build_on ? 'pill act-approve' : 'pill act-verify'}>
+            {c.build_on ? 'build-on' : 'comment'}
+          </span>{' '}
+          <strong>{c.author}</strong> <span className="muted">{c.comment}</span>
+        </div>
+      ))}
+      <div className="row">
+        <input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 140 }} />
+        <input
+          placeholder='Add a comment — or check "build on" to extend the idea'
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <label className="small muted" style={{ whiteSpace: 'nowrap' }}>
+          <input type="checkbox" checked={buildOn} onChange={(e) => setBuildOn(e.target.checked)} style={{ width: 'auto' }} />{' '}
+          build on
+        </label>
+        <button
+          className="secondary"
+          disabled={!!busy || !name.trim() || !text.trim()}
+          onClick={async () => {
+            setBusy('comment')
+            try {
+              await commentOnIdea(idea.id, { author: name, comment: text, build_on: buildOn })
+              setText(''); setBuildOn(false)
+              onChanged()
+            } finally {
+              setBusy(null)
+            }
+          }}
+        >
+          {busy === 'comment' ? '…' : 'Post'}
+        </button>
+        <button
+          className="secondary"
+          disabled={!!busy || !name.trim()}
+          title="Votes are signal for reviewers, never the decision"
+          onClick={async () => {
+            setBusy('vote')
+            try {
+              await voteIdea(idea.id, name)
+              onChanged()
+            } finally {
+              setBusy(null)
+            }
+          }}
+        >
+          {busy === 'vote' ? '…' : `▲ ${idea.vote_count}`}
+        </button>
+      </div>
     </div>
   )
 }
