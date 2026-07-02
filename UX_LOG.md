@@ -111,3 +111,28 @@ Opportunities.tsx, index.css
 (visible labels adjacent); vote button meaning relies on title attr.
 
 Verified: build clean, 45 tests green.
+
+---
+
+## Pass 5 — Lens E: loading/error/feedback (2026-06-14)
+
+**Issue:** The three primary views (Overview — the default tab, Command
+Center, Pipeline) rendered a single dead "Loading…" text line while their
+data loaded. On the deployed serverless instance, first load includes a
+cold start plus the lazy automation pass — several seconds of what looked
+like a broken page at the exact moment an executive opens the product.
+
+**Who it hurt, when:** Anyone opening the app, worst on the deployment where
+cold starts are real; executives judge products in that first second.
+
+**Change:** Layout-preserving shimmer skeletons: the Overview shows ghost
+hero-stat cards and content blocks in their final positions; Command Center
+and Pipeline get card/column ghosts. aria-busy for assistive tech. Dead text
+is gone.
+
+**Files:** Dashboard.tsx, CommandCenter.tsx, PipelineView.tsx, index.css
+
+**Also observed (below the fix bar):** action feedback via busy button
+labels is adequate; error surfaces are inline and close to the action.
+
+Verified: build clean, 45 tests green.

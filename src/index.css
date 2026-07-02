@@ -1548,3 +1548,30 @@ main > section {
   font-weight: 700;
   box-shadow: 0 0 14px rgba(76, 195, 138, 0.2);
 }
+
+/* ------------------------------------------------------ loading skeletons */
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.045), transparent);
+  animation: shimmer 1.4s ease infinite;
+}
+
+@keyframes shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
+.sk-line { height: 26px; margin-bottom: 1.2rem; }
+.sk-card { min-height: 96px; }
+.sk-block { height: 190px; margin-bottom: 1rem; }

@@ -237,7 +237,18 @@ function DecisionQueue({ decisions, onNavigate }: { decisions: Decision[]; onNav
 
 export default function Dashboard({ data, onNavigate, onChanged }: Props) {
   const [seeding, setSeeding] = useState(false)
-  if (!data) return <section><p className="muted">Loading…</p></section>
+  if (!data) {
+    return (
+      <section aria-busy="true" aria-label="Loading overview">
+        <div className="skeleton sk-line" style={{ width: '55%' }} />
+        <div className="hero-band">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="hero-stat skeleton sk-card" />)}
+        </div>
+        <div className="card skeleton sk-block" />
+        <div className="card skeleton sk-block" style={{ height: 120 }} />
+      </section>
+    )
+  }
 
   const hasData = data.sources.some((s) => s.rows_loaded > 0)
   if (!hasData) {

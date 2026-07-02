@@ -22,7 +22,16 @@ export default function PipelineView() {
     getPipeline().then(setData).catch(() => {})
   }, [])
 
-  if (!data) return <section><p className="muted">Loading the pipeline…</p></section>
+  if (!data) {
+    return (
+      <section aria-busy="true" aria-label="Loading pipeline">
+        <div className="skeleton sk-line" style={{ width: '45%' }} />
+        <div className="pipeline-board">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="pipeline-col skeleton sk-block" style={{ height: 140 }} />)}
+        </div>
+      </section>
+    )
+  }
 
   const t = data.totals
   return (

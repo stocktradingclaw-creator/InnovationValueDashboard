@@ -850,7 +850,14 @@ export default function CommandCenter({ onChanged }: Props) {
     getLifecycle().then(setLifecycle).catch(() => {})
   }, [])
 
-  if (!queue) return <section><p className="muted">Loading…</p></section>
+  if (!queue) {
+    return (
+      <section aria-busy="true" aria-label="Loading command center">
+        <div className="skeleton sk-line" style={{ width: '40%' }} />
+        {[0, 1, 2].map((i) => <div key={i} className="card skeleton sk-block" style={{ height: 90 }} />)}
+      </section>
+    )
+  }
 
   const allCases = [
     ...queue.cases_pending_approval, ...queue.cases_in_experiment, ...queue.cases_in_motion,
