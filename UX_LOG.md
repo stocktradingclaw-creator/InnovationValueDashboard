@@ -157,3 +157,21 @@ construction.
 **Files:** index.css
 
 Verified: build clean, 53 tests green.
+
+---
+
+## Pass 8 — Lens H: data-viz clarity (2026-07-02)
+
+**Issue:** The value-vs-effort quadrant matrix labeled its x-axis but left the
+y-axis and the dot-size encoding unexplained. Dot size carries real meaning
+(risk-adjusted annual savings) that a first-time viewer had no way to decode.
+
+**Who it hurt, when:** A prospect seeing the Opportunities tab in a demo —
+the chart is the centerpiece of the prioritization story.
+
+**Change:** One caption line under the matrix: higher = more risk-adjusted
+value/yr, dot size = size of the prize, hover for details.
+
+**Files:** Opportunities.tsx, index.css
+
+Verified: build clean.

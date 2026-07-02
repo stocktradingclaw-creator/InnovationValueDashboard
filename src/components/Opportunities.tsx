@@ -105,6 +105,10 @@ function QuadrantMatrix({ opportunities }: { opportunities: Opportunity[] }) {
         <span>← cheaper to implement</span>
         <span>more expensive →</span>
       </div>
+      <p className="matrix-note muted small">
+        Higher = more risk-adjusted value per year · dot size = size of the prize ·
+        hover any dot for details
+      </p>
     </div>
   )
 }
