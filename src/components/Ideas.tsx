@@ -47,6 +47,7 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
   const [error, setError] = useState<string | null>(null)
   const [assisting, setAssisting] = useState(false)
   const [assist, setAssist] = useState<AssistResult | null>(null)
+  const [submitted, setSubmitted] = useState<Idea | null>(null)
   const activeChallenges = challenges.filter((c) => c.status === 'active')
 
   // prompt for the information that improves the triage score
@@ -63,7 +64,8 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
     setBusy(true)
     setError(null)
     try {
-      await submitIdea({
+      setSubmitted(null)
+      const created = await submitIdea({
         title,
         description,
         submitter: submitter || undefined,
@@ -75,8 +77,10 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
         beneficiary: beneficiary || undefined,
         pain_point: painPoint || undefined,
       })
-      setTitle(''); setDescription(''); setSubmitter(''); setCategory(''); setBenefit('')
+      setTitle(''); setDescription(''); setCategory(''); setBenefit('')
       setBenefitType(''); setChallengeId(''); setInitiativeIds([]); setBeneficiary(''); setPainPoint('')
+      setAssist(null)
+      setSubmitted(created)
       onChanged()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -186,6 +190,13 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
         </ul>
       )}
       {error && <p className="error">{error}</p>}
+      {submitted && (
+        <p className="success">
+          ✓ Submitted — triage says <strong>{REC_LABELS[submitted.assessment?.recommendation ?? ''] ?? submitted.assessment?.recommendation}</strong>
+          {submitted.assessment ? ` (score ${submitted.assessment.score})` : ''}. Track its
+          progress on the My Submissions tab.
+        </p>
+      )}
     </div>
   )
 }

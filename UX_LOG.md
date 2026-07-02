@@ -175,3 +175,36 @@ value/yr, dot size = size of the prize, hover for details.
 **Files:** Opportunities.tsx, index.css
 
 Verified: build clean.
+
+---
+
+## Pass 9 — Lens I: flow friction (2026-07-02)
+
+**Issue:** Submitting an idea — the single most important flow in the product —
+ended in silence: the form cleared with no confirmation, no triage outcome,
+and no pointer to where the idea went next.
+
+**Who it hurt, when:** Every first-time submitter, at the exact moment the
+product should reward them for contributing.
+
+**Change:** Success line after submission showing the triage recommendation
+and score, pointing to the My Submissions tab. The submitter's name also now
+persists across submissions instead of clearing.
+
+**Files:** Ideas.tsx
+
+Verified: build clean.
+
+---
+
+## Closing summary (2026-07-02)
+
+All nine lenses have completed a fix pass:
+A first-run/empty states, B hierarchy, C microcopy, D accessibility,
+E loading/feedback (skeletons), F responsive (mobile nav rail),
+G consistency (color tokens consolidated), H data-viz (matrix encodings
+explained), I flow friction (submission confirmation).
+
+Below-the-bar items logged for future passes: horizontal scroll wrapper for
+wide tables on narrow screens; aria-labels on weight sliders; vote-button
+labeling. Loop closed and deployed.
