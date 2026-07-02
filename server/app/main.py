@@ -800,21 +800,24 @@ def list_initiatives() -> Dict[str, Any]:
 # ------------------------------------------------------------------ demo studio
 
 class DemoRequest(BaseModel):
-    client: str
-    industry: str
+    client: Optional[str] = None
+    industry: Optional[str] = None
     notes: Optional[str] = None
 
 
 @app.post("/api/demo/generate")
 def demo_generate(body: DemoRequest) -> Dict[str, Any]:
-    if not body.client.strip() or not body.industry.strip():
-        raise HTTPException(400, "client and industry are required")
+    client = (body.client or "").strip()
+    industry = (body.industry or "").strip()
+    if not client and not industry:
+        raise HTTPException(400, "provide a client name, an industry, or both")
     try:
         demo.snapshot()  # baseline first — revert restores this exact state
     except demo.DemoError as exc:
         raise HTTPException(400, str(exc))
 
-    portfolio_spec = demo.build_portfolio(body.industry.strip(), body.client.strip(), body.notes)
+    portfolio_spec = demo.build_portfolio(industry or None, client or None, body.notes)
+    label = client or f"{industry.title()} prospect"
     initiative_ids = [
         db.create_initiative(i["name"], i["objective"])["id"]
         for i in portfolio_spec["initiatives"]
@@ -829,7 +832,7 @@ def demo_generate(body: DemoRequest) -> Dict[str, Any]:
         _ingest_idea(
             IdeaRequest(
                 title=spec["title"], description=spec["description"],
-                submitter=f"{body.client.strip()} workshop",
+                submitter=f"{label} workshop",
                 category=spec.get("category"),
                 estimated_annual_benefit=spec.get("estimated_annual_benefit"),
                 benefit_type=benefit_type,
@@ -850,7 +853,7 @@ def demo_generate(body: DemoRequest) -> Dict[str, Any]:
         db.add_workflow_event("idea", idea["id"], "prioritize", "demo studio", "seeded by demo studio")
 
     info = demo.mark_active(
-        body.client.strip(), body.industry.strip(),
+        label, industry or "inferred from client strategy",
         portfolio_spec["generated_by"], len(initiative_ids), created,
     )
     return {"demo": info}

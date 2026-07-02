@@ -179,9 +179,32 @@ _TEMPLATES: Dict[str, List[Dict[str, Any]]] = {
 }
 
 
-def _template_portfolio(industry: str, client: str) -> Dict[str, Any]:
-    key = industry.strip().lower()
-    template = _TEMPLATES.get(key, _TEMPLATES["default"])
+TARGET_IDEAS = 10
+
+_FILLER_IDEAS = [
+    _idea("GenAI knowledge assistant", "Answer policy, product, and process questions from internal documentation instantly.",
+          "knowledge management", "cost_reduction", 700000, "All employees", "Experts interrupted daily for answers that live in documents"),
+    _idea("Contract intelligence", "Extract obligations, renewal dates, and risk clauses from executed contracts automatically.",
+          "legal operations", "risk_avoidance", 450000, "Legal + procurement", "Renewals and obligations are missed because contracts sit unread"),
+    _idea("Churn early-warning signals", "Score accounts weekly on engagement decline and trigger save plays.",
+          "customer retention", "revenue_growth", 1600000, "Account managers", "Churn is discovered at renewal, when it is too late to act"),
+    _idea("Automated management reporting", "Generate the monthly operations pack directly from source systems.",
+          "reporting", "cost_reduction", 350000, "Finance + ops analysts", "A week of every month is spent assembling slides by hand"),
+    _idea("Employee onboarding automation", "Provision access, equipment, and training paths from a single start event.",
+          "hr operations", "experience", 300000, "New hires + IT + HR", "New starters wait days for access while tickets crawl"),
+    _idea("Sustainability data platform", "Automate ESG metric collection for regulatory reporting and target tracking.",
+          "sustainability", "strategic", 500000, "ESG + finance teams", "Regulatory ESG reporting is a quarterly manual scramble"),
+]
+
+
+def _template_portfolio(industry: Optional[str], client: str) -> Dict[str, Any]:
+    key = (industry or "").strip().lower()
+    template = _TEMPLATES.get(key)
+    if template is None:
+        template = next(
+            (t for k, t in _TEMPLATES.items() if k != "default" and key and k in key),
+            _TEMPLATES["default"],
+        )
     initiatives = []
     ideas = []
     for index, initiative in enumerate(template):
@@ -191,13 +214,27 @@ def _template_portfolio(industry: str, client: str) -> Dict[str, Any]:
         })
         for idea in initiative["ideas"]:
             ideas.append({**idea, "initiative_index": index})
-    return {"initiatives": initiatives, "ideas": ideas, "generated_by": "template"}
+    # top up to exactly TARGET_IDEAS with the generic pool, cycling initiatives
+    titles = {i["title"] for i in ideas}
+    for filler_index, filler in enumerate(_FILLER_IDEAS):
+        if len(ideas) >= TARGET_IDEAS:
+            break
+        if filler["title"] in titles:
+            continue
+        ideas.append({**filler, "initiative_index": filler_index % len(initiatives)})
+    return {"initiatives": initiatives, "ideas": ideas[:TARGET_IDEAS], "generated_by": "template"}
 
 
-def build_portfolio(industry: str, client: str, notes: Optional[str] = None) -> Dict[str, Any]:
-    """Returns {initiatives: [{name, objective}], ideas: [...], generated_by}."""
+def build_portfolio(industry: Optional[str], client: Optional[str],
+                    notes: Optional[str] = None) -> Dict[str, Any]:
+    """Returns {initiatives: [{name, objective}], ideas: [...], generated_by}.
+    Provide a client, an industry, or both. With a client, generation is
+    grounded in the company's publicly stated strategy (researched via web
+    search when available); industry-only requests ground in the latest major
+    trends in that industry."""
+    label = (client or "").strip() or f"{(industry or 'cross-industry').strip().title()} prospect"
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        return _template_portfolio(industry, client)
+        return _template_portfolio(industry, label)
 
     import anthropic
     from pydantic import BaseModel, Field
@@ -218,30 +255,60 @@ def build_portfolio(industry: str, client: str, notes: Optional[str] = None) -> 
         initiative_index: int = Field(description="0-based index into initiatives")
 
     class DemoPortfolio(BaseModel):
-        initiatives: TList[DemoInitiative] = Field(description="3 strategic initiatives")
-        ideas: TList[DemoIdea] = Field(description="6-9 ideas spread across the initiatives")
+        initiatives: TList[DemoInitiative] = Field(description="Exactly 3 strategic initiatives")
+        ideas: TList[DemoIdea] = Field(description="Exactly 10 ideas spread across the initiatives")
 
-    client_line = f"Client: {client} ({industry})."
-    notes_line = f" Presentation focus: {notes}." if notes else ""
-    try:
-        response = anthropic.Anthropic().messages.parse(
-            model="claude-opus-4-8",
-            max_tokens=16000,
-            thinking={"type": "adaptive"},
-            system=(
-                "You are a senior innovation consultant preparing a client-tailored "
-                "portfolio for a first presentation. Propose 3 strategic initiatives and "
-                "6-9 concrete, credible ideas under them. Ideas must name a real "
-                "beneficiary and pain, carry realistic annual benefit estimates for a "
-                "mid-to-large enterprise in this industry, and mix benefit types (not "
-                "only cost reduction). Be specific to the industry's actual operations; "
-                "avoid generic digital-transformation filler."
-            ),
-            messages=[{"role": "user", "content": client_line + notes_line}],
-            output_format=DemoPortfolio,
+    if client:
+        subject_line = (
+            f"Client: {client.strip()}." + (f" Industry: {industry.strip()}." if industry else "")
         )
+        grounding = (
+            "Research the client's PUBLICLY STATED strategy — annual report themes, "
+            "investor communications, announced programs — and anchor every initiative "
+            "and idea to what they have actually said they are pursuing. Name the "
+            "connection in each initiative's objective."
+        )
+    else:
+        subject_line = f"Industry: {(industry or '').strip()}. No specific client named."
+        grounding = (
+            "Anchor the initiatives and ideas in the latest major trends currently "
+            "reshaping this industry — name the trend each initiative responds to."
+        )
+    notes_line = f" Presentation focus: {notes}." if notes else ""
+
+    system = (
+        "You are a senior innovation consultant preparing a client-tailored portfolio "
+        "for a first presentation. Propose exactly 3 strategic initiatives and exactly "
+        "10 concrete, credible ideas under them. " + grounding + " Ideas must name a "
+        "real beneficiary and pain, carry realistic annual benefit estimates for an "
+        "enterprise of this scale, and mix benefit types (not only cost reduction). "
+        "Avoid generic digital-transformation filler."
+    )
+    request = {
+        "model": "claude-opus-4-8",
+        "max_tokens": 16000,
+        "thinking": {"type": "adaptive"},
+        "system": system,
+        "messages": [{"role": "user", "content": subject_line + notes_line}],
+        "output_format": DemoPortfolio,
+    }
+    anthropic_client = anthropic.Anthropic()
+    try:
+        # first attempt: with web search so public strategy/trends are current
+        response = anthropic_client.messages.parse(
+            **request,
+            tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}],
+        )
+        portfolio = response.parsed_output.model_dump()
+        portfolio["generated_by"] = "claude+research"
+        return portfolio
+    except Exception:
+        pass
+    try:
+        # second attempt: model knowledge only (org may not have web search enabled)
+        response = anthropic_client.messages.parse(**request)
         portfolio = response.parsed_output.model_dump()
         portfolio["generated_by"] = "claude"
         return portfolio
     except Exception:
-        return _template_portfolio(industry, client)
+        return _template_portfolio(industry, label)

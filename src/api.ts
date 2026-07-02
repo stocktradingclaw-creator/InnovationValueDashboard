@@ -293,7 +293,7 @@ export function getDemoStatus() {
   )
 }
 
-export function demoGenerate(body: { client: string; industry: string; notes?: string }) {
+export function demoGenerate(body: { client?: string; industry?: string; notes?: string }) {
   return request<{ demo: import('./types').DemoStatus }>('/api/demo/generate', json(body))
 }
 

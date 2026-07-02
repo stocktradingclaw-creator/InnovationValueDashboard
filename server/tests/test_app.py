@@ -1166,12 +1166,12 @@ def test_demo_generate_and_revert(client):
     assert resp.status_code == 200
     info = resp.json()["demo"]
     assert info["generated_by"] == "template"  # no API key in tests
-    assert info["initiatives"] == 3 and info["ideas"] == 6
+    assert info["initiatives"] == 3 and info["ideas"] == 10
 
     # portfolio is live: tagged, triaged, client-branded
     ideas = client.get("/api/ideas").json()["ideas"]
     demo_ideas = [i for i in ideas if i["source"] == "demo"]
-    assert len(demo_ideas) == 6
+    assert len(demo_ideas) == 10
     assert all(i["initiative_id"] for i in demo_ideas)
     assert all(i["assessment"]["score"] > 0 for i in demo_ideas)
     first_initiative = client.get("/api/initiatives").json()["initiatives"][0]
@@ -1191,6 +1191,18 @@ def test_demo_generate_and_revert(client):
     assert client.get("/api/demo/status").json()["demo"] is None
     # nothing to revert twice
     assert client.post("/api/demo/revert").status_code == 400
+
+    # client-only generation (industry inferred) and industry-only both work
+    resp = client.post("/api/demo/generate", json={"client": "Acme Corp"})
+    assert resp.status_code == 200
+    assert resp.json()["demo"]["ideas"] == 10
+    assert resp.json()["demo"]["industry"] == "inferred from client strategy"
+    client.post("/api/demo/revert")
+    resp = client.post("/api/demo/generate", json={"industry": "manufacturing"})
+    assert resp.status_code == 200
+    assert resp.json()["demo"]["client"] == "Manufacturing prospect"
+    client.post("/api/demo/revert")
+    assert client.post("/api/demo/generate", json={}).status_code == 400
 
 
 # ---------------------------------------------------------- stage-gate lifecycle

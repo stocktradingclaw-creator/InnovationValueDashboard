@@ -401,9 +401,10 @@ function DemoStudio({ onDone }: { onDone: () => void }) {
     <div className="card demo-studio">
       <h3>Demo studio</h3>
       <p className="muted small">
-        Tailor the portfolio for a client presentation: pick an industry, name the client, and the
-        hub generates strategic initiatives with tagged, triaged ideas. Revert restores the exact
-        pre-demo baseline — nothing bloats the data you present next time.
+        Tailor the portfolio for a client presentation. Name the client and the AI researches
+        their publicly stated strategy to ground ten ideas in it (industry optional); name only
+        an industry and ideas follow its latest major trends. Revert restores the exact pre-demo
+        baseline — nothing bloats the data you present next time.
       </p>
       {status ? (
         <>
@@ -435,9 +436,9 @@ function DemoStudio({ onDone }: { onDone: () => void }) {
       ) : (
         <>
           <div className="row">
-            <input placeholder="Client name — e.g. Meridian Health" value={clientName} onChange={(e) => setClientName(e.target.value)} />
+            <input placeholder="Client name — the AI researches their public strategy" value={clientName} onChange={(e) => setClientName(e.target.value)} />
             <select value={industry} onChange={(e) => setIndustry(e.target.value)}>
-              <option value="">Pick an industry…</option>
+              <option value="">Industry (optional with a client name)…</option>
               {industries.map((i) => <option key={i} value={i}>{i}</option>)}
             </select>
           </div>
@@ -448,12 +449,16 @@ function DemoStudio({ onDone }: { onDone: () => void }) {
           />
           <div className="row">
             <button
-              disabled={busy === 'generate' || !clientName.trim() || !industry}
+              disabled={busy === 'generate' || (!clientName.trim() && !industry)}
               onClick={async () => {
                 setBusy('generate')
                 setError(null)
                 try {
-                  await demoGenerate({ client: clientName, industry, notes: notes || undefined })
+                  await demoGenerate({
+                    client: clientName.trim() || undefined,
+                    industry: industry || undefined,
+                    notes: notes || undefined,
+                  })
                   setClientName(''); setIndustry(''); setNotes('')
                   await load()
                   onDone()
@@ -464,7 +469,7 @@ function DemoStudio({ onDone }: { onDone: () => void }) {
                 }
               }}
             >
-              {busy === 'generate' ? 'Generating portfolio…' : 'Generate client portfolio'}
+              {busy === 'generate' ? 'Researching & generating (1–3 min)…' : 'Generate client portfolio'}
             </button>
             <span className="muted small">Snapshots the baseline first — fully reversible.</span>
           </div>
