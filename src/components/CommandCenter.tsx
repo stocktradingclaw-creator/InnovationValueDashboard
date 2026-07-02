@@ -719,7 +719,27 @@ export default function CommandCenter({ onChanged }: Props) {
         </div>
       </div>
 
-      <h3>Ideas awaiting screening ({queue.ideas_pending.length})</h3>
+      <nav className="cc-nav" aria-label="Command center sections">
+        {[
+          ['cc-ideas', `Screening ${queue.ideas_pending.length}`],
+          ['cc-cases', `Approvals ${queue.cases_pending_approval.length}`],
+          ['cc-experiments', `Experiments ${queue.cases_in_experiment.length}`],
+          ['cc-pipeline', 'Pipeline'],
+          ['cc-setup', 'Frameworks'],
+          ['cc-demo', 'Demo studio'],
+          ['cc-history', 'History'],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            className="chip"
+            onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      <h3 id="cc-ideas">Ideas awaiting screening ({queue.ideas_pending.length})</h3>
       {queue.ideas_pending.length === 0 && <p className="muted small">Queue clear.</p>}
       {queue.ideas_pending.map((idea: Idea) => (
         <div key={idea.id} className="card">
@@ -737,7 +757,7 @@ export default function CommandCenter({ onChanged }: Props) {
         </div>
       ))}
 
-      <h3 className="spaced">Cases awaiting approval ({queue.cases_pending_approval.length})</h3>
+      <h3 className="spaced" id="cc-cases">Cases awaiting approval ({queue.cases_pending_approval.length})</h3>
       {queue.cases_pending_approval.length === 0 && <p className="muted small">Queue clear.</p>}
       {queue.cases_pending_approval.map((c) => (
         <div key={c.id} className="card">
@@ -765,7 +785,7 @@ export default function CommandCenter({ onChanged }: Props) {
         </div>
       ))}
 
-      <h3 className="spaced">Experiments in flight ({queue.cases_in_experiment.length})</h3>
+      <h3 className="spaced" id="cc-experiments">Experiments in flight ({queue.cases_in_experiment.length})</h3>
       {queue.cases_in_experiment.length === 0 && (
         <p className="muted small">
           None running. Healthy portfolios validate risky bets with cheap experiments — and kill
@@ -776,14 +796,14 @@ export default function CommandCenter({ onChanged }: Props) {
         <ExperimentPanel key={c.id} bc={c} onDone={refresh} />
       ))}
 
-      <h3 className="spaced">Innovation pipeline</h3>
+      <h3 className="spaced" id="cc-pipeline">Innovation pipeline</h3>
       <Pipeline cases={allCases} />
 
       <LearningLibrary />
 
       <PatternLibrary onDone={refresh} />
 
-      <div className="dash-grid spaced">
+      <div className="dash-grid spaced" id="cc-setup">
         <ScoringEditor onSaved={refresh} />
         <GovernanceEditor assignments={queue.governance} onSaved={refresh} />
       </div>
@@ -793,9 +813,9 @@ export default function CommandCenter({ onChanged }: Props) {
         <InitiativeCreator onDone={refresh} />
       </div>
 
-      <DemoStudio onDone={refresh} />
+      <div id="cc-demo"><DemoStudio onDone={refresh} /></div>
 
-      <h3 className="spaced">Decision history</h3>
+      <h3 className="spaced" id="cc-history">Decision history</h3>
       {queue.history.length === 0 ? (
         <p className="muted small">No decisions recorded yet.</p>
       ) : (

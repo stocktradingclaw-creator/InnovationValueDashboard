@@ -29,3 +29,30 @@ visible dashboard (slight first-run noise — candidate for lens B); Command
 Center "Queue clear." copy is terse but serviceable (lens C candidate).
 
 Verified: build clean, 41 tests green, seed CTA exercised against the dev server.
+
+---
+
+## Pass 2 — Lens B: visual hierarchy & scanability (2026-06-14)
+
+**Issue:** The Command Center had grown to ~12 stacked sections (screening,
+approvals, experiments, pipeline, learnings, patterns, scoring, governance,
+challenges, initiatives, demo studio, history) all at identical h3 weight —
+a wall of content with no way to see where work is waiting or jump to it.
+
+**Who it hurt, when:** The reviewer persona — the platform's most frequent
+user — on every visit. Finding "are there ideas waiting for me?" required
+scrolling the full page; the queues with live work were visually
+indistinguishable from static configuration panels.
+
+**Change:** Sticky jump-nav at the top of the Command Center with seven
+section chips, the work queues carrying live counts (Screening 3 ·
+Approvals 2 · Experiments 1 …). Smooth-scroll anchors with scroll-margin
+so headings land below the sticky bar. No sections moved or redesigned.
+
+**Files:** src/components/CommandCenter.tsx, src/index.css
+
+**Also observed (below the fix bar this pass):** role picker still renders
+above visible page content (minor); Overview stacking order is sound;
+tables scan well. "Queue clear." copy remains a lens C candidate.
+
+Verified: build clean, 43 tests green, dev server renders with nav mounted.
