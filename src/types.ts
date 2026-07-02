@@ -395,6 +395,7 @@ export interface WorkflowStep {
 }
 
 export interface CommandQueue {
+  automation_ran: { observed: number; drafted: number; advanced: number } | null
   idea_steps: (WorkflowStep & { position: number; is_last: boolean; ideas: QueuedIdea[] })[]
   idea_backlog: Idea[]
   cases_pending_approval: BusinessCase[]

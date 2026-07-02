@@ -734,6 +734,13 @@ def _governance_area_for(subject_type: str, case: Optional[Dict[str, Any]]) -> s
 
 @app.get("/api/command/queue")
 def command_queue() -> Dict[str, Any]:
+    # run the same lazy automation the dashboard uses BEFORE assembling the
+    # board, so the queue never lags one refresh behind a sweep — invisible
+    # side effects were being misread as broken gate buttons
+    automation = None
+    if db.dataset_meta() and hub.automation_is_stale():
+        automation = hub.run_automation(_prioritized_opps(), _loaded_datasets(),
+                                        db.dataset_meta())
     ideas = db.list_ideas()
     cases = db.list_business_cases()
 
@@ -753,6 +760,7 @@ def command_queue() -> Dict[str, Any]:
         "cases_in_motion": [c for c in cases if c["stage"] in ("approved", "in_delivery")],
         "history": db.workflow_events(30),
         "governance": hub.get_governance(),
+        "automation_ran": automation,
     }
 
 

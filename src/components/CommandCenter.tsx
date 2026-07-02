@@ -503,9 +503,11 @@ export default function CommandCenter({ onChanged }: Props) {
   const [autoBusy, setAutoBusy] = useState(false)
 
   const refresh = async () => {
+    // sync the rest of the app first so any lazy automation sweep lands
+    // before we read the queue — the board must reflect the final state
+    await Promise.resolve(onChanged())
     setQueue(await getCommandQueue())
     setLifecycle(await getLifecycle().catch(() => null))
-    onChanged()
   }
   useEffect(() => {
     getCommandQueue().then(setQueue)
@@ -571,6 +573,16 @@ export default function CommandCenter({ onChanged }: Props) {
       </nav>
 
       <LifecycleStrip lifecycle={lifecycle} />
+
+      {queue.automation_ran && (queue.automation_ran.drafted > 0 || queue.automation_ran.advanced > 0
+        || queue.automation_ran.observed > 0) && (
+        <p className="muted small">
+          ⚙ Hub automation ran with this refresh: {queue.automation_ran.drafted} case(s) drafted
+          from detected opportunities, {queue.automation_ran.advanced} advanced,{' '}
+          {queue.automation_ran.observed} metric(s) observed — those changes appear on this
+          board too, not because of your last decision.
+        </p>
+      )}
 
       {queue.idea_steps.map((step, i) => (
         <div key={step.key}>

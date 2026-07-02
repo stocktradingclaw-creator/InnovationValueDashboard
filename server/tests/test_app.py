@@ -1717,3 +1717,19 @@ def test_e2e_uat_user_journeys(client):
     assert t["total_realized_savings"] == 9000
     assert t["measured_annual_savings"] != t["total_realized_savings"] or \
            t["measured_annual_savings"] == 0  # never silently equated
+
+
+def test_queue_runs_lazy_automation_before_assembly(client):
+    client.post("/api/datasets/load-samples")
+    q = client.get("/api/command/queue").json()
+    # first read after data load: the sweep ran and is reported
+    assert q["automation_ran"] is not None
+    drafted_visible = {c["id"] for c in q["cases_pending_approval"]}
+    # anything the sweep drafted is already on this same response
+    cases = client.get("/api/business-cases").json()["business_cases"]
+    for c in cases:
+        if c["stage"] in ("draft", "proposed"):
+            assert c["id"] in drafted_visible
+    # immediate second read: nothing stale, no sweep, board stable
+    q2 = client.get("/api/command/queue").json()
+    assert q2["automation_ran"] is None
