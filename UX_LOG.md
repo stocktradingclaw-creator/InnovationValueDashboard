@@ -85,3 +85,29 @@ but tied to the evidence-observation concept (lens C candidate if it recurs);
 generic "Loading…" placeholders are candidates for lens E skeletons.
 
 Verified: build clean, 44 tests green, dev server renders.
+
+---
+
+## Pass 4 — Lens D: accessibility (2026-06-14)
+
+**Issue:** The app's primary interactive surfaces were mouse-only: the
+decision queue rows (Overview), expandable card headers (Ideas, Business
+Cases, Portfolio findings), and opportunity table rows were plain divs/trs
+with onClick — no role, no tabIndex, no key handling — and the stylesheet
+had zero :focus-visible styling anywhere.
+
+**Who it hurt, when:** Keyboard users and anyone driving a projected demo
+from a keyboard: the executive decision queue — the product's centerpiece —
+was unreachable without a mouse.
+
+**Change:** All five surface types gained role="button"/tabIndex and
+Enter/Space activation; a global :focus-visible ring (accent outline) now
+covers buttons, role=button, rows, and form fields.
+
+**Files:** Dashboard.tsx, Ideas.tsx, BusinessCases.tsx, Portfolio.tsx,
+Opportunities.tsx, index.css
+
+**Also observed (below the fix bar):** weight sliders lack aria-labels
+(visible labels adjacent); vote button meaning relies on title attr.
+
+Verified: build clean, 45 tests green.

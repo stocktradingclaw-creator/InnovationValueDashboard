@@ -125,7 +125,7 @@ export default function Portfolio({ report, hasPortfolio, onChanged }: Props) {
             <div key={f.title} className="card finding">
               <div
                 className="card-header clickable"
-                onClick={() => setExpanded(expanded === f.title ? null : f.title)}
+                role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(expanded === f.title ? null : f.title) } }} onClick={() => setExpanded(expanded === f.title ? null : f.title)}
               >
                 <div className="row">
                   <span className={`pill sev-${f.severity}`}>{SEVERITY_LABEL[f.severity]}</span>

@@ -181,7 +181,7 @@ function DecisionQueue({ decisions, onNavigate }: { decisions: Decision[]; onNav
         portfolio diagnostic.
       </p>
       {decisions.map((d) => (
-        <div key={`${d.action}-${d.title}`} className="decision-row" onClick={() => onNavigate(d.nav)}>
+        <div key={`${d.action}-${d.title}`} className="decision-row" role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate(d.nav) } }} onClick={() => onNavigate(d.nav)}>
           <span className={`action-chip act-${d.action}`}>{ACTION_LABELS[d.action]}</span>
           <div className="decision-body">
             <strong>{d.title}</strong>

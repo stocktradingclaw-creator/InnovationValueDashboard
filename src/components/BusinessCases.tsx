@@ -185,7 +185,7 @@ export default function BusinessCases({ cases, opportunities, onChanged }: Props
         <div key={c.id} className="card bc-card">
           <div
             className="card-header clickable"
-            onClick={() => setExpanded(expanded === c.id ? null : c.id)}
+            role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(expanded === c.id ? null : c.id) } }} onClick={() => setExpanded(expanded === c.id ? null : c.id)}
           >
             <h3>{c.title}</h3>
             <div className="row">

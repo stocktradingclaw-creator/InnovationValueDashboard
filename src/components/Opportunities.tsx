@@ -191,6 +191,7 @@ export default function Opportunities({
               <tr
                 key={o.id}
                 className="opp-row"
+                tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(expanded === o.id ? null : o.id) } }}
                 onClick={() => setExpanded(expanded === o.id ? null : o.id)}
               >
                 <td className="num muted">{o.priority.rank}</td>

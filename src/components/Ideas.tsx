@@ -153,7 +153,7 @@ function IdeaCard({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
 
   return (
     <div className="card idea-card">
-      <div className="card-header clickable" onClick={() => setExpanded(!expanded)}>
+      <div className="card-header clickable" role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded) } }} onClick={() => setExpanded(!expanded)}>
         <div>
           <h3>{idea.title}</h3>
           <p className="muted small">
