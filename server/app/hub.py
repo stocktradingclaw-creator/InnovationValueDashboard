@@ -92,6 +92,8 @@ DEFAULT_SCORING_CONFIG: Dict[str, Any] = {
     },
     # default opportunity prioritization weights (see prioritization.py)
     "opportunity_weights": {"value": 0.35, "efficiency": 0.30, "speed": 0.15, "simplicity": 0.20},
+    # leader-defined criteria: keyword-matched against idea text, weighted into the score
+    "custom_criteria": [],
 }
 
 
@@ -138,11 +140,46 @@ def save_scoring_config(config: Dict[str, Any]) -> Dict[str, Any]:
             raise ConfigError(f"at least one {weights_key} weight must be > 0")
     if not isinstance(merged["priority_themes"], list):
         raise ConfigError("priority_themes must be a list of strings")
+    customs = merged.get("custom_criteria") or []
+    if not isinstance(customs, list) or len(customs) > 8:
+        raise ConfigError("custom_criteria must be a list (max 8)")
+    for c in customs:
+        if not (c.get("label") or "").strip():
+            raise ConfigError("each custom criterion needs a label")
+        if not isinstance(c.get("keywords"), list) or not c["keywords"]:
+            raise ConfigError("each custom criterion needs a keywords list")
+        if not isinstance(c.get("weight"), (int, float)) or c["weight"] < 0:
+            raise ConfigError("custom criterion weight must be a number >= 0")
     db.meta_set("scoring_config", json.dumps(merged))
     return merged
 
 
 # --------------------------------------------------------------- governance
+
+# access levels, weakest to strongest; each includes everything below it
+ROLES = ["contributor", "reviewer", "executive", "admin"]
+
+ROLE_CAPABILITIES = {
+    "contributor": "Submit ideas, comment, build on, and vote",
+    "reviewer": "Plus: gate decisions on ideas (qualify, prioritize, hold, develop)",
+    "executive": "Plus: business-case approvals, rejections, and funding release",
+    "admin": "Plus: hub settings — workflow, scoring, roles, governance, demo studio",
+}
+
+
+def check_role(minimum: str, actor: Optional[str]) -> Optional[str]:
+    """Profile-based access: open until user profiles exist; once they do,
+    every decision-making actor must be registered with sufficient privilege."""
+    users = db.list_users()
+    if not users:
+        return None
+    role = db.get_role(actor or "")
+    if role is None:
+        return f"'{actor or 'anonymous'}' has no user profile — an admin must add one in Hub Settings"
+    if ROLES.index(role) < ROLES.index(minimum):
+        return f"'{actor}' is a {role}; this action requires {minimum} access or above"
+    return None
+
 
 GOVERNANCE_AREAS = [
     "idea_screening",
@@ -307,13 +344,24 @@ def triage_idea(
         enrichment.append("No pain point described — what human problem does this solve?")
 
     weights = config["idea_weights"]
-    total_weight = sum(weights.values()) or 1.0
+    customs = config.get("custom_criteria") or []
+    custom_components = {}
+    custom_weighted = 0.0
+    for criterion in customs:
+        kw_tokens = set()
+        for kw in criterion["keywords"]:
+            kw_tokens |= _tokens(str(kw))
+        hit = 1.0 if idea_tokens & kw_tokens else 0.0
+        custom_components[f"custom: {criterion['label']}"] = hit
+        custom_weighted += criterion["weight"] * hit
+    total_weight = (sum(weights.values()) + sum(c["weight"] for c in customs)) or 1.0
     score = round(100 * (
         weights["impact"] * impact_score
         + weights["data_grounding"] * grounding_score
         + weights["alignment"] * alignment_score
         + weights["completeness"] * completeness_score
         + weights.get("desirability", 0) * desirability_score
+        + custom_weighted
     ) / total_weight, 1)
 
     # guardrails: leaders' hard constraints, flagged not silently dropped
@@ -368,6 +416,7 @@ def triage_idea(
             "alignment": round(alignment_score, 2),
             "completeness": round(completeness_score, 2),
             "desirability": round(desirability_score, 2),
+            **{k: round(v, 2) for k, v in custom_components.items()},
         },
         "derived_category": derived_category,
         "estimated_annual_benefit": benefit,
@@ -687,9 +736,107 @@ def hub_metrics(cases: List[Dict[str, Any]], ideas: List[Dict[str, Any]]) -> Dic
 # Formal stage-gate lifecycle (modeled on enterprise portfolio stage-gate
 # processes): ideas advance through named gates with declared criteria and a
 # responsible governance forum. Terminal exits: declined, backlog (hold).
-IDEA_STAGES = ["proposed", "qualified", "prioritized", "business_case"]
+DEFAULT_WORKFLOW = [
+    {"key": "proposed", "label": "Proposed", "gate": "Qualification (GO/NO-GO)",
+     "forum": "idea_screening",
+     "purpose": "Validate the idea is sponsored, novel, and strategically aligned "
+                "before spending discovery effort.",
+     "criteria": ["Named business sponsor", "No existing solution / not a duplicate",
+                  "Strategic alignment", "Intake guardrails met"]},
+    {"key": "qualified", "label": "Qualified", "gate": "Prioritization (portfolio register)",
+     "forum": "portfolio_oversight",
+     "purpose": "Rank qualified ideas by business impact against capability and capacity.",
+     "criteria": ["Business impact", "Capability (data grounding)", "Capacity"]},
+    {"key": "prioritized", "label": "Prioritized", "gate": "AI-developed business case",
+     "forum": "portfolio_oversight",
+     "purpose": "The hub develops the business case with AI, ready for executive review.",
+     "criteria": ["AI ROI plan with KPIs and baselines", "Evidence baseline frozen where matched"]},
+]
 
-LIFECYCLE_SPEC = [
+
+def get_workflow() -> List[Dict[str, Any]]:
+    import json
+    raw = db.meta_get("workflow_steps")
+    if raw:
+        return json.loads(raw)
+    return [dict(s, criteria=list(s["criteria"])) for s in DEFAULT_WORKFLOW]
+
+
+def save_workflow(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    import json, re
+    if not isinstance(steps, list) or not 1 <= len(steps) <= 8:
+        raise ConfigError("workflow must have 1-8 steps")
+    cleaned = []
+    keys = set()
+    for i, s in enumerate(steps):
+        key = (s.get("key") or "").strip().lower()
+        if i == 0:
+            key = "proposed"  # intake is fixed: every idea enters here
+        if not re.fullmatch(r"[a-z][a-z0-9_]{1,30}", key):
+            raise ConfigError(f"invalid step key '{key}' (lowercase slug)")
+        if key in keys or key in ("business_case", "backlog", "declined"):
+            raise ConfigError(f"duplicate or reserved step key '{key}'")
+        keys.add(key)
+        forum = s.get("forum") or "idea_screening"
+        if forum not in GOVERNANCE_AREAS:
+            raise ConfigError(f"forum must be one of {GOVERNANCE_AREAS}")
+        criteria = s.get("criteria") or []
+        if not isinstance(criteria, list) or any(not isinstance(c, str) for c in criteria):
+            raise ConfigError("criteria must be a list of strings")
+        cleaned.append({
+            "key": key,
+            "label": (s.get("label") or key.title()).strip()[:40],
+            "gate": (s.get("gate") or "Gate").strip()[:80],
+            "forum": forum,
+            "purpose": (s.get("purpose") or "").strip()[:400],
+            "criteria": [c.strip()[:120] for c in criteria if c.strip()],
+        })
+    db.meta_set("workflow_steps", json.dumps(cleaned))
+    return cleaned
+
+
+def workflow_keys() -> List[str]:
+    return [s["key"] for s in get_workflow()]
+
+
+def IDEA_STAGES_DYNAMIC() -> List[str]:
+    return workflow_keys() + ["business_case"]
+
+
+IDEA_STAGES = ["proposed", "qualified", "prioritized", "business_case"]  # default snapshot
+
+def lifecycle_spec() -> List[Dict[str, Any]]:
+    steps = get_workflow()
+    spec = []
+    for i, s in enumerate(steps):
+        spec.append({
+            "stage": s["key"],
+            "step": f"Step {i + 1} — {s['label']}",
+            "gate": s["gate"],
+            "forum": s["forum"],
+            "purpose": s["purpose"],
+            "criteria": s["criteria"],
+            "decisions": (["develop", "hold", "feedback"] if i == len(steps) - 1
+                          else ["advance", "hold", "reject", "feedback"] if i > 0
+                          else ["advance", "reject", "feedback"]),
+        })
+    spec.append(_BUSINESS_CASE_SPEC)
+    return spec
+
+
+_BUSINESS_CASE_SPEC = {
+    "stage": "business_case",
+    "step": "Executive review, funding, delivery",
+    "gate": "Business case approved → funded → mobilized",
+    "forum": "business_case_approval",
+    "purpose": "Executives review business value, opportunity cost, and ROI; approval "
+               "unlocks funding, and a released tranche is required to mobilize.",
+    "criteria": ["Business value and ROI reviewed", "Funding tranche released before mobilization",
+                 "Value verified against the frozen baseline after go-live"],
+    "decisions": [],
+}
+
+_LEGACY_LIFECYCLE_SPEC = [
     {
         "stage": "proposed",
         "step": "Step 1 — Intake & qualification",
@@ -766,6 +913,14 @@ def gate_checklist(idea: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 # ------------------------------------------------------------- pipeline analytics
 
+def _pipeline_phases():
+    return [
+        ("A. Ideas-to-portfolio", "idea", workflow_keys()),
+        ("B. Portfolio-to-business-case", "case", ["draft", "proposed", "experiment", "approved"]),
+        ("C. Delivery & value", "case", ["in_delivery", "live", "value_realized", "scale"]),
+    ]
+
+
 PIPELINE_PHASES = [
     ("A. Ideas-to-portfolio", "idea", ["proposed", "qualified", "prioritized"]),
     ("B. Portfolio-to-business-case", "case", ["draft", "proposed", "experiment", "approved"]),
@@ -809,18 +964,6 @@ def build_pipeline(ideas: List[Dict[str, Any]], cases: List[Dict[str, Any]]) -> 
             "prioritized": events.get("prioritize"),
         }.get(i["status"]) or i["submitted_at"]
 
-    # reached counts drive gate conversion (ever passed, not just currently in)
-    reached_idea = {
-        "proposed": len(ideas),
-        "qualified": sum(1 for i in ideas
-                         if i["status"] in ("qualified", "prioritized", "business_case", "backlog")
-                         or "qualify" in by_idea.get(i["id"], {})),
-        "prioritized": sum(1 for i in ideas
-                           if i["status"] in ("prioritized", "business_case")
-                           or "prioritize" in by_idea.get(i["id"], {})),
-        "business_case": sum(1 for i in ideas if i["status"] == "business_case"),
-    }
-
     # dwell medians for completed idea transitions
     def _completed_dwells(stage: str) -> List[float]:
         out = []
@@ -862,8 +1005,17 @@ def build_pipeline(ideas: List[Dict[str, Any]], cases: List[Dict[str, Any]]) -> 
                 return h["entered_at"]
         return c["submitted_at"]
 
+    keys = workflow_keys()
+    reached_idea = {k: 0 for k in keys}
+    for i in ideas:
+        p = keys.index(i["status"]) if i["status"] in keys else (len(keys) if i["status"] in ("business_case", "backlog") else -1)
+        for j, k in enumerate(keys):
+            if p >= j:
+                reached_idea[k] += 1
+    reached_idea["business_case"] = sum(1 for i in ideas if i["status"] == "business_case")
+
     phases = []
-    for phase_name, kind, stages in PIPELINE_PHASES:
+    for phase_name, kind, stages in _pipeline_phases():
         # conversion is only meaningful within a phase: cases can enter the
         # pipeline directly (auto-drafts, replicated patterns), so comparing
         # case counts against idea counts would fabricate pass rates
@@ -878,7 +1030,7 @@ def build_pipeline(ideas: List[Dict[str, Any]], cases: List[Dict[str, Any]]) -> 
                     "days_in_stage": _days_since(idea_entered(i)),
                     "owner": i.get("submitter"),
                 } for i in in_stage]
-                reached = reached_idea[stage]
+                reached = reached_idea.get(stage, len(items))
                 dwells = _completed_dwells(stage)
             else:
                 in_stage = [c for c in cases if c["stage"] == stage]

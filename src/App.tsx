@@ -6,7 +6,9 @@ import Dashboard from './components/Dashboard'
 import DataSources from './components/DataSources'
 import Ideas from './components/Ideas'
 import Opportunities from './components/Opportunities'
+import MySubmissions from './components/MySubmissions'
 import PipelineView from './components/PipelineView'
+import Settings from './components/Settings'
 import Portfolio from './components/Portfolio'
 import Tracking from './components/Tracking'
 import type {
@@ -23,7 +25,7 @@ import type {
 
 type Tab =
   | 'overview' | 'ideas' | 'command' | 'pipeline' | 'sources'
-  | 'opportunities' | 'cases' | 'tracking' | 'portfolio'
+  | 'opportunities' | 'cases' | 'tracking' | 'portfolio' | 'settings' | 'mine'
 
 const DEFAULT_WEIGHTS: Weights = { value: 35, efficiency: 30, speed: 15, simplicity: 20 }
 
@@ -36,6 +38,7 @@ const ROLE_TAB: Record<string, Tab> = {
 export default function App() {
   const storedRole = localStorage.getItem('ivd_role')
   const [role, setRole] = useState<string | null>(storedRole)
+  const [collapsed, setCollapsed] = useState(localStorage.getItem('ivd_nav') === 'collapsed')
   const [tab, setTab] = useState<Tab>(storedRole ? (ROLE_TAB[storedRole] ?? 'overview') : 'overview')
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [portfolioReport, setPortfolioReport] = useState<PortfolioReport | null>(null)
@@ -78,46 +81,47 @@ export default function App() {
 
   const hasData = sources.some((s) => s.rows_loaded > 0)
 
-  return (
-    <div className="app">
-      <header>
-        <h1>
-          Innovation<span className="accent">Hub</span>
-        </h1>
-        <nav>
-          <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>
-            Overview
-          </button>
-          <button className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>
-            Ideas{ideas.length > 0 && ` (${ideas.length})`}
-          </button>
-          <button className={tab === 'command' ? 'active' : ''} onClick={() => setTab('command')}>
-            Command Center
-          </button>
-          <button className={tab === 'pipeline' ? 'active' : ''} onClick={() => setTab('pipeline')}>
-            Pipeline
-          </button>
-          <button className={tab === 'sources' ? 'active' : ''} onClick={() => setTab('sources')}>
-            Data Sources
-          </button>
-          <button
-            className={tab === 'opportunities' ? 'active' : ''}
-            onClick={() => setTab('opportunities')}
-          >
-            Opportunities{opportunities.length > 0 && ` (${opportunities.length})`}
-          </button>
-          <button className={tab === 'cases' ? 'active' : ''} onClick={() => setTab('cases')}>
-            Business Cases{cases.length > 0 && ` (${cases.length})`}
-          </button>
-          <button className={tab === 'tracking' ? 'active' : ''} onClick={() => setTab('tracking')}>
-            ROI Tracking
-          </button>
-          <button className={tab === 'portfolio' ? 'active' : ''} onClick={() => setTab('portfolio')}>
-            Portfolio
-          </button>
-        </nav>
-      </header>
+  const NAV: [Tab, string, string][] = [
+    ['overview', '◉', 'Overview'],
+    ['ideas', '✎', 'Idea Submission'],
+    ['mine', '★', 'My Submissions'],
+    ['command', '⌘', 'Command Center'],
+    ['pipeline', '⇶', 'Pipeline'],
+    ['sources', '⛁', 'Data Sources'],
+    ['opportunities', '◎', 'Opportunities'],
+    ['cases', '▤', 'Business Cases'],
+    ['tracking', '✓', 'ROI Tracking'],
+    ['portfolio', '▦', 'Portfolio'],
+    ['settings', '⚙', 'Hub Settings'],
+  ]
 
+  return (
+    <div className={`shell ${collapsed ? 'nav-collapsed' : ''}`}>
+      <aside className="sidebar" aria-label="Primary navigation">
+        <div className="brand">
+          <h1>{collapsed ? <span className="accent">IH</span> : <>Innovation<span className="accent">Hub</span></>}</h1>
+          <button
+            className="collapse-toggle" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+            onClick={() => {
+              const next = !collapsed
+              setCollapsed(next)
+              localStorage.setItem('ivd_nav', next ? 'collapsed' : 'open')
+            }}
+          >
+            {collapsed ? '»' : '«'}
+          </button>
+        </div>
+        <nav>
+          {NAV.map(([id, glyph, label]) => (
+            <button key={id} className={tab === id ? 'active' : ''} title={label}
+                    onClick={() => setTab(id)}>
+              <span className="nav-glyph" aria-hidden="true">{glyph}</span>
+              <span className="nav-label">{label}</span>
+            </button>
+          ))}
+        </nav>
+      </aside>
+      <div className="content">
       {demoStatus && (
         <div className="banner-demo">
           <span>
@@ -177,6 +181,8 @@ export default function App() {
         {tab === 'ideas' && <Ideas ideas={ideas} onChanged={refresh} />}
         {tab === 'command' && <CommandCenter onChanged={refresh} />}
         {tab === 'pipeline' && <PipelineView />}
+        {tab === 'settings' && <Settings onChanged={refresh} />}
+        {tab === 'mine' && <MySubmissions />}
         {tab === 'sources' && <DataSources sources={sources} onChanged={refresh} />}
         {tab === 'opportunities' && (
           <Opportunities
@@ -200,6 +206,7 @@ export default function App() {
           />
         )}
       </main>
+      </div>
     </div>
   )
 }

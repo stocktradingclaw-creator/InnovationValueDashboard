@@ -324,6 +324,7 @@ export default function Ideas({ ideas, onChanged }: Props) {
   const [importMsg, setImportMsg] = useState<string | null>(null)
   const [filter, setFilter] = useState('all')
   const [who, setWho] = useState('')
+  const [view, setView] = useState<'form' | 'bulk'>('form')
   const [challenges, setChallenges] = useState<Challenge[]>([])
   const [initiatives, setInitiatives] = useState<Initiative[]>([])
   const [initiativeFilter, setInitiativeFilter] = useState('all')
@@ -346,13 +347,23 @@ export default function Ideas({ ideas, onChanged }: Props) {
     <section>
       <div className="section-header">
         <div>
-          <h2>Idea intake</h2>
+          <h2>Idea submission</h2>
           <p className="muted">
             Every idea is automatically validated, scored under the leadership scoring framework,
             matched against detected opportunities, and enriched where intake was incomplete.
           </p>
         </div>
-        <div>
+      </div>
+
+      {view === 'bulk' ? (
+        <div className="card">
+          <button className="linklike" onClick={() => setView('form')}>← Back to idea submission</button>
+          <h3 className="spaced">Bulk submission — upload an existing backlog</h3>
+          <p className="muted small">
+            CSV with at least <code>title, description</code>; optional{' '}
+            <code>submitter, category, estimated_annual_benefit, beneficiary, pain_point,
+            submitted_at</code>. Every row is triaged, scored, and enriched on the way in.
+          </p>
           <input
             ref={fileInput}
             type="file"
@@ -375,24 +386,25 @@ export default function Ideas({ ideas, onChanged }: Props) {
               }
             }}
           />
-          <button className="secondary" disabled={importBusy} onClick={() => fileInput.current?.click()}>
-            {importBusy ? 'Importing…' : 'Import existing backlog (CSV)'}
-          </button>
-          {importMsg && <p className="muted small">{importMsg}</p>}
+          <div className="row">
+            <button disabled={importBusy} onClick={() => fileInput.current?.click()}>
+              {importBusy ? 'Importing & triaging…' : 'Choose CSV and import'}
+            </button>
+            {importMsg && <span className="muted small">{importMsg}</span>}
+          </div>
         </div>
-      </div>
-
-      {challenges.filter((c) => c.status === 'active').length > 0 && (
-        <div className="row filter-row">
-          {challenges.filter((c) => c.status === 'active').map((c) => (
-            <span key={c.id} className="badge badge-ok" title={c.question}>
-              Active challenge: {c.title} ({c.ideas_count} ideas)
-            </span>
-          ))}
-        </div>
-      )}
-
+      ) : (
+        <>
       <SubmitForm challenges={challenges} initiatives={initiatives} onChanged={onChanged} />
+
+      <p className="muted small bulk-link">
+        Have a whole backlog?{' '}
+        <button className="linklike" onClick={() => setView('bulk')}>
+          Bulk submission — upload a CSV →
+        </button>
+      </p>
+      </>
+      )}
 
       <div className="card">
         <div className="row">

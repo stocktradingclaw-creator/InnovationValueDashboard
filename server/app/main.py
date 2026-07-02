@@ -520,11 +520,11 @@ def promote_idea(idea_id: str) -> Dict[str, Any]:
         raise HTTPException(404, f"Idea '{idea_id}' not found")
     if idea["status"] == "business_case":
         raise HTTPException(400, "Idea already has a business case")
-    if idea["status"] != "prioritized":
+    if idea["status"] != hub.workflow_keys()[-1]:
         raise HTTPException(
             400,
-            "Business cases are developed for prioritized ideas only — walk the gates: "
-            "qualify, then prioritize (Command Center).",
+            "Business cases are developed at the final workflow gate only — advance the "
+            "idea through the gates in the Command Center first.",
         )
     return _promote_idea(idea)
 
@@ -544,24 +544,51 @@ def get_scoring_config() -> Dict[str, Any]:
     return hub.get_scoring_config()
 
 
-def _require_admin(authorization: Optional[str]) -> None:
-    """Optional hardening: when IVD_ADMIN_TOKEN is set, configuration changes
-    require it as a bearer token. Off by default for local/demo use."""
+def _require_admin(authorization: Optional[str], actor: Optional[str] = None) -> None:
+    """Configuration changes require the IVD_ADMIN_TOKEN bearer (when set) or,
+    once user profiles exist, an actor with the admin role."""
     import os
     expected = os.environ.get("IVD_ADMIN_TOKEN")
-    if not expected:
+    if expected:
+        if authorization != f"Bearer {expected}":
+            raise HTTPException(401, "Configuration changes require the admin token")
         return
-    if authorization != f"Bearer {expected}":
-        raise HTTPException(401, "Configuration changes require the admin token")
+    blocked = hub.check_role("admin", actor)
+    if blocked:
+        raise HTTPException(403, blocked)
 
 
 @app.put("/api/scoring-config")
-def put_scoring_config(body: Dict[str, Any], authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
-    _require_admin(authorization)
+def put_scoring_config(body: Dict[str, Any], authorization: Optional[str] = Header(None), actor: Optional[str] = Query(None)) -> Dict[str, Any]:
+    _require_admin(authorization, actor)
     try:
         return hub.save_scoring_config(body)
     except hub.ConfigError as exc:
         raise HTTPException(400, str(exc))
+
+
+@app.get("/api/users")
+def get_users() -> Dict[str, Any]:
+    return {"users": db.list_users(), "roles": hub.ROLES, "capabilities": hub.ROLE_CAPABILITIES}
+
+
+@app.put("/api/users")
+def put_users(body: Dict[str, Any], authorization: Optional[str] = Header(None),
+              actor: Optional[str] = Query(None)) -> Dict[str, Any]:
+    _require_admin(authorization, actor)
+    users = body.get("users") or []
+    seen = set()
+    for u in users:
+        if not (u.get("name") or "").strip():
+            raise HTTPException(400, "every user needs a name")
+        if u.get("role") not in hub.ROLES:
+            raise HTTPException(400, f"role must be one of {hub.ROLES}")
+        key = u["name"].strip().lower()
+        if key in seen:
+            raise HTTPException(400, f"duplicate user '{key}'")
+        seen.add(key)
+    return {"users": db.replace_users(users), "roles": hub.ROLES,
+            "capabilities": hub.ROLE_CAPABILITIES}
 
 
 @app.get("/api/governance")
@@ -570,8 +597,8 @@ def get_governance() -> Dict[str, Any]:
 
 
 @app.put("/api/governance")
-def put_governance(body: Dict[str, List[str]], authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
-    _require_admin(authorization)
+def put_governance(body: Dict[str, List[str]], authorization: Optional[str] = Header(None), actor: Optional[str] = Query(None)) -> Dict[str, Any]:
+    _require_admin(authorization, actor)
     try:
         return {"areas": hub.GOVERNANCE_AREAS, "assignments": hub.save_governance(body)}
     except hub.ConfigError as exc:
@@ -589,14 +616,9 @@ class DecisionRequest(BaseModel):
     comment: Optional[str] = None
 
 
-# stage -> what 'approve' means for an idea (alias for the stage's forward gate)
-_IDEA_APPROVE_ALIAS = {"proposed": "qualify", "qualified": "prioritize", "prioritized": "develop"}
-_IDEA_GATE_AREA = {
-    "qualify": "idea_screening",
-    "prioritize": "portfolio_oversight",
-    "hold": "portfolio_oversight",
-    "develop": "portfolio_oversight",
-}
+def _workflow_position(status: str) -> int:
+    keys = hub.workflow_keys()
+    return keys.index(status) if status in keys else -1
 
 
 _CASE_APPROVE_NEXT = {
@@ -624,13 +646,14 @@ def command_queue() -> Dict[str, Any]:
     def _with_checklist(items):
         return [{**i, "gate_checklist": hub.gate_checklist(i)} for i in items]
 
+    steps = hub.get_workflow()
     return {
-        "idea_queues": {
-            "screening": _with_checklist([i for i in ideas if i["status"] == "proposed"]),
-            "prioritization": _with_checklist([i for i in ideas if i["status"] == "qualified"]),
-            "development": _with_checklist([i for i in ideas if i["status"] == "prioritized"]),
-            "backlog": [i for i in ideas if i["status"] == "backlog"],
-        },
+        "idea_steps": [
+            {**s, "position": i, "is_last": i == len(steps) - 1,
+             "ideas": _with_checklist([x for x in ideas if x["status"] == s["key"]])}
+            for i, s in enumerate(steps)
+        ],
+        "idea_backlog": [i for i in ideas if i["status"] == "backlog"],
         "cases_pending_approval": [c for c in cases if c["stage"] in ("draft", "proposed")],
         "cases_in_experiment": [c for c in cases if c["stage"] == "experiment"],
         "cases_in_motion": [c for c in cases if c["stage"] in ("approved", "in_delivery")],
@@ -643,7 +666,8 @@ def command_queue() -> Dict[str, Any]:
 def command_decide(body: DecisionRequest) -> Dict[str, Any]:
     if body.subject_type not in ("idea", "case"):
         raise HTTPException(400, "subject_type must be 'idea' or 'case'")
-    valid = ("approve", "reject", "feedback", "experiment", "qualify", "prioritize", "hold", "develop")
+    valid = ("approve", "advance", "reject", "feedback", "experiment",
+             "qualify", "prioritize", "hold", "develop")
     if body.decision not in valid:
         raise HTTPException(400, f"decision must be one of {valid}")
 
@@ -654,38 +678,51 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
         decision = body.decision
         if decision == "experiment":
             raise HTTPException(400, "experiment applies to cases, not ideas")
-        if decision == "approve":  # alias: advance through the current stage's gate
-            decision = _IDEA_APPROVE_ALIAS.get(idea["status"])
+        steps = hub.get_workflow()
+        keys = [s["key"] for s in steps]
+        pos = _workflow_position(idea["status"])
+        # legacy + alias decisions map onto the configured sequence
+        if decision == "approve":
+            decision = "develop" if pos == len(keys) - 1 else "advance" if pos >= 0 else None
             if decision is None:
                 raise HTTPException(400, f"No forward gate from status '{idea['status']}'")
+        if decision == "qualify":
+            if pos != 0:
+                raise HTTPException(400, f"'qualify' applies at the first gate (status: {idea['status']})")
+            decision = "advance"
+        if decision == "prioritize":
+            if pos != len(keys) - 2:
+                raise HTTPException(400, f"'prioritize' applies at the gate before development (status: {idea['status']})")
+            decision = "advance"
 
-        area = _IDEA_GATE_AREA.get(decision, "idea_screening")
+        if pos < 0 and decision in ("advance", "develop", "hold"):
+            raise HTTPException(400, f"No forward gate from status '{idea['status']}'")
+        minimum = "contributor" if decision == "feedback" else "reviewer"
+        blocked = hub.check_role(minimum, body.actor)
+        if blocked:
+            raise HTTPException(403, blocked)
+        area = steps[pos]["forum"] if pos >= 0 else "idea_screening"
         blocked = hub.check_authority(area, body.actor)
         if blocked:
             raise HTTPException(403, blocked)
         db.add_workflow_event("idea", body.subject_id, decision, body.actor, body.comment)
 
-        if decision == "qualify":
-            if idea["status"] != "proposed":
-                raise HTTPException(400, f"Only proposed ideas pass the qualification gate (status: {idea['status']})")
+        if decision == "advance":
+            if pos >= len(keys) - 1:
+                raise HTTPException(400, "This idea is at the development gate — use 'develop'")
+            next_step = steps[pos + 1]
             db.notify(idea.get("submitter"), "idea", idea["id"],
-                      f"Your idea '{idea['title']}' passed the qualification gate and moves to portfolio prioritization.")
-            return {"result": db.update_idea(body.subject_id, "qualified")}
-        if decision == "prioritize":
-            if idea["status"] != "qualified":
-                raise HTTPException(400, f"Only qualified ideas can be prioritized (status: {idea['status']})")
-            db.notify(idea.get("submitter"), "idea", idea["id"],
-                      f"'{idea['title']}' was prioritized into the portfolio — an AI business case is next.")
-            return {"result": db.update_idea(body.subject_id, "prioritized")}
+                      f"Your idea '{idea['title']}' passed the {steps[pos]['gate']} gate and moved to {next_step['label']}.")
+            return {"result": db.update_idea(body.subject_id, next_step["key"])}
         if decision == "hold":
-            if idea["status"] not in ("qualified", "prioritized"):
-                raise HTTPException(400, "Only qualified/prioritized ideas can be held")
+            if pos == 0:
+                raise HTTPException(400, "Ideas at intake are qualified or declined, not held")
             db.notify(idea.get("submitter"), "idea", idea["id"],
-                      f"'{idea['title']}' is on the backlog — qualified, awaiting portfolio capacity.")
+                      f"'{idea['title']}' is on the backlog — awaiting portfolio capacity.")
             return {"result": db.update_idea(body.subject_id, "backlog")}
         if decision == "develop":
-            if idea["status"] != "prioritized":
-                raise HTTPException(400, "Business cases are developed for prioritized ideas only")
+            if pos != len(keys) - 1:
+                raise HTTPException(400, "Business cases are developed at the final workflow gate only")
             return {"result": _promote_idea(idea)}
         if decision == "reject":
             db.notify(
@@ -703,6 +740,9 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
     case = db.get_business_case(body.subject_id)
     if case is None:
         raise HTTPException(404, f"Business case '{body.subject_id}' not found")
+    blocked = hub.check_role("contributor" if body.decision == "feedback" else "executive", body.actor)
+    if blocked:
+        raise HTTPException(403, blocked)
     area = _governance_area_for("case", case)
     blocked = hub.check_authority(area, body.actor)
     if blocked:
@@ -983,7 +1023,8 @@ class ReleaseRequest(BaseModel):
 
 @app.post("/api/business-cases/{case_id}/tranches/{tranche_id}/release")
 def release_tranche(case_id: str, tranche_id: int, body: ReleaseRequest) -> Dict[str, Any]:
-    blocked = hub.check_authority("business_case_approval", body.actor)
+    blocked = hub.check_role("executive", body.actor) or hub.check_authority(
+        "business_case_approval", body.actor)
     if blocked:
         raise HTTPException(403, blocked)
     case = db.release_tranche(case_id, tranche_id, body.actor)
@@ -995,6 +1036,39 @@ def release_tranche(case_id: str, tranche_id: int, body: ReleaseRequest) -> Dict
 
 
 # --------------------------------------------------------------- notifications
+
+@app.get("/api/my-submissions")
+def my_submissions(submitter: str = Query(...)) -> Dict[str, Any]:
+    """A submitter's ideas with their full approval chain: gate history,
+    case stage history when promoted, and whether the ball is in their court."""
+    mine = [i for i in db.list_ideas()
+            if (i.get("submitter") or "").strip().lower() == submitter.strip().lower()]
+    out = []
+    for idea in mine:
+        history = db.events_for("idea", idea["id"])
+        case = db.get_business_case(idea["promoted_case_id"]) if idea.get("promoted_case_id") else None
+        needs_info = (idea.get("assessment") or {}).get("recommendation") == "needs_info"
+        awaiting_fix = bool(history) and history[-1]["action"] == "feedback"
+        reason = None
+        if needs_info:
+            reason = "Intake guardrails not met — add the missing information and resubmit details to a reviewer."
+        elif awaiting_fix:
+            reason = f"A reviewer left feedback: {history[-1]['comment'] or '(see history)'}"
+        out.append({
+            **idea,
+            "history": history,
+            "case_stage": case["stage"] if case else None,
+            "case_stage_history": case["stage_history"] if case else [],
+            "case_history": db.events_for("case", idea["promoted_case_id"]) if case else [],
+            "needs_attention": bool(reason),
+            "attention_reason": reason,
+        })
+    return {
+        "ideas": out,
+        "updates_needed": [x["id"] for x in out if x["needs_attention"]],
+        "workflow": hub.get_workflow(),
+    }
+
 
 @app.get("/api/notifications")
 def get_notifications(recipient: str = Query(...)) -> Dict[str, Any]:
@@ -1133,6 +1207,57 @@ def replicate_pattern(case_id: str, body: ReplicateRequest) -> Dict[str, Any]:
     return clone
 
 
+@app.get("/api/workflow")
+def get_workflow() -> Dict[str, Any]:
+    return {"steps": hub.get_workflow(), "forums": hub.GOVERNANCE_AREAS}
+
+
+@app.put("/api/workflow")
+def put_workflow(body: Dict[str, Any], authorization: Optional[str] = Header(None), actor: Optional[str] = Query(None)) -> Dict[str, Any]:
+    _require_admin(authorization, actor)
+    try:
+        return {"steps": hub.save_workflow(body.get("steps") or [])}
+    except hub.ConfigError as exc:
+        raise HTTPException(400, str(exc))
+
+
+class InitiativeUpdate(BaseModel):
+    name: Optional[str] = None
+    objective: Optional[str] = None
+
+
+@app.put("/api/initiatives/{initiative_id}")
+def update_initiative(initiative_id: str, body: InitiativeUpdate) -> Dict[str, Any]:
+    updated = db.update_initiative(initiative_id, body.name, body.objective)
+    if updated is None:
+        raise HTTPException(404, f"Initiative '{initiative_id}' not found")
+    return updated
+
+
+class ReorderRequest(BaseModel):
+    ids: List[str]
+
+
+@app.post("/api/initiatives/reorder")
+def reorder_initiatives(body: ReorderRequest) -> Dict[str, Any]:
+    db.reorder_initiatives(body.ids)
+    return list_initiatives()
+
+
+class ChallengeUpdate(BaseModel):
+    title: Optional[str] = None
+    question: Optional[str] = None
+    theme: Optional[str] = None
+
+
+@app.put("/api/challenges/{challenge_id}")
+def update_challenge(challenge_id: str, body: ChallengeUpdate) -> Dict[str, Any]:
+    updated = db.update_challenge(challenge_id, body.title, body.question, body.theme)
+    if updated is None:
+        raise HTTPException(404, f"Challenge '{challenge_id}' not found")
+    return updated
+
+
 @app.get("/api/pipeline")
 def pipeline() -> Dict[str, Any]:
     return hub.build_pipeline(db.list_ideas(), db.list_business_cases())
@@ -1144,7 +1269,7 @@ def lifecycle() -> Dict[str, Any]:
     (impact vs readiness) for qualified/prioritized ideas."""
     ideas = db.list_ideas()
     cases = db.list_business_cases()
-    idea_counts = {stage: 0 for stage in hub.IDEA_STAGES}
+    idea_counts = {stage: 0 for stage in hub.IDEA_STAGES_DYNAMIC()}
     for i in ideas:
         if i["status"] in idea_counts:
             idea_counts[i["status"]] += 1
@@ -1152,9 +1277,10 @@ def lifecycle() -> Dict[str, Any]:
     for c in cases:
         case_counts[c["stage"]] = case_counts.get(c["stage"], 0) + 1
 
+    middle_keys = set(hub.workflow_keys()[1:])
     register = []
     for i in ideas:
-        if i["status"] not in ("qualified", "prioritized"):
+        if i["status"] not in middle_keys:
             continue
         a = i.get("assessment") or {}
         components = a.get("score_components") or {}
@@ -1171,7 +1297,7 @@ def lifecycle() -> Dict[str, Any]:
         })
 
     return {
-        "spec": hub.LIFECYCLE_SPEC,
+        "spec": hub.lifecycle_spec(),
         "idea_counts": idea_counts,
         "idea_terminal": {
             "backlog": sum(1 for i in ideas if i["status"] == "backlog"),

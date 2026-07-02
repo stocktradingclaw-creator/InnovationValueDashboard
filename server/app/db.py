@@ -103,6 +103,11 @@ CREATE TABLE IF NOT EXISTS stage_history (
     stage      TEXT NOT NULL,
     entered_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS users (
+    name       TEXT PRIMARY KEY,
+    role       TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -140,7 +145,8 @@ CREATE TABLE IF NOT EXISTS strategic_initiatives (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
     objective  TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    rank       INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS idea_comments (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -204,6 +210,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE ideas ADD COLUMN pain_point TEXT")
     if idea_cols and "initiative_id" not in idea_cols:
         conn.execute("ALTER TABLE ideas ADD COLUMN initiative_id TEXT")
+    si_cols = {r[1] for r in conn.execute("PRAGMA table_info(strategic_initiatives)")}
+    if si_cols and "rank" not in si_cols:
+        conn.execute("ALTER TABLE strategic_initiatives ADD COLUMN rank INTEGER NOT NULL DEFAULT 0")
     if idea_cols:
         # stage-gate lifecycle: legacy statuses map onto the gated pipeline
         conn.execute("UPDATE ideas SET status = 'proposed' WHERE status = 'triaged'")
@@ -944,7 +953,7 @@ def get_initiative(initiative_id: str) -> Optional[Dict[str, Any]]:
 def list_initiatives() -> List[Dict[str, Any]]:
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM strategic_initiatives ORDER BY created_at"
+            "SELECT * FROM strategic_initiatives ORDER BY rank, created_at"
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -958,3 +967,73 @@ def idea_transitions() -> List[Dict[str, Any]]:
             "ORDER BY id",
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def update_initiative(initiative_id: str, name: Optional[str],
+                      objective: Optional[str]) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE strategic_initiatives SET name = COALESCE(?, name), "
+            "objective = COALESCE(?, objective) WHERE id = ?",
+            (name, objective, initiative_id),
+        )
+        if cur.rowcount == 0:
+            return None
+    return get_initiative(initiative_id)
+
+
+def reorder_initiatives(ids: List[str]) -> None:
+    with _conn() as conn:
+        for rank, initiative_id in enumerate(ids):
+            conn.execute(
+                "UPDATE strategic_initiatives SET rank = ? WHERE id = ?",
+                (rank, initiative_id),
+            )
+
+
+def update_challenge(challenge_id: str, title: Optional[str], question: Optional[str],
+                     theme: Optional[str]) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE challenges SET title = COALESCE(?, title), "
+            "question = COALESCE(?, question), theme = COALESCE(?, theme) WHERE id = ?",
+            (title, question, theme, challenge_id),
+        )
+        if cur.rowcount == 0:
+            return None
+    return get_challenge(challenge_id)
+
+
+def events_for(subject_type: str, subject_id: str) -> List[Dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT created_at, action, actor, comment FROM workflow_events "
+            "WHERE subject_type = ? AND subject_id = ? ORDER BY id",
+            (subject_type, subject_id),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def replace_users(users: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    with _conn() as conn:
+        conn.execute("DELETE FROM users")
+        for u in users:
+            conn.execute(
+                "INSERT INTO users (name, role, created_at) VALUES (?, ?, ?)",
+                (u["name"].strip().lower(), u["role"], _now()),
+            )
+    return list_users()
+
+
+def list_users() -> List[Dict[str, str]]:
+    with _conn() as conn:
+        rows = conn.execute("SELECT name, role FROM users ORDER BY name").fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_role(name: str) -> Optional[str]:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT role FROM users WHERE name = ?", ((name or "").strip().lower(),)
+        ).fetchone()
+    return row["role"] if row else None

@@ -322,9 +322,16 @@ export interface Pattern {
   }
 }
 
+export interface CustomCriterion {
+  label: string
+  keywords: string[]
+  weight: number
+}
+
 export interface ScoringConfig {
   idea_weights: Record<string, number>
   priority_themes: string[]
+  custom_criteria: CustomCriterion[]
   guardrails: {
     min_annual_benefit: number
     require_category: boolean
@@ -377,13 +384,18 @@ export interface Lifecycle {
   }[]
 }
 
+export interface WorkflowStep {
+  key: string
+  label: string
+  gate: string
+  forum: string
+  purpose: string
+  criteria: string[]
+}
+
 export interface CommandQueue {
-  idea_queues: {
-    screening: QueuedIdea[]
-    prioritization: QueuedIdea[]
-    development: QueuedIdea[]
-    backlog: Idea[]
-  }
+  idea_steps: (WorkflowStep & { position: number; is_last: boolean; ideas: QueuedIdea[] })[]
+  idea_backlog: Idea[]
   cases_pending_approval: BusinessCase[]
   cases_in_experiment: BusinessCase[]
   cases_in_motion: BusinessCase[]

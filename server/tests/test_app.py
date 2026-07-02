@@ -919,8 +919,8 @@ def test_notifications_close_the_loop(client):
     notes = client.get("/api/notifications", params={"recipient": "Maria"}).json()["notifications"]
     messages = " ".join(n["message"] for n in notes)
     assert "Feedback on your idea" in messages
-    assert "passed the qualification gate" in messages
-    assert "prioritized into the portfolio" in messages
+    assert "passed the Qualification" in messages
+    assert "moved to Prioritized" in messages
     assert "promoted to business case" in messages
 
 
@@ -1226,7 +1226,7 @@ def test_stage_gate_lifecycle(client):
 
     # queue exposes the gate checklist for screeners
     queue = client.get("/api/command/queue").json()
-    pending = next(i for i in queue["idea_queues"]["screening"] if i["id"] == idea["id"])
+    pending = next(i for i in queue["idea_steps"][0]["ideas"] if i["id"] == idea["id"])
     checklist = {c["check"]: c["passed"] for c in pending["gate_checklist"]}
     assert checklist["Named business sponsor"] is True
 
@@ -1296,3 +1296,147 @@ def test_pipeline_analytics(client):
     assert totals["in_flight"] == 2  # 1 idea at intake + 1 case in review
     assert totals["end_to_end_conversion"] == 0.5
     assert p["terminal"]["declined"] == 0
+
+
+
+def test_configurable_workflow(client):
+    client.post("/api/datasets/load-samples")
+    # insert a custom 'concept_review' step between qualification and prioritization
+    steps = client.get("/api/workflow").json()["steps"]
+    steps.insert(1, {"key": "concept_review", "label": "Concept review",
+                     "gate": "Concept note review", "forum": "idea_screening",
+                     "purpose": "One-page concept note reviewed.",
+                     "criteria": ["High-level benefit", "Scalability"]})
+    resp = client.put("/api/workflow", json={"steps": steps})
+    assert resp.status_code == 200
+    assert [s["key"] for s in resp.json()["steps"]] == [
+        "proposed", "concept_review", "qualified", "prioritized"]
+
+    idea = client.post("/api/ideas", json={
+        "title": "Recover duplicate vendor invoices",
+        "description": "Detect duplicates by vendor and amount and recover.",
+    }).json()
+    # advance walks the configured sequence, including the custom step
+    for expected in ("concept_review", "qualified", "prioritized"):
+        r = client.post("/api/command/decide", json={
+            "subject_type": "idea", "subject_id": idea["id"], "decision": "advance",
+        })
+        assert r.json()["result"]["status"] == expected
+    # develop only at the final configured gate
+    r = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "develop",
+    })
+    assert r.json()["result"]["case"]["stage"] == "proposed"
+    # queue + lifecycle expose the custom step
+    q = client.get("/api/command/queue").json()
+    assert [s["key"] for s in q["idea_steps"]][1] == "concept_review"
+    assert client.get("/api/lifecycle").json()["spec"][1]["stage"] == "concept_review"
+    # invalid workflow rejected
+    assert client.put("/api/workflow", json={"steps": [
+        {"key": "proposed"}, {"key": "business_case"},
+    ]}).status_code == 400
+
+
+def test_custom_scoring_criteria(client):
+    client.post("/api/datasets/load-samples")
+    resp = client.put("/api/scoring-config", json={"custom_criteria": [
+        {"label": "AI leverage", "keywords": ["ai", "automation", "model"], "weight": 0.5},
+    ]})
+    assert resp.status_code == 200
+    hit = client.post("/api/ideas", json={
+        "title": "AI invoice automation", "description": "Use an AI model to automate invoice entry.",
+    }).json()
+    miss = client.post("/api/ideas", json={
+        "title": "New office chairs", "description": "Purchase ergonomic seating for the finance floor.",
+    }).json()
+    assert hit["assessment"]["score_components"]["custom: AI leverage"] == 1.0
+    assert miss["assessment"]["score_components"]["custom: AI leverage"] == 0.0
+    assert client.put("/api/scoring-config", json={"custom_criteria": [
+        {"label": "", "keywords": [], "weight": -1},
+    ]}).status_code == 400
+
+
+def test_initiative_reorder_and_edit(client):
+    a = client.post("/api/initiatives", json={"name": "A", "objective": "obj a"}).json()
+    b = client.post("/api/initiatives", json={"name": "B", "objective": "obj b"}).json()
+    client.post("/api/initiatives/reorder", json={"ids": [b["id"], a["id"]]})
+    ordered = client.get("/api/initiatives").json()["initiatives"]
+    assert [i["name"] for i in ordered] == ["B", "A"]
+    client.put(f"/api/initiatives/{a['id']}", json={"objective": "sharper objective"})
+    assert client.get("/api/initiatives").json()["initiatives"][1]["objective"] == "sharper objective"
+
+
+def test_my_submissions_approval_chain(client):
+    client.post("/api/datasets/load-samples")
+    idea = client.post("/api/ideas", json={
+        "title": "Recover duplicate vendor invoices",
+        "description": "Detect duplicates by vendor and amount and recover.",
+        "submitter": "Maria",
+    }).json()
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"],
+        "decision": "feedback", "actor": "lee", "comment": "add the AP volume",
+    })
+    mine = client.get("/api/my-submissions", params={"submitter": "maria"}).json()
+    assert mine["updates_needed"] == [idea["id"]]
+    entry = mine["ideas"][0]
+    assert "add the AP volume" in entry["attention_reason"]
+
+    _walk_to_prioritized(client, idea["id"])
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "develop",
+    })
+    mine = client.get("/api/my-submissions", params={"submitter": "Maria"}).json()
+    entry = mine["ideas"][0]
+    assert entry["needs_attention"] is False
+    assert [h["action"] for h in entry["history"]] == ["feedback", "advance", "advance", "develop"]
+    assert entry["case_stage"] == "proposed"
+    assert mine["workflow"][0]["key"] == "proposed"
+
+
+def test_user_profiles_gate_access(client):
+    client.post("/api/datasets/load-samples")
+    idea = client.post("/api/ideas", json={
+        "title": "Recover duplicate vendor invoices",
+        "description": "Detect duplicates by vendor and amount and recover.",
+    }).json()
+
+    # open until profiles exist
+    resp = client.put("/api/users", json={"users": [
+        {"name": "Cara", "role": "contributor"},
+        {"name": "Rio", "role": "reviewer"},
+        {"name": "Eve", "role": "executive"},
+        {"name": "Ada", "role": "admin"},
+    ]})
+    assert resp.status_code == 200
+
+    # contributor cannot make gate decisions; reviewer can
+    assert client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "qualify", "actor": "cara",
+    }).status_code == 403
+    assert client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "qualify", "actor": "rio",
+    }).status_code == 200
+    # unknown actors are refused entirely
+    assert client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "prioritize", "actor": "ghost",
+    }).status_code == 403
+
+    # reviewer cannot approve cases; executive can
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "prioritize", "actor": "rio"})
+    case = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "develop", "actor": "rio",
+    }).json()["result"]["case"]
+    assert client.post("/api/command/decide", json={
+        "subject_type": "case", "subject_id": case["id"], "decision": "approve", "actor": "rio",
+    }).status_code == 403
+    assert client.post("/api/command/decide", json={
+        "subject_type": "case", "subject_id": case["id"], "decision": "approve", "actor": "eve",
+    }).status_code == 200
+
+    # settings require admin once profiles exist
+    assert client.put("/api/scoring-config", json={"priority_themes": ["x"]},
+                      params={"actor": "eve"}).status_code == 403
+    assert client.put("/api/scoring-config", json={"priority_themes": ["x"]},
+                      params={"actor": "ada"}).status_code == 200

@@ -173,12 +173,29 @@ export function evaluateIdea(id: string) {
   return request<import('./types').Idea>(`/api/ideas/${id}/evaluate`, { method: 'POST' })
 }
 
+
+const actorQS = () => {
+  const who = localStorage.getItem('ivd_user')
+  return who ? `?actor=${encodeURIComponent(who)}` : ''
+}
+
+export interface UserProfile { name: string; role: string }
+
+export function getUsers() {
+  return request<{ users: UserProfile[]; roles: string[]; capabilities: Record<string, string> }>('/api/users')
+}
+
+export function putUsers(users: UserProfile[]) {
+  return request<{ users: UserProfile[]; roles: string[]; capabilities: Record<string, string> }>(
+    `/api/users${actorQS()}`, { ...json({ users }), method: 'PUT' })
+}
+
 export function getScoringConfig() {
   return request<import('./types').ScoringConfig>('/api/scoring-config')
 }
 
 export function putScoringConfig(config: Partial<import('./types').ScoringConfig>) {
-  return request<import('./types').ScoringConfig>('/api/scoring-config', {
+  return request<import('./types').ScoringConfig>(`/api/scoring-config${actorQS()}`, {
     ...json(config),
     method: 'PUT',
   })
@@ -189,7 +206,7 @@ export function getGovernance() {
 }
 
 export function putGovernance(assignments: Record<string, string[]>) {
-  return request<{ areas: string[]; assignments: Record<string, string[]> }>('/api/governance', {
+  return request<{ areas: string[]; assignments: Record<string, string[]> }>(`/api/governance${actorQS()}`, {
     ...json(assignments),
     method: 'PUT',
   })
@@ -202,7 +219,7 @@ export function getCommandQueue() {
 export function decide(body: {
   subject_type: 'idea' | 'case'
   subject_id: string
-  decision: 'approve' | 'reject' | 'feedback' | 'experiment' | 'qualify' | 'prioritize' | 'hold' | 'develop'
+  decision: 'approve' | 'reject' | 'feedback' | 'experiment' | 'qualify' | 'prioritize' | 'hold' | 'develop' | 'advance'
   actor?: string
   comment?: string
 }) {
@@ -309,4 +326,27 @@ export function getLifecycle() {
 
 export function getPipeline() {
   return request<import('./types').PipelineData>('/api/pipeline')
+}
+
+export function getWorkflow() {
+  return request<{ steps: import('./types').WorkflowStep[]; forums: string[] }>('/api/workflow')
+}
+
+export function putWorkflow(steps: import('./types').WorkflowStep[]) {
+  return request<{ steps: import('./types').WorkflowStep[] }>(`/api/workflow${actorQS()}`, {
+    ...json({ steps }),
+    method: 'PUT',
+  })
+}
+
+export function updateInitiative(id: string, body: { name?: string; objective?: string }) {
+  return request<import('./types').Initiative>(`/api/initiatives/${id}`, { ...json(body), method: 'PUT' })
+}
+
+export function reorderInitiatives(ids: string[]) {
+  return request<{ initiatives: import('./types').Initiative[] }>('/api/initiatives/reorder', json({ ids }))
+}
+
+export function updateChallenge(id: string, body: { title?: string; question?: string; theme?: string }) {
+  return request<import('./types').Challenge>(`/api/challenges/${id}`, { ...json(body), method: 'PUT' })
 }
