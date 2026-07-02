@@ -1599,9 +1599,18 @@ main > section {
 
 .content { flex: 1; min-width: 0; padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
 
+/* On small screens the sidebar always renders as a compact glyph rail,
+   whatever the stored expand state — an expanded 218px fixed panel would
+   cover half the viewport. Buttons keep their title tooltips as labels. */
 @media (max-width: 760px) {
-  .sidebar { position: fixed; z-index: 50; }
-  .content { padding-left: 78px; }
+  .sidebar,
+  .nav-collapsed .sidebar { position: fixed; z-index: 50; width: 62px; padding: 1rem 0.4rem; }
+  .sidebar .brand { justify-content: center; }
+  .sidebar .brand h1,
+  .collapse-toggle { display: none; }
+  .nav-label { display: none; }
+  .sidebar nav button { justify-content: center; padding: 0.55rem 0.2rem; }
+  .content { padding: 1rem 0.9rem 1.5rem calc(62px + 0.9rem); }
 }
 
 /* workflow editor + settings rows */
