@@ -762,3 +762,172 @@ def gate_checklist(idea: Dict[str, Any]) -> List[Dict[str, Any]]:
         ("Intake guardrails met", not assessment.get("guardrail_flags")),
     ]
     return [{"check": name, "passed": passed} for name, passed in checks]
+
+
+# ------------------------------------------------------------- pipeline analytics
+
+PIPELINE_PHASES = [
+    ("A. Ideas-to-portfolio", "idea", ["proposed", "qualified", "prioritized"]),
+    ("B. Portfolio-to-business-case", "case", ["draft", "proposed", "experiment", "approved"]),
+    ("C. Delivery & value", "case", ["in_delivery", "live", "value_realized", "scale"]),
+]
+
+_IDEA_ORDER = ["proposed", "qualified", "prioritized"]
+_AGING_DAYS = 14
+
+
+def _days_since(iso: Optional[str]) -> Optional[float]:
+    if not iso:
+        return None
+    try:
+        then = datetime.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        if then.tzinfo is None:
+            then = then.replace(tzinfo=datetime.timezone.utc)
+        return round((datetime.datetime.now(datetime.timezone.utc) - then).total_seconds() / 86400, 1)
+    except ValueError:
+        return None
+
+
+def build_pipeline(ideas: List[Dict[str, Any]], cases: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Flow analytics across the full lifecycle: per-stage items, value,
+    gate conversion (share of entrants that pass), and median dwell."""
+    transitions = db.idea_transitions()
+    by_idea: Dict[str, Dict[str, str]] = {}
+    for t in transitions:
+        by_idea.setdefault(t["subject_id"], {})[t["action"]] = t["created_at"]
+
+    def idea_value(i: Dict[str, Any]) -> float:
+        return (i.get("estimated_annual_benefit")
+                or (i.get("assessment") or {}).get("estimated_annual_benefit") or 0)
+
+    # entered-at for an idea's *current* stage
+    def idea_entered(i: Dict[str, Any]) -> Optional[str]:
+        events = by_idea.get(i["id"], {})
+        return {
+            "proposed": i["submitted_at"],
+            "qualified": events.get("qualify"),
+            "prioritized": events.get("prioritize"),
+        }.get(i["status"]) or i["submitted_at"]
+
+    # reached counts drive gate conversion (ever passed, not just currently in)
+    reached_idea = {
+        "proposed": len(ideas),
+        "qualified": sum(1 for i in ideas
+                         if i["status"] in ("qualified", "prioritized", "business_case", "backlog")
+                         or "qualify" in by_idea.get(i["id"], {})),
+        "prioritized": sum(1 for i in ideas
+                           if i["status"] in ("prioritized", "business_case")
+                           or "prioritize" in by_idea.get(i["id"], {})),
+        "business_case": sum(1 for i in ideas if i["status"] == "business_case"),
+    }
+
+    # dwell medians for completed idea transitions
+    def _completed_dwells(stage: str) -> List[float]:
+        out = []
+        for i in ideas:
+            events = by_idea.get(i["id"], {})
+            start, end = {
+                "proposed": (i["submitted_at"], events.get("qualify")),
+                "qualified": (events.get("qualify"), events.get("prioritize")),
+                "prioritized": (events.get("prioritize"), events.get("develop")),
+            }.get(stage, (None, None))
+            if start and end:
+                d = _days_between(start, end)
+                if d is not None:
+                    out.append(d)
+        return out
+
+    case_history: Dict[str, List[Dict[str, str]]] = {
+        c["id"]: c.get("stage_history", []) for c in cases
+    }
+
+    def case_reached(stage: str) -> int:
+        return sum(1 for c in cases
+                   if c["stage"] == stage or any(h["stage"] == stage for h in case_history[c["id"]]))
+
+    def case_dwells(stage: str) -> List[float]:
+        out = []
+        for c in cases:
+            history = case_history[c["id"]]
+            for idx, h in enumerate(history):
+                if h["stage"] == stage and idx + 1 < len(history):
+                    d = _days_between(h["entered_at"], history[idx + 1]["entered_at"])
+                    if d is not None:
+                        out.append(d)
+        return out
+
+    def case_entered(c: Dict[str, Any]) -> Optional[str]:
+        for h in reversed(c.get("stage_history", [])):
+            if h["stage"] == c["stage"]:
+                return h["entered_at"]
+        return c["submitted_at"]
+
+    phases = []
+    for phase_name, kind, stages in PIPELINE_PHASES:
+        # conversion is only meaningful within a phase: cases can enter the
+        # pipeline directly (auto-drafts, replicated patterns), so comparing
+        # case counts against idea counts would fabricate pass rates
+        prev_reached: Optional[int] = None
+        stage_blocks = []
+        for stage in stages:
+            if kind == "idea":
+                in_stage = [i for i in ideas if i["status"] == stage]
+                items = [{
+                    "id": i["id"], "title": i["title"],
+                    "value": round(idea_value(i), 2),
+                    "days_in_stage": _days_since(idea_entered(i)),
+                    "owner": i.get("submitter"),
+                } for i in in_stage]
+                reached = reached_idea[stage]
+                dwells = _completed_dwells(stage)
+            else:
+                in_stage = [c for c in cases if c["stage"] == stage]
+                items = [{
+                    "id": c["id"],
+                    "title": c["title"].replace("[Auto-draft] ", ""),
+                    "value": round((c["linked_opportunity"] or {}).get("estimated_annual_savings") or 0, 2),
+                    "verified": round((c["tracking"] or {}).get("measured_annual_savings") or 0, 2),
+                    "days_in_stage": _days_since(case_entered(c)),
+                    "owner": db.submitter_for_case(c["id"]),
+                } for c in in_stage]
+                reached = case_reached(stage)
+                dwells = case_dwells(stage)
+            conversion = (round(reached / prev_reached, 2)
+                          if prev_reached else None)
+            stage_blocks.append({
+                "stage": stage,
+                "count": len(items),
+                "value": round(sum(x["value"] for x in items), 2),
+                "verified": round(sum(x.get("verified", 0) for x in items), 2),
+                "items": sorted(items, key=lambda x: -(x["days_in_stage"] or 0)),
+                "reached": reached,
+                "conversion_from_previous": conversion,
+                "median_dwell_days": _median(dwells),
+                "aging": sum(1 for x in items
+                             if (x["days_in_stage"] or 0) > _AGING_DAYS),
+            })
+            prev_reached = reached
+        phases.append({"phase": phase_name, "kind": kind, "stages": stage_blocks})
+
+    in_flight_ideas = [i for i in ideas if i["status"] in _IDEA_ORDER]
+    active_cases = [c for c in cases if c["stage"] not in ("closed",)]
+    return {
+        "phases": phases,
+        "aging_threshold_days": _AGING_DAYS,
+        "terminal": {
+            "backlog": sum(1 for i in ideas if i["status"] == "backlog"),
+            "declined": sum(1 for i in ideas if i["status"] == "declined"),
+            "closed": sum(1 for c in cases if c["stage"] == "closed"),
+        },
+        "totals": {
+            "in_flight": len(in_flight_ideas) + len(active_cases),
+            "pipeline_value": round(
+                sum(idea_value(i) for i in in_flight_ideas)
+                + sum((c["linked_opportunity"] or {}).get("estimated_annual_savings") or 0
+                      for c in active_cases), 2),
+            "verified_value": round(sum(
+                (c["tracking"] or {}).get("measured_annual_savings") or 0 for c in cases), 2),
+            "end_to_end_conversion": (
+                round(reached_idea["business_case"] / len(ideas), 2) if ideas else None),
+        },
+    }

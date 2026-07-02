@@ -526,3 +526,27 @@ export interface BusinessCase {
   metric_bindings: MetricBinding[]
   tracking: Tracking | null
 }
+
+export interface PipelineStageBlock {
+  stage: string
+  count: number
+  value: number
+  verified: number
+  items: { id: string; title: string; value: number; verified?: number; days_in_stage: number | null; owner: string | null }[]
+  reached: number
+  conversion_from_previous: number | null
+  median_dwell_days: number | null
+  aging: number
+}
+
+export interface PipelineData {
+  phases: { phase: string; kind: 'idea' | 'case'; stages: PipelineStageBlock[] }[]
+  aging_threshold_days: number
+  terminal: { backlog: number; declined: number; closed: number }
+  totals: {
+    in_flight: number
+    pipeline_value: number
+    verified_value: number
+    end_to_end_conversion: number | null
+  }
+}

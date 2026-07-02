@@ -1229,3 +1229,30 @@ li {
   gap: 1rem;
   flex-wrap: wrap;
 }
+
+.phase-band {
+  margin-bottom: 1.4rem;
+}
+
+.phase-title {
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.82rem;
+  margin-bottom: 0.5rem;
+}
+
+.phase-band .pipeline-board {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 900px) {
+  .phase-band .pipeline-board {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.aging-flag {
+  color: #ffab70;
+  font-weight: 600;
+}

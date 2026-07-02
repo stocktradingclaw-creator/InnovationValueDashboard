@@ -1130,6 +1130,11 @@ def replicate_pattern(case_id: str, body: ReplicateRequest) -> Dict[str, Any]:
     return clone
 
 
+@app.get("/api/pipeline")
+def pipeline() -> Dict[str, Any]:
+    return hub.build_pipeline(db.list_ideas(), db.list_business_cases())
+
+
 @app.get("/api/lifecycle")
 def lifecycle() -> Dict[str, Any]:
     """The stage-gate model with live counts, plus the portfolio register

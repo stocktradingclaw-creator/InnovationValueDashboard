@@ -306,3 +306,7 @@ export function demoRevert() {
 export function getLifecycle() {
   return request<import('./types').Lifecycle>('/api/lifecycle')
 }
+
+export function getPipeline() {
+  return request<import('./types').PipelineData>('/api/pipeline')
+}

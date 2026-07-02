@@ -947,3 +947,14 @@ def list_initiatives() -> List[Dict[str, Any]]:
             "SELECT * FROM strategic_initiatives ORDER BY created_at"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def idea_transitions() -> List[Dict[str, Any]]:
+    """Gate transitions for ideas (qualify/prioritize/develop) for dwell math."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT subject_id, action, created_at FROM workflow_events "
+            "WHERE subject_type = 'idea' AND action IN ('qualify', 'prioritize', 'develop') "
+            "ORDER BY id",
+        ).fetchall()
+    return [dict(r) for r in rows]

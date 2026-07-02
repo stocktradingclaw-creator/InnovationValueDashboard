@@ -1246,3 +1246,41 @@ def test_stage_gate_lifecycle(client):
     assert lc["idea_terminal"]["backlog"] == 1
     entry = next(r for r in lc["register"] if r["id"] == idea["id"])
     assert entry["impact"] > 0 and 0 <= entry["readiness"] <= 1
+
+
+# ------------------------------------------------------------------- pipeline
+
+def test_pipeline_analytics(client):
+    client.post("/api/datasets/load-samples")
+    idea = client.post("/api/ideas", json={
+        "title": "Recover duplicate vendor invoices",
+        "description": "Detect duplicate invoices by vendor and amount and recover.",
+        "submitter": "maria",
+    }).json()
+    stale = client.post("/api/ideas", json={
+        "title": "Robot greeter", "description": "Lobby robot to welcome guests.",
+    }).json()
+    _walk_to_prioritized(client, idea["id"])
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "develop",
+    })
+
+    p = client.get("/api/pipeline").json()
+    assert [ph["phase"][0] for ph in p["phases"]] == ["A", "B", "C"]
+
+    phase_a = {s["stage"]: s for s in p["phases"][0]["stages"]}
+    assert phase_a["proposed"]["count"] == 1  # 'stale' still sitting at intake
+    assert phase_a["proposed"]["items"][0]["id"] == stale["id"]
+    assert phase_a["proposed"]["items"][0]["days_in_stage"] is not None
+    # conversion: 1 of 2 ideas passed qualification
+    assert phase_a["qualified"]["conversion_from_previous"] == 0.5
+    assert phase_a["qualified"]["reached"] == 1
+
+    phase_b = {s["stage"]: s for s in p["phases"][1]["stages"]}
+    assert phase_b["proposed"]["count"] == 1  # the developed business case
+    assert phase_b["proposed"]["value"] == 50600.0  # duplicate-invoice forecast
+
+    totals = p["totals"]
+    assert totals["in_flight"] == 2  # 1 idea at intake + 1 case in review
+    assert totals["end_to_end_conversion"] == 0.5
+    assert p["terminal"]["declined"] == 0

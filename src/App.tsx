@@ -6,6 +6,7 @@ import Dashboard from './components/Dashboard'
 import DataSources from './components/DataSources'
 import Ideas from './components/Ideas'
 import Opportunities from './components/Opportunities'
+import PipelineView from './components/PipelineView'
 import Portfolio from './components/Portfolio'
 import Tracking from './components/Tracking'
 import type {
@@ -21,7 +22,7 @@ import type {
 } from './types'
 
 type Tab =
-  | 'overview' | 'ideas' | 'command' | 'sources'
+  | 'overview' | 'ideas' | 'command' | 'pipeline' | 'sources'
   | 'opportunities' | 'cases' | 'tracking' | 'portfolio'
 
 const DEFAULT_WEIGHTS: Weights = { value: 35, efficiency: 30, speed: 15, simplicity: 20 }
@@ -92,6 +93,9 @@ export default function App() {
           </button>
           <button className={tab === 'command' ? 'active' : ''} onClick={() => setTab('command')}>
             Command Center
+          </button>
+          <button className={tab === 'pipeline' ? 'active' : ''} onClick={() => setTab('pipeline')}>
+            Pipeline
           </button>
           <button className={tab === 'sources' ? 'active' : ''} onClick={() => setTab('sources')}>
             Data Sources
@@ -172,6 +176,7 @@ export default function App() {
         {tab === 'overview' && <Dashboard data={dashboard} onNavigate={setTab} onChanged={refresh} />}
         {tab === 'ideas' && <Ideas ideas={ideas} onChanged={refresh} />}
         {tab === 'command' && <CommandCenter onChanged={refresh} />}
+        {tab === 'pipeline' && <PipelineView />}
         {tab === 'sources' && <DataSources sources={sources} onChanged={refresh} />}
         {tab === 'opportunities' && (
           <Opportunities
