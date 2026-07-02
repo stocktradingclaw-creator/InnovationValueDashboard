@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { addReading, addSavings, implementCase, money, observeBinding } from '../api'
 import type { BusinessCase } from '../types'
 
@@ -296,6 +296,62 @@ function CaseTracker({ bc, onChanged }: { bc: BusinessCase; onChanged: () => voi
   )
 }
 
+interface LedgerEntry {
+  case_id: string; case_title: string; metric: string; unit: string
+  baseline_value: number; baseline_frozen_at: string
+  latest_value: number | null; last_observed_at: string | null
+  observations: number; verified_annual_value: number | null
+}
+
+function ValueLedger() {
+  const [entries, setEntries] = useState<LedgerEntry[] | null>(null)
+  const [total, setTotal] = useState(0)
+  useEffect(() => {
+    fetch('/api/value-ledger').then((r) => r.json())
+      .then((d) => { setEntries(d.entries); setTotal(d.total_verified_annual_value) })
+      .catch(() => setEntries([]))
+  }, [])
+  if (!entries || entries.length === 0) return null
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h3>Verified value ledger</h3>
+        <div className="row">
+          <span className="savings">{money(total)}/yr verified</span>
+          <a className="chip" href="/api/value-ledger?format=csv" download>Export CSV</a>
+        </div>
+      </div>
+      <p className="muted small">
+        Every verified dollar traceable to a frozen baseline, a data source, and an
+        observation date — the audit trail self-reported dashboards can't produce.
+      </p>
+      <table className="kpi-table">
+        <thead>
+          <tr>
+            <th>Case</th><th>Metric</th><th className="num">Baseline (frozen)</th>
+            <th className="num">Latest</th><th className="num">Obs.</th>
+            <th className="num">Verified /yr</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((e, i) => (
+            <tr key={i}>
+              <td><strong>{e.case_title}</strong><div className="muted small">{e.case_id}</div></td>
+              <td>{e.metric}<div className="muted small">{e.unit.replace(/_/g, ' ')}</div></td>
+              <td className="num">{e.baseline_value.toLocaleString()}
+                <div className="muted small">{e.baseline_frozen_at.slice(0, 10)}</div></td>
+              <td className="num">{e.latest_value != null ? e.latest_value.toLocaleString() : '—'}
+                {e.last_observed_at && <div className="muted small">{e.last_observed_at.slice(0, 10)}</div>}</td>
+              <td className="num">{e.observations}</td>
+              <td className="num savings">{e.verified_annual_value != null ? money(e.verified_annual_value) : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export default function Tracking({ cases, onChanged }: Props) {
   if (cases.length === 0) {
     return (
@@ -317,6 +373,7 @@ export default function Tracking({ cases, onChanged }: Props) {
         Record actuals against each ROI plan after go-live: realized savings drive ROI and payback;
         KPI readings show whether the value drivers are moving.
       </p>
+      <ValueLedger />
       {[...implemented, ...proposed].map((c) => (
         <CaseTracker key={c.id} bc={c} onChanged={onChanged} />
       ))}

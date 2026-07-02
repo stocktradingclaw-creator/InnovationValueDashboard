@@ -1759,3 +1759,47 @@ def test_admin_sees_all_submissions(client):
     allv = client.get("/api/my-submissions", params={"submitter": "ada"}, headers=admin).json()
     assert allv["scope"] == "all"
     assert {a["id"], b["id"]} <= {i["id"] for i in allv["ideas"]}
+
+
+def test_enterprise_admin_and_reporting_endpoints(client):
+    client.post("/api/demo/seed-lifecycle")
+
+    # audit trail captured the seeded activity; CSV export works
+    audit = client.get("/api/admin/audit").json()["entries"]
+    actions = {e["action"] for e in audit}
+    assert "idea.submit" in actions and "funding.release" in actions
+    assert any(a.startswith("decide.") for a in actions)
+    csv = client.get("/api/admin/audit", params={"format": "csv"})
+    assert csv.headers["content-type"].startswith("text/csv")
+
+    # state export/import round-trips
+    snap = client.get("/api/admin/export").json()
+    n_ideas = len(client.get("/api/ideas").json()["ideas"])
+    client.post("/api/datasets/load-samples")  # perturb
+    restored = client.post("/api/admin/import", json=snap).json()["restored"]
+    assert restored["ideas"] == n_ideas
+    assert len(client.get("/api/ideas").json()["ideas"]) == n_ideas
+
+    # capture webhook feeds the funnel
+    r = client.post("/api/integrations/capture", json={
+        "source": "teams", "text": "Auto-archive stale SharePoint sites",
+        "user": "lee"}).json()
+    assert r["id"].startswith("IDEA-") and r["recommendation"]
+
+    # delivery handoff carries the measurement plan
+    case = client.get("/api/business-cases").json()["business_cases"][0]
+    h = client.get(f"/api/business-cases/{case['id']}/handoff").json()
+    assert h["issue_type"] == "Epic" and "Measurement plan" in h["description"]
+
+    # board pack and value ledger keep claimed and verified separate
+    pack = client.get("/api/reports/board-pack").text
+    assert "Verified annual value" in pack and "Claimed savings" in pack
+    ledger = client.get("/api/value-ledger").json()
+    assert "total_verified_annual_value" in ledger
+    for e in ledger["entries"]:
+        assert e["baseline_frozen_at"]  # every entry traceable to a frozen baseline
+    assert client.get("/api/value-ledger", params={"format": "csv"}
+                      ).headers["content-type"].startswith("text/csv")
+
+    # benchmarks expose the calibration layer
+    assert "categories" in client.get("/api/benchmarks").json()

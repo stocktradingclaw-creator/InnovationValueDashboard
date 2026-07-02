@@ -109,6 +109,14 @@ CREATE TABLE IF NOT EXISTS users (
     created_at    TEXT NOT NULL,
     password_hash TEXT
 );
+CREATE TABLE IF NOT EXISTS audit_log (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    at      TEXT NOT NULL,
+    actor   TEXT,
+    action  TEXT NOT NULL,
+    subject TEXT,
+    detail  TEXT
+);
 CREATE TABLE IF NOT EXISTS sessions (
     token      TEXT PRIMARY KEY,
     user_name  TEXT NOT NULL,
@@ -1123,3 +1131,54 @@ def get_role(name: str) -> Optional[str]:
             "SELECT role FROM users WHERE name = ?", ((name or "").strip().lower(),)
         ).fetchone()
     return row["role"] if row else None
+
+
+def audit(action: str, actor: Optional[str], subject: Optional[str] = None,
+          detail: Optional[str] = None) -> None:
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO audit_log (at, actor, action, subject, detail) VALUES (?, ?, ?, ?, ?)",
+            (_now(), actor, action, subject, (detail or "")[:500]),
+        )
+
+
+def audit_entries(limit: int = 1000) -> List[Dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT at, actor, action, subject, detail FROM audit_log "
+            "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def dump_state() -> Dict[str, Any]:
+    """Portable snapshot of every table — durability escape hatch for
+    ephemeral hosting and tenant migration."""
+    out: Dict[str, Any] = {"_format": 1}
+    with _conn() as conn:
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%'")]
+        for t in tables:
+            out[t] = [dict(r) for r in conn.execute(f"SELECT * FROM {t}")]
+    return out
+
+
+def restore_state(state: Dict[str, Any]) -> Dict[str, int]:
+    if state.get("_format") != 1:
+        raise ValueError("unrecognized snapshot format")
+    counts: Dict[str, int] = {}
+    with _conn() as conn:
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%'")}
+        for t, rows in state.items():
+            if t.startswith("_") or t not in tables or not isinstance(rows, list):
+                continue
+            conn.execute(f"DELETE FROM {t}")
+            for row in rows:
+                cols = list(row.keys())
+                conn.execute(
+                    f"INSERT INTO {t} ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",
+                    [row[c] for c in cols])
+            counts[t] = len(rows)
+    return counts

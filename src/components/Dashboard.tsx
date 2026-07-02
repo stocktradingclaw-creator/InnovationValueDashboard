@@ -295,7 +295,18 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
 
   return (
     <section className="exec">
-      <p className="headline-sentence">{data.headline}</p>
+      <div className="section-header">
+        <p className="headline-sentence">{data.headline}</p>
+        <button className="secondary" onClick={async () => {
+          const res = await fetch('/api/reports/board-pack')
+          const blob = await res.blob()
+          const a = document.createElement('a')
+          a.href = URL.createObjectURL(blob)
+          a.download = 'board-pack.md'
+          a.click()
+          URL.revokeObjectURL(a.href)
+        }}>Export board pack</button>
+      </div>
 
       <div className="hero-band">
         {ts && ts.verified_run_rate > 0 ? (

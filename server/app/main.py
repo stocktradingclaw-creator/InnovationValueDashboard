@@ -65,6 +65,7 @@ def login(body: LoginRequest) -> Dict[str, Any]:
         if user is None:
             raise HTTPException(401, "Wrong name or password — or no password set yet; "
                                      "ask an admin to set one in Hub Settings")
+    db.audit("auth.login", user["name"])
     return {"token": db.create_session(user["name"]), "user": user}
 
 
@@ -463,6 +464,7 @@ def _ingest_idea(body: IdeaRequest, source: str,
         pain_point=(body.pain_point or "").strip() or None,
         initiative_ids=tag_ids,
     )
+    db.audit("idea.submit", idea.get("submitter"), idea["id"], idea["title"])
     db.log_automation(
         "idea_triage", assessment["recommendation"], idea["id"],
         assessment["rationale"][:200],
@@ -650,6 +652,7 @@ def _require_admin(authorization: Optional[str], actor: Optional[str] = None) ->
     blocked = hub.check_role("admin", _session_name() or actor)
     if blocked:
         raise HTTPException(403, blocked)
+    db.audit("settings.change", _session_name() or actor)
 
 
 @app.put("/api/scoring-config")
@@ -772,6 +775,8 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
              "qualify", "prioritize", "hold", "develop")
     if body.decision not in valid:
         raise HTTPException(400, f"decision must be one of {valid}")
+    db.audit(f"decide.{body.decision}", _session_name() or body.actor,
+             body.subject_id, body.comment)
 
     if body.subject_type == "idea":
         idea = db.get_idea(body.subject_id)
@@ -1131,6 +1136,7 @@ def release_tranche(case_id: str, tranche_id: int, body: ReleaseRequest) -> Dict
         "business_case_approval", body.actor)
     if blocked:
         raise HTTPException(403, blocked)
+    db.audit("funding.release", _session_name() or body.actor, case_id)
     case = db.release_tranche(case_id, tranche_id, body.actor)
     if case is None:
         raise HTTPException(404, f"Planned tranche {tranche_id} not found on '{case_id}'")
@@ -1683,6 +1689,190 @@ def add_savings(case_id: str, body: SavingsRequest) -> Dict[str, Any]:
     if case is None:
         raise HTTPException(404, f"Business case '{case_id}' not found")
     return case
+
+# ---------------------------------------------- enterprise admin: audit + state
+
+@app.get("/api/admin/audit")
+def audit_trail(authorization: Optional[str] = Header(None),
+                actor: Optional[str] = Query(None),
+                format: str = Query("json")) -> Any:
+    _require_admin(authorization, actor)
+    entries = db.audit_entries()
+    if format == "csv":
+        from fastapi.responses import PlainTextResponse
+        lines = ["at,actor,action,subject,detail"]
+        for e in entries:
+            row = [str(e.get(k) or "").replace('"', "'") for k in
+                   ("at", "actor", "action", "subject", "detail")]
+            lines.append(",".join(f'"{v}"' for v in row))
+        return PlainTextResponse("\n".join(lines), media_type="text/csv",
+                                 headers={"Content-Disposition":
+                                          "attachment; filename=audit-trail.csv"})
+    return {"entries": entries}
+
+
+@app.get("/api/admin/export")
+def export_state(authorization: Optional[str] = Header(None),
+                 actor: Optional[str] = Query(None)) -> Dict[str, Any]:
+    _require_admin(authorization, actor)
+    db.audit("state.export", _session_name() or actor)
+    return db.dump_state()
+
+
+@app.post("/api/admin/import")
+def import_state(body: Dict[str, Any], authorization: Optional[str] = Header(None),
+                 actor: Optional[str] = Query(None)) -> Dict[str, Any]:
+    _require_admin(authorization, actor)
+    try:
+        counts = db.restore_state(body)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    db.audit("state.import", _session_name() or actor,
+             detail=f"{sum(counts.values())} rows across {len(counts)} tables")
+    return {"restored": counts}
+
+
+# ------------------------------------------- capture webhook + delivery handoff
+
+@app.post("/api/integrations/capture")
+def capture_idea(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Generic inbound capture for Teams/Slack/email middleware: any system
+    that can POST JSON can feed the funnel."""
+    import os
+    expected = os.environ.get("IVD_CAPTURE_TOKEN")
+    if expected and body.get("token") != expected:
+        raise HTTPException(401, "invalid capture token")
+    title = (body.get("title") or body.get("text") or "").strip()
+    if not title:
+        raise HTTPException(400, "a 'title' (or 'text') field is required")
+    idea = _ingest_idea(IdeaRequest(
+        title=title[:140],
+        description=(body.get("description") or body.get("text") or title).strip(),
+        submitter=(body.get("submitter") or body.get("user") or "").strip() or None,
+    ), source=f"capture:{(body.get('source') or 'webhook')[:30]}")
+    db.audit("idea.capture", idea.get("submitter"), idea["id"],
+             f"via {body.get('source') or 'webhook'}")
+    return {"id": idea["id"], "status": idea["status"],
+            "recommendation": (idea.get("assessment") or {}).get("recommendation")}
+
+
+@app.get("/api/business-cases/{case_id}/handoff")
+def delivery_handoff(case_id: str) -> Dict[str, Any]:
+    """Delivery handoff package: everything Jira/Azure DevOps needs to open
+    an epic, including the measurement plan the delivery team must honor."""
+    case = db.get_business_case(case_id)
+    if case is None:
+        raise HTTPException(404, f"Business case '{case_id}' not found")
+    plan = case["roi_plan"]
+    funding = case.get("funding") or {}
+    return {
+        "issue_type": "Epic",
+        "summary": case["title"],
+        "description": (
+            f"{plan.get('summary', case['description'])}\n\n"
+            "== Measurement plan (do not ship without) ==\n"
+            + "\n".join(f"- KPI: {k['name']} | target {k['target']} | "
+                         f"sources: {', '.join(k['data_sources'])}"
+                         for k in plan.get("kpis", []))
+            + f"\n\nROI formula: {plan.get('roi_formula', 'n/a')}"
+        ),
+        "labels": ["innovation-hub", case["id"], case.get("stage") or ""],
+        "budget_released": funding.get("released", 0),
+        "budget_planned": funding.get("planned", 0),
+        "go_live_target": case.get("go_live_date"),
+        "hub_case_id": case["id"],
+    }
+
+
+# -------------------------------------------------- board pack + value ledger
+
+@app.get("/api/reports/board-pack")
+def board_pack() -> Any:
+    """One-page markdown board pack: the numbers leadership asks for, in the
+    order they ask for them — claimed and verified value never blended."""
+    from fastapi.responses import PlainTextResponse
+    d = dashboard()
+    ideas = db.list_ideas()
+    cases = db.list_business_cases()
+    verified = sum(
+        (b.get("annualized_delta") or 0)
+        for c in cases for b in c.get("metric_bindings", []))
+    claimed = sum(e["amount"] for c in cases for e in c.get("savings_entries", []))
+    released = sum((c.get("funding") or {}).get("released", 0) for c in cases)
+    lines = [
+        "# Innovation Hub — Board Pack",
+        f"_Generated {datetime.date.today().isoformat()}_",
+        "",
+        f"**Headline:** {d.get('headline', {}).get('text', 'n/a') if isinstance(d.get('headline'), dict) else d.get('headline', 'n/a')}",
+        "",
+        "## Value (verified vs claimed — never blended)",
+        f"- Verified annual value (computed from data): ${verified:,.0f}",
+        f"- Claimed savings to date (self-reported): ${claimed:,.0f}",
+        f"- Funding released through gated tranches: ${released:,.0f}",
+        "",
+        "## Pipeline",
+        f"- Ideas in flight: {len([i for i in ideas if i['status'] not in ('declined',)])}"
+        f" ({len([i for i in ideas if i['status'] == 'business_case'])} promoted to business case)",
+        f"- Business cases: {len(cases)} — "
+        + ", ".join(f"{stage}: {n}" for stage, n in sorted(
+            __import__('collections').Counter(c['stage'] for c in cases).items())),
+        "",
+        "## Decisions waiting",
+    ]
+    q_ideas = [i for i in ideas if i["status"] not in ("business_case", "declined", "backlog")]
+    for i in q_ideas[:5]:
+        a = i.get("assessment") or {}
+        lines.append(f"- {i['title']} (score {a.get('score', '—')}, {i['status']})")
+    lines += ["", "## Kills & learnings",
+              f"- Experiments concluded with learnings captured: "
+              f"{sum(1 for c in cases for e in c.get('experiments', []) if e.get('outcome'))}"]
+    return PlainTextResponse("\n".join(lines), media_type="text/markdown",
+                             headers={"Content-Disposition":
+                                      "attachment; filename=board-pack.md"})
+
+
+@app.get("/api/value-ledger")
+def value_ledger(format: str = Query("json")) -> Any:
+    """The Verified Value Ledger: every verified dollar traceable to a frozen
+    baseline, a data source, and observation dates. This is the audit trail
+    self-reported dashboards cannot produce."""
+    rows = []
+    for c in db.list_business_cases():
+        for b in c.get("metric_bindings", []):
+            observations = b.get("observations", [])
+            rows.append({
+                "case_id": c["id"], "case_title": c["title"],
+                "metric": b["label"], "unit": b["unit"],
+                "baseline_value": b["baseline_value"],
+                "baseline_frozen_at": b["baseline_captured_at"],
+                "latest_value": b.get("latest_value"),
+                "last_observed_at": observations[-1]["observed_at"] if observations else None,
+                "observations": len(observations),
+                "verified_annual_value": b.get("annualized_delta"),
+            })
+    if format == "csv":
+        from fastapi.responses import PlainTextResponse
+        cols = ["case_id", "case_title", "metric", "unit", "baseline_value",
+                "baseline_frozen_at", "latest_value", "last_observed_at",
+                "observations", "verified_annual_value"]
+        lines = [",".join(cols)]
+        for r in rows:
+            lines.append(",".join(f'"{str(r[c]) if r[c] is not None else ""}"' for c in cols))
+        return PlainTextResponse("\n".join(lines), media_type="text/csv",
+                                 headers={"Content-Disposition":
+                                          "attachment; filename=value-ledger.csv"})
+    total = round(sum(r["verified_annual_value"] or 0 for r in rows), 2)
+    return {"entries": rows, "total_verified_annual_value": total}
+
+
+@app.get("/api/benchmarks")
+def benchmarks() -> Dict[str, Any]:
+    """Calibration-derived benchmarks: how much of claimed value each category
+    historically realizes — the honesty layer, exposed."""
+    return {"categories": calibration.report()["categories"],
+            "note": "applied_factor is the clamped realization multiplier used "
+                    "in prioritization; it is learned from actuals, not assumed."}
+
 
 # ------------------------------------------------- full-lifecycle sample data
 
