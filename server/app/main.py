@@ -6,7 +6,7 @@ import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -336,6 +336,9 @@ class IdeaRequest(BaseModel):
     submitter: Optional[str] = None
     category: Optional[str] = None
     estimated_annual_benefit: Optional[float] = None
+    benefit_type: Optional[str] = None
+    horizon: Optional[str] = None
+    challenge_id: Optional[str] = None
 
 
 def _prioritized_opps() -> List[Dict[str, Any]]:
@@ -345,10 +348,19 @@ def _prioritized_opps() -> List[Dict[str, Any]]:
 
 def _ingest_idea(body: IdeaRequest, source: str,
                  submitted_at: Optional[str] = None) -> Dict[str, Any]:
+    if body.benefit_type and body.benefit_type not in hub.BENEFIT_TYPES:
+        raise HTTPException(400, f"benefit_type must be one of {hub.BENEFIT_TYPES}")
+    if body.horizon and body.horizon not in ("h1", "h2", "h3"):
+        raise HTTPException(400, "horizon must be h1, h2, or h3")
+    challenge = db.get_challenge(body.challenge_id) if body.challenge_id else None
+    if body.challenge_id and challenge is None:
+        raise HTTPException(400, f"Challenge '{body.challenge_id}' not found")
     opps = _prioritized_opps()
     assessment = hub.triage_idea(
         body.title, body.description, opps,
         category=body.category, estimated_annual_benefit=body.estimated_annual_benefit,
+        benefit_type=body.benefit_type, horizon=body.horizon, challenge=challenge,
+        existing_ideas=db.list_ideas(),
     )
     idea = db.create_idea(
         body.title.strip(), body.description.strip(),
@@ -356,6 +368,9 @@ def _ingest_idea(body: IdeaRequest, source: str,
         category=(body.category or "").strip() or assessment.get("derived_category"),
         estimated_annual_benefit=body.estimated_annual_benefit,
         source=source, submitted_at=submitted_at,
+        benefit_type=assessment.get("benefit_type"),
+        horizon=assessment.get("horizon"),
+        challenge_id=body.challenge_id,
     )
     db.log_automation(
         "idea_triage", assessment["recommendation"], idea["id"],
@@ -461,6 +476,11 @@ def _promote_idea(idea: Dict[str, Any]) -> Dict[str, Any]:
              + (f" (submitted by {idea['submitter']})" if idea["submitter"] else ""),
         linked_opportunity=linked_opportunity,
         stage="proposed",
+        horizon=idea.get("horizon") or "h1",
+    )
+    db.notify(
+        idea.get("submitter"), "idea", idea["id"],
+        f"Your idea '{idea['title']}' was approved and promoted to business case {case['id']}.",
     )
     if linked_opportunity:
         measure = next(
@@ -505,8 +525,20 @@ def get_scoring_config() -> Dict[str, Any]:
     return hub.get_scoring_config()
 
 
+def _require_admin(authorization: Optional[str]) -> None:
+    """Optional hardening: when IVD_ADMIN_TOKEN is set, configuration changes
+    require it as a bearer token. Off by default for local/demo use."""
+    import os
+    expected = os.environ.get("IVD_ADMIN_TOKEN")
+    if not expected:
+        return
+    if authorization != f"Bearer {expected}":
+        raise HTTPException(401, "Configuration changes require the admin token")
+
+
 @app.put("/api/scoring-config")
-def put_scoring_config(body: Dict[str, Any]) -> Dict[str, Any]:
+def put_scoring_config(body: Dict[str, Any], authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    _require_admin(authorization)
     try:
         return hub.save_scoring_config(body)
     except hub.ConfigError as exc:
@@ -519,7 +551,8 @@ def get_governance() -> Dict[str, Any]:
 
 
 @app.put("/api/governance")
-def put_governance(body: Dict[str, List[str]]) -> Dict[str, Any]:
+def put_governance(body: Dict[str, List[str]], authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    _require_admin(authorization)
     try:
         return {"areas": hub.GOVERNANCE_AREAS, "assignments": hub.save_governance(body)}
     except hub.ConfigError as exc:
@@ -536,7 +569,10 @@ class DecisionRequest(BaseModel):
     comment: Optional[str] = None
 
 
-_CASE_APPROVE_NEXT = {"draft": "proposed", "proposed": "approved", "approved": "in_delivery"}
+_CASE_APPROVE_NEXT = {
+    "draft": "proposed", "proposed": "approved", "experiment": "approved",
+    "approved": "in_delivery", "value_realized": "scale",
+}
 
 
 def _governance_area_for(subject_type: str, case: Optional[Dict[str, Any]]) -> str:
@@ -557,6 +593,7 @@ def command_queue() -> Dict[str, Any]:
     return {
         "ideas_pending": [i for i in ideas if i["status"] == "triaged"],
         "cases_pending_approval": [c for c in cases if c["stage"] in ("draft", "proposed")],
+        "cases_in_experiment": [c for c in cases if c["stage"] == "experiment"],
         "cases_in_motion": [c for c in cases if c["stage"] in ("approved", "in_delivery")],
         "history": db.workflow_events(30),
         "governance": hub.get_governance(),
@@ -567,8 +604,8 @@ def command_queue() -> Dict[str, Any]:
 def command_decide(body: DecisionRequest) -> Dict[str, Any]:
     if body.subject_type not in ("idea", "case"):
         raise HTTPException(400, "subject_type must be 'idea' or 'case'")
-    if body.decision not in ("approve", "reject", "feedback"):
-        raise HTTPException(400, "decision must be 'approve', 'reject', or 'feedback'")
+    if body.decision not in ("approve", "reject", "feedback", "experiment"):
+        raise HTTPException(400, "decision must be 'approve', 'reject', 'feedback', or 'experiment'")
 
     if body.subject_type == "idea":
         idea = db.get_idea(body.subject_id)
@@ -577,13 +614,24 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
         blocked = hub.check_authority("idea_screening", body.actor)
         if blocked:
             raise HTTPException(403, blocked)
+        if body.decision == "experiment":
+            raise HTTPException(400, "experiment applies to cases, not ideas")
         db.add_workflow_event("idea", body.subject_id, body.decision, body.actor, body.comment)
         if body.decision == "approve":
             if idea["status"] == "promoted":
                 raise HTTPException(400, "Idea is already promoted")
             return {"result": _promote_idea(idea)}
         if body.decision == "reject":
+            db.notify(
+                idea.get("submitter"), "idea", idea["id"],
+                f"Your idea '{idea['title']}' was not taken forward."
+                + (f" Feedback: {body.comment}" if body.comment else ""),
+            )
             return {"result": db.update_idea(body.subject_id, "declined")}
+        db.notify(
+            idea.get("submitter"), "idea", idea["id"],
+            f"Feedback on your idea '{idea['title']}': {body.comment or '(no comment)'}",
+        )
         return {"result": idea}
 
     case = db.get_business_case(body.subject_id)
@@ -594,14 +642,26 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
     if blocked:
         raise HTTPException(403, blocked)
     db.add_workflow_event("case", body.subject_id, body.decision, body.actor, body.comment)
+    submitter = db.submitter_for_case(body.subject_id)
+    if body.decision == "experiment":
+        if case["stage"] not in ("draft", "proposed"):
+            raise HTTPException(400, "only draft/proposed cases can be sent to experiment")
+        db.notify(submitter, "case", case["id"],
+                  f"'{case['title']}' is being validated with an experiment before full approval.")
+        return {"result": db.set_stage(body.subject_id, "experiment")}
     if body.decision == "approve":
         next_stage = _CASE_APPROVE_NEXT.get(case["stage"])
         if next_stage is None:
             raise HTTPException(
                 400, f"Cases in stage '{case['stage']}' advance via /implement or automation"
             )
+        db.notify(submitter, "case", case["id"],
+                  f"'{case['title']}' advanced to {next_stage.replace('_', ' ')}.")
         return {"result": db.set_stage(body.subject_id, next_stage)}
     if body.decision == "reject":
+        db.notify(submitter, "case", case["id"],
+                  f"'{case['title']}' was closed."
+                  + (f" Reason: {body.comment}" if body.comment else ""))
         return {"result": db.set_stage(body.subject_id, "closed")}
     return {"result": case}
 
@@ -619,9 +679,184 @@ def set_case_stage(case_id: str, body: StageRequest) -> Dict[str, Any]:
         raise HTTPException(404, f"Business case '{case_id}' not found")
     if body.stage == "live":
         raise HTTPException(400, "use /implement to go live — it requires a go-live date")
-    if body.stage == "value_realized" and case["status"] != "implemented":
-        raise HTTPException(400, "case must be implemented before value can be realized")
+    if body.stage in ("value_realized", "scale") and case["status"] != "implemented":
+        raise HTTPException(400, "case must be implemented before value_realized/scale")
     return db.set_stage(case_id, body.stage)
+
+
+# ------------------------------------------------------------------ challenges
+
+class ChallengeRequest(BaseModel):
+    title: str
+    question: str
+    theme: Optional[str] = None
+    closes_at: Optional[str] = None
+
+
+@app.post("/api/challenges")
+def create_challenge(body: ChallengeRequest) -> Dict[str, Any]:
+    if not body.title.strip() or not body.question.strip():
+        raise HTTPException(400, "title and question are required")
+    return db.create_challenge(
+        body.title.strip(), body.question.strip(), body.theme, body.closes_at
+    )
+
+
+@app.get("/api/challenges")
+def list_challenges() -> Dict[str, Any]:
+    return {"challenges": db.list_challenges()}
+
+
+@app.post("/api/challenges/{challenge_id}/close")
+def close_challenge(challenge_id: str) -> Dict[str, Any]:
+    challenge = db.close_challenge(challenge_id)
+    if challenge is None:
+        raise HTTPException(404, f"Challenge '{challenge_id}' not found")
+    return challenge
+
+
+# ----------------------------------------------------------------- experiments
+
+class ExperimentRequest(BaseModel):
+    hypothesis: str
+    method: str
+    success_criteria: str
+    cost: Optional[float] = None
+
+
+@app.post("/api/business-cases/{case_id}/experiments")
+def add_experiment(case_id: str, body: ExperimentRequest) -> Dict[str, Any]:
+    case = db.get_business_case(case_id)
+    if case is None:
+        raise HTTPException(404, f"Business case '{case_id}' not found")
+    if case["stage"] not in ("draft", "proposed", "experiment"):
+        raise HTTPException(400, "experiments belong before approval (draft/proposed/experiment)")
+    result = db.add_experiment(
+        case_id, body.hypothesis.strip(), body.method.strip(),
+        body.success_criteria.strip(), body.cost,
+    )
+    if case["stage"] != "experiment":
+        result = db.set_stage(case_id, "experiment")
+    return result
+
+
+class ConcludeExperimentRequest(BaseModel):
+    outcome: str  # 'proceed' | 'kill' | 'pivot'
+    learnings: str
+
+
+@app.post("/api/business-cases/{case_id}/experiments/{experiment_id}/conclude")
+def conclude_experiment(case_id: str, experiment_id: int,
+                        body: ConcludeExperimentRequest) -> Dict[str, Any]:
+    if body.outcome not in ("proceed", "kill", "pivot"):
+        raise HTTPException(400, "outcome must be 'proceed', 'kill', or 'pivot'")
+    if not body.learnings.strip():
+        raise HTTPException(400, "learnings are required — kills without learning are waste")
+    case = db.conclude_experiment(case_id, experiment_id, body.outcome, body.learnings.strip())
+    if case is None:
+        raise HTTPException(404, f"Open experiment {experiment_id} not found on '{case_id}'")
+    submitter = db.submitter_for_case(case_id)
+    if body.outcome == "kill":
+        case = db.set_stage(case_id, "closed")
+        db.log_automation("experiment", "killed", case_id,
+                          f"experiment {experiment_id}: {body.learnings[:150]}")
+        db.notify(submitter, "case", case_id,
+                  f"'{case['title']}' was killed after an experiment. Learning: {body.learnings[:150]}")
+    else:
+        db.notify(submitter, "case", case_id,
+                  f"Experiment on '{case['title']}' concluded: {body.outcome}.")
+    return case
+
+
+# ------------------------------------------------------------- funding tranches
+
+class TrancheRequest(BaseModel):
+    label: str
+    amount: float
+    milestone: str
+
+
+@app.post("/api/business-cases/{case_id}/tranches")
+def add_tranche(case_id: str, body: TrancheRequest) -> Dict[str, Any]:
+    if body.amount <= 0:
+        raise HTTPException(400, "amount must be > 0")
+    case = db.add_tranche(case_id, body.label.strip(), body.amount, body.milestone.strip())
+    if case is None:
+        raise HTTPException(404, f"Business case '{case_id}' not found")
+    return case
+
+
+class ReleaseRequest(BaseModel):
+    actor: Optional[str] = None
+
+
+@app.post("/api/business-cases/{case_id}/tranches/{tranche_id}/release")
+def release_tranche(case_id: str, tranche_id: int, body: ReleaseRequest) -> Dict[str, Any]:
+    blocked = hub.check_authority("business_case_approval", body.actor)
+    if blocked:
+        raise HTTPException(403, blocked)
+    case = db.release_tranche(case_id, tranche_id, body.actor)
+    if case is None:
+        raise HTTPException(404, f"Planned tranche {tranche_id} not found on '{case_id}'")
+    db.add_workflow_event("case", case_id, "tranche_released", body.actor,
+                          f"tranche {tranche_id}")
+    return case
+
+
+# --------------------------------------------------------------- notifications
+
+@app.get("/api/notifications")
+def get_notifications(recipient: str = Query(...)) -> Dict[str, Any]:
+    return {"notifications": db.notifications_for(recipient)}
+
+
+# ------------------------------------------------------------- pattern library
+
+@app.get("/api/patterns")
+def list_patterns() -> Dict[str, Any]:
+    """Proven wins (value realized or scaling) exposed as reusable patterns."""
+    patterns = []
+    for c in db.list_business_cases():
+        if c["stage"] in ("value_realized", "scale"):
+            patterns.append({
+                "case_id": c["id"],
+                "title": c["title"].replace("[Auto-draft] ", ""),
+                "category": (c["linked_opportunity"] or {}).get("category"),
+                "horizon": c.get("horizon"),
+                "forecast_annual_savings": (c["linked_opportunity"] or {}).get(
+                    "estimated_annual_savings"),
+                "measured_annual_savings": (c["tracking"] or {}).get("measured_annual_savings"),
+                "summary": c["roi_plan"].get("summary", ""),
+                "stage": c["stage"],
+            })
+    return {"patterns": patterns}
+
+
+class ReplicateRequest(BaseModel):
+    title: Optional[str] = None
+
+
+@app.post("/api/patterns/{case_id}/replicate")
+def replicate_pattern(case_id: str, body: ReplicateRequest) -> Dict[str, Any]:
+    source = db.get_business_case(case_id)
+    if source is None:
+        raise HTTPException(404, f"Business case '{case_id}' not found")
+    if source["stage"] not in ("value_realized", "scale"):
+        raise HTTPException(400, "only proven cases (value_realized/scale) can be replicated")
+    clone = db.create_business_case(
+        title=body.title or f"Replicate: {source['title'].replace('[Auto-draft] ', '')}",
+        description=f"Replicated from proven case {source['id']}. {source['description']}",
+        estimated_cost=source["estimated_cost"],
+        roi_plan=source["roi_plan"],
+        generated_by="pattern",
+        note=f"Pattern replication of {source['id']} — verified "
+             f"${(source['tracking'] or {}).get('measured_annual_savings', 0):,.0f}/yr at origin.",
+        linked_opportunity=source["linked_opportunity"],
+        stage="draft",
+        horizon=source.get("horizon") or "h1",
+    )
+    db.add_workflow_event("case", clone["id"], "replicated", None, f"from {source['id']}")
+    return clone
 
 
 @app.post("/api/automation/run")

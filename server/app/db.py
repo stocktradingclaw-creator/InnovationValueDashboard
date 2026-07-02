@@ -107,11 +107,50 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS experiments (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id          TEXT NOT NULL REFERENCES business_cases(id),
+    hypothesis       TEXT NOT NULL,
+    method           TEXT NOT NULL,
+    success_criteria TEXT NOT NULL,
+    cost             REAL,
+    started_at       TEXT NOT NULL,
+    concluded_at     TEXT,
+    outcome          TEXT,
+    learnings        TEXT
+);
+CREATE TABLE IF NOT EXISTS notifications (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient    TEXT NOT NULL,
+    subject_type TEXT NOT NULL,
+    subject_id   TEXT NOT NULL,
+    message      TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS challenges (
+    id         TEXT PRIMARY KEY,
+    title      TEXT NOT NULL,
+    question   TEXT NOT NULL,
+    theme      TEXT,
+    status     TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    closes_at  TEXT
+);
+CREATE TABLE IF NOT EXISTS funding_tranches (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id     TEXT NOT NULL REFERENCES business_cases(id),
+    label       TEXT NOT NULL,
+    amount      REAL NOT NULL,
+    milestone   TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'planned',
+    released_at TEXT,
+    released_by TEXT
+);
 """
 
 # Innovation lifecycle stages, in order. `status` (proposed/implemented) is kept
 # for tracking math; `stage` is the richer pipeline position.
-STAGES = ["draft", "proposed", "approved", "in_delivery", "live", "value_realized", "closed"]
+STAGES = ["draft", "proposed", "experiment", "approved", "in_delivery", "live", "value_realized", "scale", "closed"]
 
 
 def _db_path() -> str:
@@ -128,11 +167,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "ALTER TABLE business_cases ADD COLUMN stage TEXT NOT NULL DEFAULT 'proposed'"
         )
         conn.execute("UPDATE business_cases SET stage = 'live' WHERE status = 'implemented'")
+    if "horizon" not in cols:
+        conn.execute("ALTER TABLE business_cases ADD COLUMN horizon TEXT NOT NULL DEFAULT 'h1'")
     idea_cols = {r[1] for r in conn.execute("PRAGMA table_info(ideas)")}
     if idea_cols and "category" not in idea_cols:
         conn.execute("ALTER TABLE ideas ADD COLUMN category TEXT")
         conn.execute("ALTER TABLE ideas ADD COLUMN estimated_annual_benefit REAL")
         conn.execute("ALTER TABLE ideas ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+    if idea_cols and "benefit_type" not in idea_cols:
+        conn.execute("ALTER TABLE ideas ADD COLUMN benefit_type TEXT")
+        conn.execute("ALTER TABLE ideas ADD COLUMN horizon TEXT")
+        conn.execute("ALTER TABLE ideas ADD COLUMN challenge_id TEXT")
 
 
 @contextmanager
@@ -214,19 +259,20 @@ def create_business_case(
     note: Optional[str],
     linked_opportunity: Optional[Dict[str, Any]],
     stage: str = "proposed",
+    horizon: str = "h1",
 ) -> Dict[str, Any]:
     case_id = f"BC-{uuid.uuid4().hex[:8]}"
     submitted_at = _now()
     with _conn() as conn:
         conn.execute(
             "INSERT INTO business_cases (id, title, description, estimated_cost, submitted_at, "
-            "roi_plan_json, generated_by, note, linked_opportunity_json, stage) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "roi_plan_json, generated_by, note, linked_opportunity_json, stage, horizon) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 case_id, title, description, estimated_cost, submitted_at,
                 json.dumps(roi_plan), generated_by, note,
                 json.dumps(linked_opportunity) if linked_opportunity else None,
-                stage,
+                stage, horizon,
             ),
         )
         conn.execute(
@@ -299,6 +345,19 @@ def _case_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict[str, Any]
             "SELECT * FROM metric_bindings WHERE case_id = ? ORDER BY id", (row["id"],)
         ).fetchall()
     ]
+    experiments = [
+        dict(r) for r in conn.execute(
+            "SELECT id, hypothesis, method, success_criteria, cost, started_at, "
+            "concluded_at, outcome, learnings FROM experiments WHERE case_id = ? ORDER BY id",
+            (row["id"],),
+        ).fetchall()
+    ]
+    tranches = [
+        dict(r) for r in conn.execute(
+            "SELECT id, label, amount, milestone, status, released_at, released_by "
+            "FROM funding_tranches WHERE case_id = ? ORDER BY id", (row["id"],),
+        ).fetchall()
+    ]
     case: Dict[str, Any] = {
         "id": row["id"],
         "title": row["title"],
@@ -312,7 +371,14 @@ def _case_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict[str, Any]
         if row["linked_opportunity_json"] else None,
         "status": row["status"],
         "stage": row["stage"],
+        "horizon": row["horizon"],
         "go_live_date": row["go_live_date"],
+        "experiments": experiments,
+        "funding": {
+            "planned": round(sum(t["amount"] for t in tranches), 2),
+            "released": round(sum(t["amount"] for t in tranches if t["status"] == "released"), 2),
+            "tranches": tranches,
+        },
         "kpi_readings": readings,
         "savings_entries": savings,
         "metric_bindings": bindings,
@@ -337,7 +403,9 @@ def _tracking_metrics(case: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         b["annualized_delta"] for b in case["metric_bindings"]
         if b["annualized_delta"] is not None
     )
-    cost = case["estimated_cost"]
+    # metered funding: once tranches are released, they are the cost basis
+    released = case["funding"]["released"]
+    cost = released if released > 0 else case["estimated_cost"]
     roi_pct = None
     payback_progress_pct = None
     if cost and cost > 0:
@@ -406,16 +474,20 @@ def create_idea(
     estimated_annual_benefit: Optional[float] = None,
     source: str = "manual",
     submitted_at: Optional[str] = None,
+    benefit_type: Optional[str] = None,
+    horizon: Optional[str] = None,
+    challenge_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     idea_id = f"IDEA-{uuid.uuid4().hex[:8]}"
     with _conn() as conn:
         conn.execute(
             "INSERT INTO ideas (id, title, description, submitter, submitted_at, status, "
-            "assessment_json, category, estimated_annual_benefit, source) "
-            "VALUES (?, ?, ?, ?, ?, 'triaged', ?, ?, ?, ?)",
+            "assessment_json, category, estimated_annual_benefit, source, benefit_type, "
+            "horizon, challenge_id) "
+            "VALUES (?, ?, ?, ?, ?, 'triaged', ?, ?, ?, ?, ?, ?, ?)",
             (idea_id, title, description, submitter, submitted_at or _now(),
              json.dumps(assessment) if assessment else None,
-             category, estimated_annual_benefit, source),
+             category, estimated_annual_benefit, source, benefit_type, horizon, challenge_id),
         )
     return get_idea(idea_id)  # type: ignore[return-value]
 
@@ -433,6 +505,9 @@ def _idea_from_row(row: sqlite3.Row) -> Dict[str, Any]:
         "category": row["category"],
         "estimated_annual_benefit": row["estimated_annual_benefit"],
         "source": row["source"],
+        "benefit_type": row["benefit_type"],
+        "horizon": row["horizon"],
+        "challenge_id": row["challenge_id"],
     }
 
 
@@ -594,4 +669,154 @@ def add_savings_entry(
             "INSERT INTO savings_entries (case_id, entry_date, amount, note) VALUES (?, ?, ?, ?)",
             (case_id, entry_date, amount, note),
         )
+    return get_business_case(case_id)
+
+
+# ---------------------------------------------------------------- experiments
+
+def add_experiment(case_id: str, hypothesis: str, method: str,
+                   success_criteria: str, cost: Optional[float]) -> Optional[Dict[str, Any]]:
+    if get_business_case(case_id) is None:
+        return None
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO experiments (case_id, hypothesis, method, success_criteria, cost, "
+            "started_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (case_id, hypothesis, method, success_criteria, cost, _now()),
+        )
+    return get_business_case(case_id)
+
+
+def conclude_experiment(case_id: str, experiment_id: int, outcome: str,
+                        learnings: str) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE experiments SET concluded_at = ?, outcome = ?, learnings = ? "
+            "WHERE id = ? AND case_id = ? AND concluded_at IS NULL",
+            (_now(), outcome, learnings, experiment_id, case_id),
+        )
+        if cur.rowcount == 0:
+            return None
+    return get_business_case(case_id)
+
+
+def experiment_stats() -> Dict[str, Any]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT outcome, COUNT(*) AS n FROM experiments "
+            "WHERE concluded_at IS NOT NULL GROUP BY outcome"
+        ).fetchall()
+        running = conn.execute(
+            "SELECT COUNT(*) AS n FROM experiments WHERE concluded_at IS NULL"
+        ).fetchone()["n"]
+    by_outcome = {r["outcome"]: r["n"] for r in rows}
+    concluded = sum(by_outcome.values())
+    decisive = by_outcome.get("kill", 0) + by_outcome.get("proceed", 0)
+    return {
+        "running": running,
+        "concluded": concluded,
+        "by_outcome": by_outcome,
+        "kill_rate": round(by_outcome.get("kill", 0) / decisive, 2) if decisive else None,
+    }
+
+
+# -------------------------------------------------------------- notifications
+
+def notify(recipient: Optional[str], subject_type: str, subject_id: str, message: str) -> None:
+    if not recipient:
+        return
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO notifications (recipient, subject_type, subject_id, message, "
+            "created_at) VALUES (?, ?, ?, ?, ?)",
+            (recipient.strip(), subject_type, subject_id, message, _now()),
+        )
+
+
+def notifications_for(recipient: str, limit: int = 50) -> List[Dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT id, subject_type, subject_id, message, created_at FROM notifications "
+            "WHERE lower(recipient) = lower(?) ORDER BY id DESC LIMIT ?",
+            (recipient.strip(), limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def submitter_for_case(case_id: str) -> Optional[str]:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT submitter FROM ideas WHERE promoted_case_id = ?", (case_id,)
+        ).fetchone()
+    return row["submitter"] if row else None
+
+
+# ----------------------------------------------------------------- challenges
+
+def create_challenge(title: str, question: str, theme: Optional[str],
+                     closes_at: Optional[str]) -> Dict[str, Any]:
+    challenge_id = f"CH-{uuid.uuid4().hex[:8]}"
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO challenges (id, title, question, theme, created_at, closes_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (challenge_id, title, question, theme, _now(), closes_at),
+        )
+    return get_challenge(challenge_id)  # type: ignore[return-value]
+
+
+def get_challenge(challenge_id: str) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        row = conn.execute("SELECT * FROM challenges WHERE id = ?", (challenge_id,)).fetchone()
+        if row is None:
+            return None
+        ideas_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM ideas WHERE challenge_id = ?", (challenge_id,)
+        ).fetchone()["n"]
+    challenge = dict(row)
+    challenge["ideas_count"] = ideas_count
+    return challenge
+
+
+def list_challenges() -> List[Dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute("SELECT id FROM challenges ORDER BY created_at DESC").fetchall()
+    return [get_challenge(r["id"]) for r in rows]  # type: ignore[misc]
+
+
+def close_challenge(challenge_id: str) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE challenges SET status = 'closed' WHERE id = ?", (challenge_id,)
+        )
+        if cur.rowcount == 0:
+            return None
+    return get_challenge(challenge_id)
+
+
+# ------------------------------------------------------------ funding tranches
+
+def add_tranche(case_id: str, label: str, amount: float,
+                milestone: str) -> Optional[Dict[str, Any]]:
+    if get_business_case(case_id) is None:
+        return None
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO funding_tranches (case_id, label, amount, milestone) "
+            "VALUES (?, ?, ?, ?)",
+            (case_id, label, amount, milestone),
+        )
+    return get_business_case(case_id)
+
+
+def release_tranche(case_id: str, tranche_id: int,
+                    released_by: Optional[str]) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE funding_tranches SET status = 'released', released_at = ?, "
+            "released_by = ? WHERE id = ? AND case_id = ? AND status = 'planned'",
+            (_now(), released_by, tranche_id, case_id),
+        )
+        if cur.rowcount == 0:
+            return None
     return get_business_case(case_id)

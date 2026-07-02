@@ -161,8 +161,8 @@ export interface Decision {
 }
 
 export type Stage =
-  | 'draft' | 'proposed' | 'approved' | 'in_delivery'
-  | 'live' | 'value_realized' | 'closed'
+  | 'draft' | 'proposed' | 'experiment' | 'approved' | 'in_delivery'
+  | 'live' | 'value_realized' | 'scale' | 'closed'
 
 export interface IdeaAssessment {
   matched_opportunity: {
@@ -178,6 +178,10 @@ export interface IdeaAssessment {
   score_components: Record<string, number>
   derived_category: string | null
   estimated_annual_benefit: number | null
+  benefit_type: string
+  horizon: string
+  possible_duplicates: { id: string; title: string; similarity: number }[]
+  challenge_id: string | null
   guardrail_flags: string[]
   enrichment: string[]
   recommendation: string
@@ -205,6 +209,67 @@ export interface Idea {
   category: string | null
   estimated_annual_benefit: number | null
   source: 'manual' | 'import'
+  benefit_type: string | null
+  horizon: string | null
+  challenge_id: string | null
+}
+
+export interface Experiment {
+  id: number
+  hypothesis: string
+  method: string
+  success_criteria: string
+  cost: number | null
+  started_at: string
+  concluded_at: string | null
+  outcome: 'proceed' | 'kill' | 'pivot' | null
+  learnings: string | null
+}
+
+export interface Tranche {
+  id: number
+  label: string
+  amount: number
+  milestone: string
+  status: 'planned' | 'released'
+  released_at: string | null
+  released_by: string | null
+}
+
+export interface Funding {
+  planned: number
+  released: number
+  tranches: Tranche[]
+}
+
+export interface Challenge {
+  id: string
+  title: string
+  question: string
+  theme: string | null
+  status: 'active' | 'closed'
+  created_at: string
+  closes_at: string | null
+  ideas_count: number
+}
+
+export interface Notification {
+  id: number
+  subject_type: string
+  subject_id: string
+  message: string
+  created_at: string
+}
+
+export interface Pattern {
+  case_id: string
+  title: string
+  category: string | null
+  horizon: string | null
+  forecast_annual_savings: number | null
+  measured_annual_savings: number | null
+  summary: string
+  stage: Stage
 }
 
 export interface ScoringConfig {
@@ -230,6 +295,7 @@ export interface WorkflowEvent {
 export interface CommandQueue {
   ideas_pending: Idea[]
   cases_pending_approval: BusinessCase[]
+  cases_in_experiment: BusinessCase[]
   cases_in_motion: BusinessCase[]
   history: WorkflowEvent[]
   governance: Record<string, string[]>
@@ -241,7 +307,14 @@ export interface HubMetrics {
     median_days_to_live: number | null
     median_days_live_to_evidence: number | null
   }
-  ideas: { total: number; by_status: Record<string, number> }
+  ideas: { total: number; by_status: Record<string, number>; conversion_rate: number | null }
+  experiments: {
+    running: number
+    concluded: number
+    by_outcome: Record<string, number>
+    kill_rate: number | null
+  }
+  horizon_mix: Record<string, { count: number; value: number; share: number | null; target_share: number | null }>
   automation: {
     last_run: string | null
     actions_by_rule: Record<string, number>
@@ -352,6 +425,9 @@ export interface BusinessCase {
   linked_opportunity: LinkedOpportunity | null
   status: 'proposed' | 'implemented'
   stage: Stage
+  horizon: string
+  experiments: Experiment[]
+  funding: Funding
   stage_history: { stage: Stage; entered_at: string }[]
   go_live_date: string | null
   kpi_readings: KpiReading[]

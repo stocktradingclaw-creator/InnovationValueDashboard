@@ -1033,3 +1033,14 @@ ul {
 li {
   margin-bottom: 0.4rem;
 }
+
+.tranche-box {
+  border-top: 1px solid var(--border);
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+}
+
+.tranche-row {
+  justify-content: space-between;
+  padding: 0.2rem 0;
+}

@@ -273,6 +273,15 @@ export default function Dashboard({ data, onNavigate }: Props) {
             {data.hub.automation.last_run && ` · last run ${data.hub.automation.last_run.slice(0, 16).replace('T', ' ')}`}
           </span>
           <span>
+            <strong>Experiments:</strong>{' '}
+            {data.hub.experiments.concluded + data.hub.experiments.running === 0
+              ? 'none yet'
+              : `${data.hub.experiments.running} running · ${data.hub.experiments.concluded} concluded` +
+                (data.hub.experiments.kill_rate != null
+                  ? ` · ${Math.round(data.hub.experiments.kill_rate * 100)}% kill rate (healthy portfolios kill 40–60%)`
+                  : '')}
+          </span>
+          <span>
             <strong>Time to value:</strong>{' '}
             {data.hub.time_to_value.median_days_to_live != null
               ? `${data.hub.time_to_value.median_days_to_live}d to live`
@@ -314,6 +323,38 @@ export default function Dashboard({ data, onNavigate }: Props) {
               ? `${Math.round((f.measured_annual_savings / f.identified_annual_savings) * 100)}% of identified value is now verified.`
               : 'Verified value appears here once implemented work is measured against its frozen baseline.'}
           </p>
+
+          <h3 className="spaced">Horizon balance <span className="muted small">vs 70/20/10 target</span></h3>
+          {(['h1', 'h2', 'h3'] as const).map((h) => {
+            const bucket = data.hub.horizon_mix[h]
+            if (!bucket) return null
+            const share = bucket.share != null ? Math.round(bucket.share * 100) : null
+            const target = bucket.target_share != null ? Math.round(bucket.target_share * 100) : null
+            return (
+              <div key={h} className="funnel-row">
+                <span className="funnel-label">
+                  {h.toUpperCase()} {h === 'h1' ? 'core' : h === 'h2' ? 'adjacent' : 'transform'}
+                </span>
+                <div className="funnel-track">
+                  <div
+                    className={`funnel-bar ${h === 'h1' ? 'stage-identified' : h === 'h2' ? 'stage-committed' : 'mix-strategic_bet'}`}
+                    style={{ width: `${share ?? 0}%` }}
+                  />
+                </div>
+                <span className="funnel-value">
+                  {share != null ? `${share}%` : '—'} <span className="muted">/ {target}%</span>
+                </span>
+              </div>
+            )
+          })}
+          {Object.values(data.hub.horizon_mix).every((b) => !b.count) ? null : (
+            (data.hub.horizon_mix.h2?.count ?? 0) + (data.hub.horizon_mix.h3?.count ?? 0) === 0 && (
+              <p className="muted small">
+                Portfolio is 100% Horizon-1 cost work — launch a challenge for growth or
+                experience ideas to balance it.
+              </p>
+            )
+          )}
 
           <h3 className="spaced">Where the next value is</h3>
           {QUADRANT_ORDER.map((q) => {

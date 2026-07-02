@@ -146,6 +146,9 @@ export function submitIdea(body: {
   submitter?: string
   category?: string
   estimated_annual_benefit?: number | null
+  benefit_type?: string
+  horizon?: string
+  challenge_id?: string
 }) {
   return request<import('./types').Idea>('/api/ideas', json(body))
 }
@@ -196,7 +199,7 @@ export function getCommandQueue() {
 export function decide(body: {
   subject_type: 'idea' | 'case'
   subject_id: string
-  decision: 'approve' | 'reject' | 'feedback'
+  decision: 'approve' | 'reject' | 'feedback' | 'experiment'
   actor?: string
   comment?: string
 }) {
@@ -209,3 +212,54 @@ export function runAutomation() {
 
 export const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+
+export function getChallenges() {
+  return request<{ challenges: import('./types').Challenge[] }>('/api/challenges')
+}
+
+export function createChallenge(body: { title: string; question: string; theme?: string }) {
+  return request<import('./types').Challenge>('/api/challenges', json(body))
+}
+
+export function addExperiment(
+  caseId: string,
+  body: { hypothesis: string; method: string; success_criteria: string; cost?: number | null },
+) {
+  return request<BusinessCase>(`/api/business-cases/${caseId}/experiments`, json(body))
+}
+
+export function concludeExperiment(
+  caseId: string,
+  experimentId: number,
+  body: { outcome: 'proceed' | 'kill' | 'pivot'; learnings: string },
+) {
+  return request<BusinessCase>(
+    `/api/business-cases/${caseId}/experiments/${experimentId}/conclude`,
+    json(body),
+  )
+}
+
+export function addTranche(caseId: string, body: { label: string; amount: number; milestone: string }) {
+  return request<BusinessCase>(`/api/business-cases/${caseId}/tranches`, json(body))
+}
+
+export function releaseTranche(caseId: string, trancheId: number, actor?: string) {
+  return request<BusinessCase>(
+    `/api/business-cases/${caseId}/tranches/${trancheId}/release`,
+    json({ actor }),
+  )
+}
+
+export function getNotifications(recipient: string) {
+  return request<{ notifications: import('./types').Notification[] }>(
+    `/api/notifications?recipient=${encodeURIComponent(recipient)}`,
+  )
+}
+
+export function getPatterns() {
+  return request<{ patterns: import('./types').Pattern[] }>('/api/patterns')
+}
+
+export function replicatePattern(caseId: string) {
+  return request<BusinessCase>(`/api/patterns/${caseId}/replicate`, json({}))
+}

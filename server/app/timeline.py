@@ -60,7 +60,21 @@ def build(cases: List[Dict[str, Any]], today: Optional[date] = None) -> Dict[str
     starts: List[YM] = []
 
     for case in cases:
-        if case["status"] == "implemented" and case["go_live_date"]:
+        # Metered funding: released tranches are the cost record, landing in
+        # their release months. Cases without tranches fall back to the
+        # estimated cost landing at go-live.
+        released = [
+            t for t in case.get("funding", {}).get("tranches", [])
+            if t["status"] == "released" and t.get("released_at")
+        ]
+        if released:
+            for tranche in released:
+                release_date = _parse_date(tranche["released_at"])
+                if release_date and tranche["amount"] > 0:
+                    key = _ym(release_date)
+                    cost_by_month[key] = cost_by_month.get(key, 0) + tranche["amount"]
+                    starts.append(key)
+        elif case["status"] == "implemented" and case["go_live_date"]:
             go_live = _parse_date(case["go_live_date"])
             if go_live:
                 cost = case["estimated_cost"] or 0

@@ -773,3 +773,221 @@ def test_ai_evaluate_template_path(client):
     ai = evaluated["assessment"]["ai_evaluation"]
     assert ai["generated_by"] == "template"   # no API key in tests
     assert ai["validated"] is True            # grounded in a detected opportunity
+
+
+# ------------------------------------------------------------ roadmap features
+
+def test_benefit_types_and_horizons(client):
+    client.post("/api/datasets/load-samples")
+
+    # explicit growth idea -> h2 derived from benefit type
+    idea = client.post("/api/ideas", json={
+        "title": "Premium support tier",
+        "description": "Launch a paid premium support tier for enterprise customers "
+                       "to open a new recurring revenue stream.",
+        "benefit_type": "revenue_growth", "estimated_annual_benefit": 250000,
+    }).json()
+    assert idea["benefit_type"] == "revenue_growth"
+    assert idea["horizon"] == "h2"
+    assert idea["assessment"]["impact_band"] == "high"
+
+    # defaulted idea -> cost_reduction/h1 with enrichment noted
+    idea2 = client.post("/api/ideas", json={
+        "title": "Terminate idle cloud instances",
+        "description": "Several instances run under 5% CPU; terminate them.",
+    }).json()
+    assert idea2["horizon"] == "h1"
+    assert any("Horizon derived" in n for n in idea2["assessment"]["enrichment"])
+
+    assert client.post("/api/ideas", json={
+        "title": "x", "description": "y", "benefit_type": "vibes",
+    }).status_code == 400
+
+    # horizon mix appears on the dashboard hub metrics
+    mix = client.get("/api/dashboard").json()["hub"]["horizon_mix"]
+    assert set(mix) == {"h1", "h2", "h3"}
+    assert mix["h1"]["target_share"] == 0.7
+
+
+def test_experiment_loop_and_kill_rate(client):
+    client.post("/api/datasets/load-samples")
+    case = client.post("/api/business-cases", json={
+        "title": "Chatbot pilot", "description": "Deflect tickets with a chatbot.",
+    }).json()
+
+    # send to experiment via the command center decision
+    resp = client.post("/api/command/decide", json={
+        "subject_type": "case", "subject_id": case["id"], "decision": "experiment",
+        "actor": "lee",
+    })
+    assert resp.json()["result"]["stage"] == "experiment"
+
+    resp = client.post(f"/api/business-cases/{case['id']}/experiments", json={
+        "hypothesis": "A chatbot can deflect 30% of password tickets",
+        "method": "2-week pilot on the IT service portal",
+        "success_criteria": ">=30% deflection with CSAT >= 4.0",
+        "cost": 5000,
+    })
+    assert resp.status_code == 200
+    exp = resp.json()["experiments"][0]
+    assert exp["outcome"] is None
+
+    # learnings are mandatory on conclusion
+    assert client.post(
+        f"/api/business-cases/{case['id']}/experiments/{exp['id']}/conclude",
+        json={"outcome": "kill", "learnings": " "},
+    ).status_code == 400
+
+    resp = client.post(
+        f"/api/business-cases/{case['id']}/experiments/{exp['id']}/conclude",
+        json={"outcome": "kill", "learnings": "Deflection only reached 8%; users bypassed the bot."},
+    )
+    assert resp.json()["stage"] == "closed"   # killed cleanly
+
+    stats = client.get("/api/dashboard").json()["hub"]["experiments"]
+    assert stats["concluded"] == 1
+    assert stats["kill_rate"] == 1.0
+
+    # a second case proceeds through experiment to approval
+    case2 = client.post("/api/business-cases", json={
+        "title": "RPA pilot", "description": "Automate invoice entry.",
+    }).json()
+    client.post(f"/api/business-cases/{case2['id']}/experiments", json={
+        "hypothesis": "h", "method": "m", "success_criteria": "s",
+    })
+    exp2 = client.get("/api/business-cases").json()["business_cases"]
+    exp2 = next(c for c in exp2 if c["id"] == case2["id"])["experiments"][0]
+    client.post(f"/api/business-cases/{case2['id']}/experiments/{exp2['id']}/conclude",
+                json={"outcome": "proceed", "learnings": "Hit 95% straight-through."})
+    resp = client.post("/api/command/decide", json={
+        "subject_type": "case", "subject_id": case2["id"], "decision": "approve", "actor": "lee",
+    })
+    assert resp.json()["result"]["stage"] == "approved"
+
+
+def test_notifications_close_the_loop(client):
+    client.post("/api/datasets/load-samples")
+    idea = client.post("/api/ideas", json={
+        "title": "Recover duplicate vendor invoices",
+        "description": "Detect duplicate invoices by vendor and amount and recover.",
+        "submitter": "maria",
+    }).json()
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"],
+        "decision": "feedback", "actor": "lee", "comment": "please add cost detail",
+    })
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "approve", "actor": "lee",
+    })
+    notes = client.get("/api/notifications", params={"recipient": "Maria"}).json()["notifications"]
+    messages = " ".join(n["message"] for n in notes)
+    assert "Feedback on your idea" in messages
+    assert "promoted to business case" in messages
+
+
+def test_challenges_drive_alignment(client):
+    client.post("/api/datasets/load-samples")
+    challenge = client.post("/api/challenges", json={
+        "title": "Cut cloud waste",
+        "question": "How might we halve our idle cloud spend this quarter?",
+        "theme": "cloud efficiency",
+    }).json()
+    assert challenge["status"] == "active"
+
+    # same idea text scores alignment 1.0 inside the challenge even though it
+    # mentions no configured theme keyword
+    client.put("/api/scoring-config", json={"priority_themes": ["sustainability"]})
+    inside = client.post("/api/ideas", json={
+        "title": "Nightly shutdown schedule",
+        "description": "Power off dev instances overnight.", "challenge_id": challenge["id"],
+    }).json()
+    outside = client.post("/api/ideas", json={
+        "title": "Nightly shutdown schedule 2",
+        "description": "Power off test instances overnight.",
+    }).json()
+    assert inside["assessment"]["score_components"]["alignment"] == 1.0
+    assert outside["assessment"]["score_components"]["alignment"] == 0.0
+    assert inside["challenge_id"] == challenge["id"]
+
+    listed = client.get("/api/challenges").json()["challenges"]
+    assert listed[0]["ideas_count"] == 1
+    client.post(f"/api/challenges/{challenge['id']}/close")
+    assert client.get("/api/challenges").json()["challenges"][0]["status"] == "closed"
+
+    # duplicate detection: near-identical idea gets flagged
+    assert any(
+        d["id"] == inside["id"]
+        for d in outside["assessment"]["possible_duplicates"]
+    )
+
+
+def test_metered_funding_tranches(client):
+    client.post("/api/datasets/load-samples")
+    case = client.post("/api/business-cases", json={
+        "title": "Platform build", "description": "d", "estimated_cost": 100000,
+    }).json()
+    for label, amount in (("Discovery", 10000), ("Build", 40000)):
+        resp = client.post(f"/api/business-cases/{case['id']}/tranches", json={
+            "label": label, "amount": amount, "milestone": f"{label} complete",
+        })
+        assert resp.status_code == 200
+    case = resp.json()
+    assert case["funding"]["planned"] == 50000
+    assert case["funding"]["released"] == 0
+
+    tranche_id = case["funding"]["tranches"][0]["id"]
+    case = client.post(
+        f"/api/business-cases/{case['id']}/tranches/{tranche_id}/release",
+        json={"actor": "lee"},
+    ).json()
+    assert case["funding"]["released"] == 10000
+
+    # released tranches become the cost basis for tracking + timeline
+    client.post(f"/api/business-cases/{case['id']}/implement",
+                json={"go_live_date": "2026-06-01"})
+    client.post(f"/api/business-cases/{case['id']}/savings",
+                json={"entry_date": "2026-06-10", "amount": 5000})
+    tracked = client.get("/api/business-cases").json()["business_cases"]
+    tracked = next(c for c in tracked if c["id"] == case["id"])
+    assert tracked["tracking"]["realized_roi_pct"] == -50.0  # (5000-10000)/10000
+    months = client.get("/api/dashboard").json()["timeline"]["months"]
+    assert any(m["cumulative_cost"] >= 10000 for m in months)
+
+
+def test_pattern_library_replication(client):
+    client.post("/api/datasets/load-samples")
+    opp = _cloud_idle_opp(client)
+    case = client.post("/api/business-cases", json={
+        "title": "Terminate idle cloud", "description": "d", "estimated_cost": 5000,
+        "linked_opportunity_id": opp["id"],
+    }).json()
+    client.post(f"/api/business-cases/{case['id']}/implement",
+                json={"go_live_date": "2026-05-01"})
+    survivors = "resource_id,service,monthly_cost,state,avg_cpu_pct\nx-1,EC2,100,running,50\n"
+    client.post("/api/datasets/cloud", files={"file": ("c.csv", survivors, "text/csv")})
+    binding = case["metric_bindings"][0]
+    client.post(f"/api/business-cases/{case['id']}/bindings/{binding['id']}/observe")
+    client.post("/api/automation/run")  # auto_advance -> value_realized
+
+    patterns = client.get("/api/patterns").json()["patterns"]
+    mine = next(p for p in patterns if p["case_id"] == case["id"])
+    assert mine["measured_annual_savings"] == 27360.0
+
+    clone = client.post(f"/api/patterns/{case['id']}/replicate", json={}).json()
+    assert clone["stage"] == "draft"
+    assert clone["generated_by"] == "pattern"
+    assert "Replicate:" in clone["title"]
+
+    # unproven cases cannot be replicated
+    other = client.post("/api/business-cases", json={"title": "x", "description": "y"}).json()
+    assert client.post(f"/api/patterns/{other['id']}/replicate", json={}).status_code == 400
+
+
+def test_admin_token_guard(client, monkeypatch):
+    monkeypatch.setenv("IVD_ADMIN_TOKEN", "s3cret")
+    assert client.put("/api/scoring-config", json={
+        "priority_themes": ["x"],
+    }).status_code == 401
+    assert client.put("/api/scoring-config", json={
+        "priority_themes": ["x"],
+    }, headers={"Authorization": "Bearer s3cret"}).status_code == 200

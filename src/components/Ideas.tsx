@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
-import { evaluateIdea, importIdeas, money, submitIdea } from '../api'
-import type { Idea } from '../types'
+import { useEffect } from 'react'
+import { evaluateIdea, getChallenges, getNotifications, importIdeas, money, submitIdea } from '../api'
+import type { Challenge, Idea, Notification } from '../types'
 
 interface Props {
   ideas: Idea[]
@@ -14,14 +15,25 @@ const REC_LABELS: Record<string, string> = {
   needs_info: 'Needs info',
 }
 
-function SubmitForm({ onChanged }: { onChanged: () => void }) {
+const BENEFIT_TYPES = [
+  ['cost_reduction', 'Cost reduction'],
+  ['revenue_growth', 'Revenue growth'],
+  ['risk_avoidance', 'Risk avoidance'],
+  ['experience', 'Customer/employee experience'],
+  ['strategic', 'Strategic capability'],
+]
+
+function SubmitForm({ challenges, onChanged }: { challenges: Challenge[]; onChanged: () => void }) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [submitter, setSubmitter] = useState('')
   const [category, setCategory] = useState('')
   const [benefit, setBenefit] = useState('')
+  const [benefitType, setBenefitType] = useState('')
+  const [challengeId, setChallengeId] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const activeChallenges = challenges.filter((c) => c.status === 'active')
 
   // prompt for the information that improves the triage score
   const prompts: string[] = []
@@ -41,8 +53,11 @@ function SubmitForm({ onChanged }: { onChanged: () => void }) {
         submitter: submitter || undefined,
         category: category || undefined,
         estimated_annual_benefit: benefit ? Number(benefit) : null,
+        benefit_type: benefitType || undefined,
+        challenge_id: challengeId || undefined,
       })
       setTitle(''); setDescription(''); setSubmitter(''); setCategory(''); setBenefit('')
+      setBenefitType(''); setChallengeId('')
       onChanged()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -65,6 +80,20 @@ function SubmitForm({ onChanged }: { onChanged: () => void }) {
         <input placeholder="Your name" value={submitter} onChange={(e) => setSubmitter(e.target.value)} />
         <input placeholder="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} />
         <input type="number" placeholder="Est. annual benefit $ (optional)" value={benefit} onChange={(e) => setBenefit(e.target.value)} />
+      </div>
+      <div className="row">
+        <select value={benefitType} onChange={(e) => setBenefitType(e.target.value)}>
+          <option value="">Benefit type (hub will default to cost reduction)</option>
+          {BENEFIT_TYPES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select>
+        {activeChallenges.length > 0 && (
+          <select value={challengeId} onChange={(e) => setChallengeId(e.target.value)}>
+            <option value="">Not answering a challenge</option>
+            {activeChallenges.map((c) => (
+              <option key={c.id} value={c.id}>Challenge: {c.title}</option>
+            ))}
+          </select>
+        )}
         <button disabled={busy || !title.trim() || !description.trim()} onClick={submit}>
           {busy ? 'Triaging…' : 'Submit idea'}
         </button>
@@ -103,6 +132,8 @@ function IdeaCard({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
             {idea.submitter ?? 'anonymous'} · {idea.submitted_at.slice(0, 10)} ·{' '}
             {idea.source === 'import' ? 'imported backlog' : 'submitted'} ·{' '}
             {idea.category ?? 'uncategorized'}
+            {idea.benefit_type ? ` · ${idea.benefit_type.replace('_', ' ')}` : ''}
+            {idea.horizon ? ` · ${idea.horizon.toUpperCase()}` : ''}
           </p>
         </div>
         <div className="row">
@@ -125,6 +156,12 @@ function IdeaCard({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
             Score {a.score} — impact {a.score_components.impact} · grounding {a.score_components.data_grounding} ·
             alignment {a.score_components.alignment} · completeness {a.score_components.completeness}
           </p>
+          {a.possible_duplicates && a.possible_duplicates.length > 0 && (
+            <div className="banner-warn">
+              Possible duplicate of{' '}
+              {a.possible_duplicates.map((d) => `${d.title} (${Math.round(d.similarity * 100)}%)`).join(', ')}
+            </div>
+          )}
           {a.enrichment.length > 0 && (
             <p className="muted small">Enrichment: {a.enrichment.join(' ')}</p>
           )}
@@ -165,6 +202,13 @@ export default function Ideas({ ideas, onChanged }: Props) {
   const [importMsg, setImportMsg] = useState<string | null>(null)
   const [filter, setFilter] = useState('all')
   const [who, setWho] = useState('')
+  const [challenges, setChallenges] = useState<Challenge[]>([])
+  const [notifyName, setNotifyName] = useState('')
+  const [notifications, setNotifications] = useState<Notification[] | null>(null)
+
+  useEffect(() => {
+    getChallenges().then((r) => setChallenges(r.challenges)).catch(() => {})
+  }, [ideas.length])
 
   const filtered = ideas.filter((i) => {
     if (filter !== 'all' && i.status !== filter) return false
@@ -212,7 +256,49 @@ export default function Ideas({ ideas, onChanged }: Props) {
         </div>
       </div>
 
-      <SubmitForm onChanged={onChanged} />
+      {challenges.filter((c) => c.status === 'active').length > 0 && (
+        <div className="row filter-row">
+          {challenges.filter((c) => c.status === 'active').map((c) => (
+            <span key={c.id} className="badge badge-ok" title={c.question}>
+              Active challenge: {c.title} ({c.ideas_count} ideas)
+            </span>
+          ))}
+        </div>
+      )}
+
+      <SubmitForm challenges={challenges} onChanged={onChanged} />
+
+      <div className="card">
+        <div className="row">
+          <span className="muted small">Your updates:</span>
+          <input
+            placeholder="enter your name to see decisions on your ideas"
+            value={notifyName}
+            onChange={(e) => setNotifyName(e.target.value)}
+            style={{ maxWidth: 320 }}
+          />
+          <button
+            className="secondary"
+            disabled={!notifyName.trim()}
+            onClick={async () =>
+              setNotifications((await getNotifications(notifyName)).notifications)
+            }
+          >
+            Check
+          </button>
+        </div>
+        {notifications !== null && (
+          notifications.length === 0 ? (
+            <p className="muted small">No updates yet for {notifyName}.</p>
+          ) : (
+            <ul className="muted small">
+              {notifications.map((n) => (
+                <li key={n.id}>{n.created_at.slice(0, 10)} — {n.message}</li>
+              ))}
+            </ul>
+          )
+        )}
+      </div>
 
       <div className="row filter-row">
         {['all', 'triaged', 'promoted', 'declined'].map((s) => (

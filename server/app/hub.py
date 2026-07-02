@@ -32,6 +32,22 @@ AUTO_DRAFT_MAX_PER_RUN = 3
 REALIZATION_THRESHOLD = 0.5         # verified >= 50% of forecast -> value_realized
 RUN_STALENESS_SECONDS = 900         # lazy trigger: rerun if older than 15 min
 
+BENEFIT_TYPES = ["cost_reduction", "revenue_growth", "risk_avoidance", "experience", "strategic"]
+
+# default horizon by benefit type (overridable at intake): cost plays are core
+# (H1), growth/experience are adjacent (H2), strategic bets are transformational (H3)
+HORIZON_BY_BENEFIT = {
+    "cost_reduction": "h1",
+    "risk_avoidance": "h1",
+    "revenue_growth": "h2",
+    "experience": "h2",
+    "strategic": "h3",
+}
+
+HORIZON_TARGETS = {"h1": 0.70, "h2": 0.20, "h3": 0.10}  # McKinsey three-horizons mix
+
+DUPLICATE_SIMILARITY = 0.35
+
 _STOPWORDS = {
     "the", "and", "for", "with", "that", "this", "from", "into", "will",
     "would", "could", "should", "have", "been", "more", "less", "them",
@@ -163,6 +179,12 @@ def check_authority(area: str, actor: Optional[str]) -> Optional[str]:
 
 # ------------------------------------------------------------------ triage
 
+def _jaccard(a: set, b: set) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
 def triage_idea(
     title: str,
     description: str,
@@ -170,6 +192,10 @@ def triage_idea(
     category: Optional[str] = None,
     estimated_annual_benefit: Optional[float] = None,
     config: Optional[Dict[str, Any]] = None,
+    benefit_type: Optional[str] = None,
+    horizon: Optional[str] = None,
+    challenge: Optional[Dict[str, Any]] = None,
+    existing_ideas: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Automatic validation, categorization, and prioritization of one idea,
     scored under the (leader-configurable) scoring framework. Enrichment
@@ -210,6 +236,31 @@ def triage_idea(
         derived_category = matched["category"]
         enrichment.append(f"No category provided — derived '{derived_category}' from matched opportunity.")
 
+    derived_benefit_type = benefit_type
+    if not derived_benefit_type:
+        derived_benefit_type = "cost_reduction" if matched else "cost_reduction"
+        enrichment.append(
+            "No benefit type provided — defaulted to 'cost_reduction'"
+            + (" (matched a cost opportunity)." if matched else ".")
+        )
+    derived_horizon = horizon
+    if not derived_horizon:
+        derived_horizon = HORIZON_BY_BENEFIT.get(derived_benefit_type, "h1")
+        enrichment.append(f"Horizon derived as '{derived_horizon}' from benefit type '{derived_benefit_type}'.")
+
+    # duplicate detection against the existing idea backlog
+    duplicates = []
+    for other in (existing_ideas or []):
+        other_tokens = _tokens(f"{other['title']} {other['description']}")
+        similarity = _jaccard(idea_tokens, other_tokens)
+        if similarity >= DUPLICATE_SIMILARITY:
+            duplicates.append({
+                "id": other["id"], "title": other["title"],
+                "similarity": round(similarity, 2),
+            })
+    duplicates.sort(key=lambda d: d["similarity"], reverse=True)
+    duplicates = duplicates[:3]
+
     impact_band = _impact_band(benefit) if benefit is not None else "unknown"
 
     # scoring components (each 0..1)
@@ -219,6 +270,8 @@ def triage_idea(
     for theme in config["priority_themes"]:
         theme_tokens |= _tokens(theme)
     alignment_score = 1.0 if idea_tokens & theme_tokens else 0.0
+    if challenge and challenge.get("status") == "active":
+        alignment_score = 1.0  # answering a leadership challenge is aligned by definition
     provided = [
         bool(category), estimated_annual_benefit is not None, len(description) >= 80,
     ]
@@ -264,10 +317,20 @@ def triage_idea(
         recommendation = "needs_info"
         rationale += " Intake guardrails are not met — see flags."
 
+    if duplicates:
+        enrichment.append(
+            "Possible duplicate of: "
+            + ", ".join(f"{d['id']} ({d['similarity']:.0%} similar)" for d in duplicates)
+        )
+
     return {
         "matched_opportunity": matched,
         "match_strength": match_strength,
         "impact_band": impact_band,
+        "benefit_type": derived_benefit_type,
+        "horizon": derived_horizon,
+        "possible_duplicates": duplicates,
+        "challenge_id": (challenge or {}).get("id"),
         "score": score,
         "score_components": {
             "impact": round(impact_score, 2),
@@ -545,6 +608,23 @@ def hub_metrics(cases: List[Dict[str, Any]], ideas: List[Dict[str, Any]]) -> Dic
     for idea in ideas:
         idea_counts[idea["status"]] = idea_counts.get(idea["status"], 0) + 1
 
+    horizon_mix: Dict[str, Dict[str, float]] = {
+        h: {"count": 0, "value": 0.0} for h in ("h1", "h2", "h3")
+    }
+    active_cases = [c for c in cases if c.get("stage") != "closed"]
+    for case in active_cases:
+        h = case.get("horizon") or "h1"
+        forecast = (case["linked_opportunity"] or {}).get("estimated_annual_savings") or 0
+        horizon_mix.setdefault(h, {"count": 0, "value": 0.0})
+        horizon_mix[h]["count"] += 1
+        horizon_mix[h]["value"] += forecast
+    total_hval = sum(b["value"] for b in horizon_mix.values()) or 0
+    for h, bucket in horizon_mix.items():
+        bucket["value"] = round(bucket["value"], 2)
+        bucket["share"] = round(bucket["value"] / total_hval, 3) if total_hval else None
+        bucket["target_share"] = HORIZON_TARGETS.get(h)
+
+    promoted = sum(1 for i in ideas if i["status"] == "promoted")
     recent = db.automation_log_entries(limit=8)
     action_counts: Dict[str, int] = {}
     for entry in db.automation_log_entries(limit=500):
@@ -556,7 +636,13 @@ def hub_metrics(cases: List[Dict[str, Any]], ideas: List[Dict[str, Any]]) -> Dic
             "median_days_to_live": _median(to_live),
             "median_days_live_to_evidence": _median(to_evidence),
         },
-        "ideas": {"total": len(ideas), "by_status": idea_counts},
+        "ideas": {
+            "total": len(ideas),
+            "by_status": idea_counts,
+            "conversion_rate": round(promoted / len(ideas), 2) if ideas else None,
+        },
+        "experiments": db.experiment_stats(),
+        "horizon_mix": horizon_mix,
         "automation": {
             "last_run": db.meta_get("automation_last_run"),
             "actions_by_rule": action_counts,
