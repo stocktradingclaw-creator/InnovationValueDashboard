@@ -136,3 +136,24 @@ is gone.
 labels is adequate; error surfaces are inline and close to the action.
 
 Verified: build clean, 45 tests green.
+
+---
+
+## Pass 7 — Lens G: consistency (2026-07-02)
+
+**Issue:** The dark-theme rule says index.css tokens are the single source of
+color, but the five accent hues (info blue, warning orange, soft red, purple,
+pink) were hardcoded as hex literals in 52 places. Any future hue tweak would
+fork the palette silently — and several near-miss shades were already at risk
+of drifting apart.
+
+**Who it hurt, when:** Not visible to one user in one moment — it hurts every
+future change; palette drift is how dashboards stop looking designed.
+
+**Change:** Added --info/--warn/--danger-soft/--purple/--pink tokens to :root
+and replaced all 52 literal uses with var() references. Zero visual change by
+construction.
+
+**Files:** index.css
+
+Verified: build clean, 53 tests green.
