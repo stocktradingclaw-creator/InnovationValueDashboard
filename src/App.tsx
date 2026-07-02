@@ -248,7 +248,7 @@ export default function App() {
         {tab === 'command' && <CommandCenter onChanged={refresh} />}
         {tab === 'pipeline' && <PipelineView />}
         {tab === 'settings' && <Settings onChanged={refresh} />}
-        {tab === 'mine' && <MySubmissions me={me?.name ?? null} />}
+        {tab === 'mine' && <MySubmissions me={me} />}
         {tab === 'sources' && <DataSources sources={sources} onChanged={refresh} />}
         {tab === 'opportunities' && (
           <Opportunities

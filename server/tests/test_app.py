@@ -1733,3 +1733,29 @@ def test_queue_runs_lazy_automation_before_assembly(client):
     # immediate second read: nothing stale, no sweep, board stable
     q2 = client.get("/api/command/queue").json()
     assert q2["automation_ran"] is None
+
+
+def test_admin_sees_all_submissions(client):
+    # bootstrap admin, add a contributor
+    tok = client.post("/api/auth/login", json={"name": "ada", "password": "pw"}).json()["token"]
+    admin = {"Authorization": f"Bearer {tok}"}
+    client.put("/api/users", headers=admin, json={"users": [
+        {"name": "ada", "role": "admin"},
+        {"name": "cara", "role": "contributor", "password": "pw"},
+    ]})
+    cara = {"Authorization": f"Bearer {client.post('/api/auth/login', json={'name': 'cara', 'password': 'pw'}).json()['token']}"}
+
+    a = client.post("/api/ideas", headers=admin, json={
+        "title": "Consolidate reporting tools", "description": "Three BI tools, one needed."}).json()
+    b = client.post("/api/ideas", headers=cara, json={
+        "title": "Automate expense checks", "description": "Manual receipt review is slow."}).json()
+
+    # contributor sees only her own
+    mine = client.get("/api/my-submissions", params={"submitter": "cara"}, headers=cara).json()
+    assert mine["scope"] == "mine"
+    assert {i["id"] for i in mine["ideas"]} == {b["id"]}
+
+    # admin sees everything, regardless of the submitter filter
+    allv = client.get("/api/my-submissions", params={"submitter": "ada"}, headers=admin).json()
+    assert allv["scope"] == "all"
+    assert {a["id"], b["id"]} <= {i["id"] for i in allv["ideas"]}

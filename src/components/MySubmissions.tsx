@@ -12,6 +12,7 @@ interface SubmissionIdea extends Idea {
 }
 
 interface Payload {
+  scope?: 'all' | 'mine'
   ideas: SubmissionIdea[]
   updates_needed: string[]
   workflow: WorkflowStep[]
@@ -57,8 +58,8 @@ function Chain({ idea, workflow }: { idea: SubmissionIdea; workflow: WorkflowSte
   )
 }
 
-export default function MySubmissions({ me }: { me: string | null }) {
-  const [name, setName] = useState(me ?? localStorage.getItem('ivd_user') ?? '')
+export default function MySubmissions({ me }: { me: { name: string; role: string } | null }) {
+  const [name, setName] = useState(me?.name ?? localStorage.getItem('ivd_user') ?? '')
   const [data, setData] = useState<Payload | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -75,7 +76,7 @@ export default function MySubmissions({ me }: { me: string | null }) {
     }
   }
   useEffect(() => {
-    if (me) { setName(me); load(me) } else if (name) load(name)
+    if (me) { setName(me.name); load(me.name) } else if (name) load(name)
   }, [me])
 
   const attention = data?.ideas.filter((i) => i.needs_attention) ?? []
@@ -85,14 +86,17 @@ export default function MySubmissions({ me }: { me: string | null }) {
     <section>
       <div className="section-header">
         <div>
-          <h2>My submissions</h2>
+          <h2>{data?.scope === 'all' ? 'All submissions' : 'My submissions'}</h2>
           <p className="muted">
-            Everything you've submitted, where each idea sits in the approval chain, and what
-            needs your attention.
+            {data?.scope === 'all'
+              ? 'Admin view — every idea submitted across the hub, with each approval chain.'
+              : "Everything you've submitted, where each idea sits in the approval chain, and what needs your attention."}
           </p>
         </div>
         {me ? (
-          <span className="badge">signed in as <strong>{me}</strong></span>
+          <span className="badge">
+            signed in as <strong>{me.name}</strong>{me.role === 'admin' ? ' · admin — all submissions' : ''}
+          </span>
         ) : (
           <div className="row">
             <input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)}
@@ -134,6 +138,7 @@ export default function MySubmissions({ me }: { me: string | null }) {
             <div>
               <h3>{i.title}</h3>
               <p className="muted small">
+                {data?.scope === 'all' && i.submitter ? `from ${i.submitter} · ` : ''}
                 {i.submitted_at.slice(0, 10)}
                 {i.estimated_annual_benefit ? ` · ${money(i.estimated_annual_benefit)}/yr est` : ''}
                 {i.assessment ? ` · score ${i.assessment.score}` : ''}

@@ -1144,9 +1144,15 @@ def release_tranche(case_id: str, tranche_id: int, body: ReleaseRequest) -> Dict
 @app.get("/api/my-submissions")
 def my_submissions(submitter: str = Query(...)) -> Dict[str, Any]:
     """A submitter's ideas with their full approval chain: gate history,
-    case stage history when promoted, and whether the ball is in their court."""
-    mine = [i for i in db.list_ideas()
-            if (i.get("submitter") or "").strip().lower() == submitter.strip().lower()]
+    case stage history when promoted, and whether the ball is in their court.
+    Admins see every submission across the hub, not just their own."""
+    user = _CURRENT_USER.get()
+    is_admin = bool(user and user.get("role") == "admin")
+    if is_admin:
+        mine = db.list_ideas()
+    else:
+        mine = [i for i in db.list_ideas()
+                if (i.get("submitter") or "").strip().lower() == submitter.strip().lower()]
     out = []
     for idea in mine:
         history = db.events_for("idea", idea["id"])
@@ -1168,6 +1174,7 @@ def my_submissions(submitter: str = Query(...)) -> Dict[str, Any]:
             "attention_reason": reason,
         })
     return {
+        "scope": "all" if is_admin else "mine",
         "ideas": out,
         "updates_needed": [x["id"] for x in out if x["needs_attention"]],
         "workflow": hub.get_workflow(),
