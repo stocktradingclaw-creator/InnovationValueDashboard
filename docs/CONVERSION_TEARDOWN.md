@@ -538,3 +538,56 @@ short. R6-U1 (strategy view on the main path) and R6-U3 (deltas, not
 snapshots) are the two that decide whether a senior leader opens this
 weekly or delegates it forever. R6-U2 is the cheapest trust win in the
 whole backlog.
+
+---
+---
+
+# Round 7 — three-persona pass (2026-07-03)
+
+*Contributor, reviewer, and senior leader each walked their full journey on
+the live app. The journeys are now clean in the middle; both loose ends are
+loops that don't close.*
+
+### CRITICAL
+
+**R7-C1 (contributor). "They asked for more info — and I have no way to
+give it."** Feedback arrives ("Which reports, and what decision do they
+drive?"), My Submissions flags it, the badge counts it… and then nothing:
+there is no way to *revise* a submitted idea. No edit, no formal respond
+action. The core feedback loop — the moment the hub asked for collaboration
+— dead-ends at a read-only card. The contributor's only move is to submit a
+duplicate.
+
+**R7-C2 (reviewer). "The backlog is where ideas go to be forgotten."** Hold
+sends an idea to the backlog with a one-line count at the bottom of
+Approvals. There is no resume/reactivate action, no review date, no
+visibility of what's parked. 'Hold (backlog)' is currently a polite
+synonym for decline — which corrupts the meaning of every backlog metric.
+
+### HIGH IMPACT
+
+- **R7-H1 (leader).** Day-one deltas render "+$0 since 2026-07-03" — delta
+  noise when since == as_of; suppress until there's an actual prior day.
+- **R7-H2 (reviewer).** Rubric shows count and average only; reviewers
+  can't see each other's per-criterion scores or comments, so calibration
+  conversations can't happen.
+- **R7-H3 (leader).** Delegation still missing (carried R6-U6) — the most
+  requested exec action after approve.
+- **R7-H4 (all).** Notifications remain scattered: badge on My
+  Submissions, feed on Ideas, webhook outbound — no single "what happened
+  since I was last here" surface.
+
+### NICE TO HAVE
+
+- **R7-N1.** Fiscal framing/currency (carried).
+- **R7-N2.** "Frozen baseline" tooltip glossary (carried, third sighting).
+- **R7-N3.** Backlog/held ideas could show *why* they were held (the
+  comment exists in events, unused).
+
+## Round 7 verdict
+
+Every persona now completes their happy path. What's broken is the two
+*unhappy* paths: feedback with no reply channel (R7-C1) and hold with no
+resume (R7-C2). Both are loop-closing fixes, not features — and both
+corrupt trust in the process if left open: one teaches submitters that
+feedback is rejection, the other teaches reviewers that hold is a lie.
