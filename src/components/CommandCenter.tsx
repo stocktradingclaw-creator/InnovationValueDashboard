@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  addExperiment, addTranche, concludeExperiment, decide, getCommandQueue, getLearnings,
+  addExperiment, addTranche, concludeExperiment, decide, getCommandQueue, getLearnings, reviewIdea,
   getLifecycle, getPatterns, money, releaseTranche, replicatePattern, runAutomation,
 } from '../api'
 import type { BusinessCase, CommandQueue, Learning, Lifecycle, Pattern, QueuedIdea, Stage } from '../types'
@@ -180,16 +180,58 @@ function GateActions({
   )
 }
 
+function RubricPanel({ ideaId, actor, criteria, onDone }: {
+  ideaId: string; actor: string; criteria: string[]; onDone: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [scores, setScores] = useState<Record<string, number>>({})
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const crits = criteria.length > 0 ? criteria : ['Impact', 'Feasibility', 'Strategic fit']
+  if (!open) {
+    return <button type="button" className="chip" onClick={() => setOpen(true)}>Score against criteria</button>
+  }
+  return (
+    <div className="rubric">
+      {crits.map((c) => (
+        <label key={c} className="rubric-row">
+          <span className="small">{c}</span>
+          <input type="range" min={1} max={5} step={1} value={scores[c] ?? 3}
+                 aria-label={`Score for ${c}`}
+                 onChange={(e) => setScores({ ...scores, [c]: Number(e.target.value) })} />
+          <strong>{scores[c] ?? 3}</strong>
+        </label>
+      ))}
+      <div className="row">
+        <button disabled={busy || !actor.trim()} title={actor ? '' : 'Enter your name above first'}
+                onClick={async () => {
+                  setBusy(true); setMsg(null)
+                  try {
+                    const filled = Object.fromEntries(crits.map((c) => [c, scores[c] ?? 3]))
+                    await reviewIdea(ideaId, { reviewer: actor, scores: filled })
+                    setMsg('Review saved.'); setOpen(false); onDone()
+                  } catch (e) { setMsg(e instanceof Error ? e.message : String(e)) }
+                  finally { setBusy(false) }
+                }}>{busy ? 'Saving…' : 'Save review'}</button>
+        <button type="button" className="secondary" onClick={() => setOpen(false)}>Cancel</button>
+        {msg && <span className="muted small">{msg}</span>}
+      </div>
+    </div>
+  )
+}
+
 function IdeaGateCard({
-  idea, actor, actions, onDone,
+  idea, actor, actions, criteria, onDone,
 }: {
   idea: QueuedIdea
   actor: string
   actions: [string, string, string][]
+  criteria: string[]
   onDone: () => void
 }) {
   return (
-    <div className="card">
+    <div className="card" draggable
+         onDragStart={(e) => e.dataTransfer.setData('text/idea-id', idea.id)}>
       <div className="card-header">
         <div>
           <h3>{idea.title}</h3>
@@ -206,6 +248,14 @@ function IdeaGateCard({
             {c.passed ? '✓' : '?'} {c.check}
           </span>
         ))}
+      </div>
+      <div className="row">
+        {idea.review_summary && idea.review_summary.count > 0 && (
+          <span className="pill act-approve">
+            {idea.review_summary.count} review(s) · avg {idea.review_summary.average}/5
+          </span>
+        )}
+        <RubricPanel ideaId={idea.id} actor={actor} criteria={criteria} onDone={onDone} />
       </div>
       <GateActions ideaId={idea.id} actor={actor} actions={actions} onDone={onDone} />
     </div>
@@ -585,9 +635,21 @@ export default function CommandCenter({ onChanged }: Props) {
       )}
 
       {queue.idea_steps.map((step, i) => (
-        <div key={step.key}>
+        <div key={step.key}
+             onDragOver={(e) => { if (i > 0) e.preventDefault() }}
+             onDrop={async (e) => {
+               const id = e.dataTransfer.getData('text/idea-id')
+               if (!id || i === 0) return
+               const from = queue.idea_steps.findIndex((st) => st.ideas.some((x) => x.id === id))
+               if (from !== i - 1) return  // only the next gate accepts a drop
+               await decide({ subject_type: 'idea', subject_id: id, decision: 'advance',
+                              actor: actor || undefined,
+                              comment: 'advanced by drag on the board' }).catch(() => {})
+               refresh()
+             }}>
           <h3 className={i > 0 ? 'spaced' : undefined} id={`cc-step-${step.key}`}>
             Gate {i + 1} — {step.gate} ({step.ideas.length})
+            {i > 0 && <span className="muted small"> · drop a card here to pass its gate</span>}
           </h3>
           <p className="muted small">{step.purpose}</p>
           {i === queue.idea_steps.length - 1 && <PortfolioRegister lifecycle={lifecycle} />}
@@ -596,7 +658,7 @@ export default function CommandCenter({ onChanged }: Props) {
           )}
           {step.ideas.map((idea) => (
             <IdeaGateCard
-              key={idea.id} idea={idea} actor={actor} onDone={refresh}
+              key={idea.id} idea={idea} actor={actor} criteria={step.criteria ?? []} onDone={refresh}
               actions={step.is_last
                 ? [['develop', 'Develop AI business case', ''], ['hold', 'Hold (backlog)', 'secondary']]
                 : i === 0

@@ -49,6 +49,47 @@ export function seedLifecycle() {
     '/api/demo/seed-lifecycle', { method: 'POST' })
 }
 
+export function similarIdeas(q: string) {
+  return request<{ similar: { id: string; title: string; status: string; submitter: string | null; vote_count: number }[] }>(
+    `/api/ideas/similar?q=${encodeURIComponent(q)}`)
+}
+
+export function searchAll(q: string) {
+  return request<{ results: { type: string; tab: string; id: string; title: string; hint: string }[] }>(
+    `/api/search?q=${encodeURIComponent(q)}`)
+}
+
+export function getIdeaAttachments(id: string) {
+  return request<{ attachments: { id: number; filename: string; size: number; uploaded_by: string | null }[] }>(
+    `/api/ideas/${id}/attachments`)
+}
+
+export function uploadIdeaAttachment(id: string, file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  return request<{ id: number; filename: string }>(`/api/ideas/${id}/attachments`,
+    { method: 'POST', body: form })
+}
+
+export function reviewIdea(id: string, body: { reviewer: string; scores: Record<string, number>; comment?: string }) {
+  return request<{ summary: { count: number; average: number | null } }>(
+    `/api/ideas/${id}/reviews`, json(body))
+}
+
+export function getMyWork(user: string) {
+  return request<{ items: { kind: string; id: string; title: string; tab: string; age_days: number; what: string }[] }>(
+    `/api/my-work?user=${encodeURIComponent(user)}`)
+}
+
+export function getNotificationSettings() {
+  return request<{ webhook: string }>('/api/settings/notifications')
+}
+
+export function putNotificationSettings(webhook: string) {
+  return request<{ webhook: string }>(`/api/settings/notifications${actorQS()}`,
+    { ...json({ webhook }), method: 'PUT' })
+}
+
 export function getDatasets() {
   return request<{ sources: SourceStatus[] }>('/api/datasets')
 }

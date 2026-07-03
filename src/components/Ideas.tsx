@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useEffect } from 'react'
-import { assistDescription, commentOnIdea, evaluateIdea, getChallenges, getInitiatives, getNotifications, importIdeas, money, submitIdea, voteIdea } from '../api'
+import { getIdeaAttachments, similarIdeas, uploadIdeaAttachment, assistDescription, commentOnIdea, evaluateIdea, getChallenges, getInitiatives, getNotifications, importIdeas, money, submitIdea, voteIdea } from '../api'
 import type { AssistResult } from '../api'
 import type { Challenge, Idea, Initiative, Notification } from '../types'
 
@@ -48,6 +48,36 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
   const [assisting, setAssisting] = useState(false)
   const [assist, setAssist] = useState<AssistResult | null>(null)
   const [submitted, setSubmitted] = useState<Idea | null>(null)
+  const [step, setStep] = useState(1)
+  const [similar, setSimilar] = useState<{ id: string; title: string; status: string; vote_count: number }[]>([])
+
+  // save-and-resume: the draft survives navigation and reloads
+  useEffect(() => {
+    const d = localStorage.getItem('ivd_idea_draft')
+    if (d) {
+      try {
+        const v = JSON.parse(d)
+        setTitle(v.title ?? ''); setDescription(v.description ?? '')
+        setCategory(v.category ?? ''); setBenefit(v.benefit ?? '')
+        setBeneficiary(v.beneficiary ?? ''); setPainPoint(v.painPoint ?? '')
+      } catch { /* corrupt draft — start fresh */ }
+    }
+  }, [])
+  useEffect(() => {
+    if (title || description) {
+      localStorage.setItem('ivd_idea_draft',
+        JSON.stringify({ title, description, category, benefit, beneficiary, painPoint }))
+    }
+  }, [title, description, category, benefit, beneficiary, painPoint])
+
+  // pre-submission duplicate surfacing, debounced as you type
+  useEffect(() => {
+    if (title.trim().length < 8) { setSimilar([]); return }
+    const t = setTimeout(() => {
+      similarIdeas(title).then((r) => setSimilar(r.similar)).catch(() => {})
+    }, 400)
+    return () => clearTimeout(t)
+  }, [title])
   const activeChallenges = challenges.filter((c) => c.status === 'active')
 
   // prompt for the information that improves the triage score
@@ -81,6 +111,8 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
       setBenefitType(''); setChallengeId(''); setInitiativeIds([]); setBeneficiary(''); setPainPoint('')
       setAssist(null)
       setSubmitted(created)
+      setStep(1)
+      localStorage.removeItem('ivd_idea_draft')
       onChanged()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -89,10 +121,36 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
     }
   }
 
+  const STEPS = ["What's the idea", 'Who is it for', 'Value & alignment']
   return (
     <div className="card bc-form">
-      <h3>Submit an idea</h3>
+      <div className="card-header">
+        <h3>Submit an idea</h3>
+        <div className="row wizard-steps" role="tablist" aria-label="Submission steps">
+          {STEPS.map((label, i) => (
+            <button key={label} type="button"
+                    className={step === i + 1 ? 'chip chip-active' : 'chip'}
+                    onClick={() => setStep(i + 1)}>
+              {i + 1}. {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {(title || description) && !submitted && (
+        <p className="muted small">Draft saved automatically — safe to leave and come back.</p>
+      )}
+      {step === 1 && (<>
       <input placeholder="Title — what's the idea in one line?" value={title} onChange={(e) => setTitle(e.target.value)} />
+      {similar.length > 0 && (
+        <div className="similar-box">
+          <span className="muted small">Similar ideas already exist — consider joining one instead:</span>
+          {similar.map((si) => (
+            <span key={si.id} className="chip" title={si.status}>
+              {si.title} <span className="muted small">({si.vote_count} votes · {si.status.replace('_', ' ')})</span>
+            </span>
+          ))}
+        </div>
+      )}
       <textarea
         rows={4}
         placeholder="Describe the problem, the proposed change, and who benefits…"
@@ -130,6 +188,12 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
         </ul>
       )}
       <div className="row">
+        <button type="button" disabled={!title.trim() || !description.trim()}
+                onClick={() => setStep(2)}>Next: who is it for →</button>
+      </div>
+      </>)}
+      {step === 2 && (<>
+      <div className="row">
         <input placeholder="Your name" value={submitter} onChange={(e) => setSubmitter(e.target.value)} />
         <input placeholder="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} />
         <input type="number" placeholder="Est. annual benefit $ (optional)" value={benefit} onChange={(e) => setBenefit(e.target.value)} />
@@ -147,6 +211,12 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
         />
       </div>
       <div className="row">
+        <button type="button" className="secondary" onClick={() => setStep(1)}>← Back</button>
+        <button type="button" onClick={() => setStep(3)}>Next: value &amp; alignment →</button>
+      </div>
+      </>)}
+      {step === 3 && (<>
+      <div className="row">
         <select value={benefitType} onChange={(e) => setBenefitType(e.target.value)}>
           <option value="">Benefit type (hub will default to cost reduction)</option>
           {BENEFIT_TYPES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
@@ -160,6 +230,7 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
             ))}
           </select>
         )}
+        <button type="button" className="secondary" onClick={() => setStep(2)}>← Back</button>
         <button disabled={busy || !title.trim() || !description.trim()} onClick={submit}>
           {busy ? 'Triaging…' : 'Submit idea'}
         </button>
@@ -189,6 +260,7 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
           {prompts.map((p) => <li key={p}>{p}</li>)}
         </ul>
       )}
+      </>)}
       {error && <p className="error">{error}</p>}
       {submitted && (
         <p className="success">
@@ -197,6 +269,34 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
           progress on the My Submissions tab.
         </p>
       )}
+    </div>
+  )
+}
+
+function Attachments({ ideaId }: { ideaId: string }) {
+  const [files, setFiles] = useState<{ id: number; filename: string; size: number }[]>([])
+  const [busy, setBusy] = useState(false)
+  const load = () => getIdeaAttachments(ideaId).then((r) => setFiles(r.attachments)).catch(() => {})
+  useEffect(() => { load() }, [ideaId])
+  return (
+    <div className="attach-box">
+      <strong className="small">Attachments</strong>
+      {files.map((f) => (
+        <a key={f.id} className="chip" href={`/api/attachments/${f.id}`} download>
+          📎 {f.filename} <span className="muted small">({Math.ceil(f.size / 1024)} KB)</span>
+        </a>
+      ))}
+      <label className="chip" style={{ cursor: 'pointer' }}>
+        {busy ? 'Uploading…' : '+ Attach file'}
+        <input type="file" style={{ display: 'none' }} disabled={busy}
+               onChange={async (e) => {
+                 const f = e.target.files?.[0]
+                 if (!f) return
+                 setBusy(true)
+                 try { await uploadIdeaAttachment(ideaId, f); await load() }
+                 finally { setBusy(false); e.target.value = '' }
+               }} />
+      </label>
     </div>
   )
 }
@@ -254,6 +354,7 @@ function IdeaCard({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
       {expanded && a && (
         <div className="plan">
           <p>{idea.description}</p>
+          <Attachments ideaId={idea.id} />
           <p><strong>Triage:</strong> {a.rationale}</p>
           {a.matched_opportunity && (
             <p className="muted small">

@@ -7,6 +7,8 @@ import {
   getUsers,
   putUsers,
   seedLifecycle,
+  getNotificationSettings,
+  putNotificationSettings,
 } from '../api'
 import { getGovernance } from '../api'
 import type { Challenge, DemoStatus, Initiative, ScoringConfig, WorkflowStep } from '../types'
@@ -236,6 +238,34 @@ function UserProfiles() {
             setMsg('Saved.')
           } catch (e) { setMsg(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
         }}>{busy ? 'Saving\u2026' : 'Save profiles'}</button>
+        {msg && <span className="muted small">{msg}</span>}
+      </div>
+    </div>
+  )
+}
+
+function NotificationSettings() {
+  const [webhook, setWebhook] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  useEffect(() => { getNotificationSettings().then((r) => setWebhook(r.webhook)).catch(() => {}) }, [])
+  return (
+    <div className="card">
+      <h3>Notifications beyond the hub</h3>
+      <p className="muted small">
+        Post every submitter notification to a Teams or Slack incoming webhook so people
+        hear about decisions where they already work. Leave empty to keep notifications
+        in-app only.
+      </p>
+      <div className="row">
+        <input placeholder="https://outlook.office.com/webhook/… or https://hooks.slack.com/…"
+               value={webhook} onChange={(e) => setWebhook(e.target.value)} />
+        <button disabled={busy} onClick={async () => {
+          setBusy(true); setMsg(null)
+          try { await putNotificationSettings(webhook.trim()); setMsg('Saved.') }
+          catch (e) { setMsg(e instanceof Error ? e.message : String(e)) }
+          finally { setBusy(false) }
+        }}>{busy ? 'Saving…' : 'Save'}</button>
         {msg && <span className="muted small">{msg}</span>}
       </div>
     </div>
@@ -510,6 +540,7 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
       <div className="dash-grid">
         <ScoringSettings />
         <UserProfiles />
+      <NotificationSettings />
       <RolesAccess />
       </div>
       <div className="dash-grid">

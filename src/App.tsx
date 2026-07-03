@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getMe, login, logout, demoRevert, getBusinessCases, getDashboard, getDatasets, getDemoStatus, getIdeas, getOpportunities, getPortfolioDiagnostic } from './api'
+import { searchAll, getMe, login, logout, demoRevert, getBusinessCases, getDashboard, getDatasets, getDemoStatus, getIdeas, getOpportunities, getPortfolioDiagnostic } from './api'
 import BusinessCases from './components/BusinessCases'
 import CommandCenter from './components/CommandCenter'
 import Dashboard from './components/Dashboard'
@@ -104,6 +104,17 @@ export default function App() {
   const [authRequired, setAuthRequired] = useState(false)
   const [authChecked, setAuthChecked] = useState(false)
   const [wantLogin, setWantLogin] = useState(false)
+  const [query, setQuery] = useState('')
+  const [hits, setHits] = useState<{ type: string; tab: string; id: string; title: string; hint: string }[]>([])
+  const searchTimer = (window as unknown as { __ivdT?: number })
+  const runSearch = (q: string) => {
+    setQuery(q)
+    if (searchTimer.__ivdT) window.clearTimeout(searchTimer.__ivdT)
+    if (q.trim().length < 2) { setHits([]); return }
+    searchTimer.__ivdT = window.setTimeout(() => {
+      searchAll(q).then((r) => setHits(r.results)).catch(() => {})
+    }, 350)
+  }
   const [collapsed, setCollapsed] = useState(localStorage.getItem('ivd_nav') === 'collapsed')
   const [tab, setTab] = useState<Tab>('overview')
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
@@ -202,6 +213,24 @@ export default function App() {
             {collapsed ? '»' : '«'}
           </button>
         </div>
+        {!collapsed && (
+          <div className="nav-search">
+            <input placeholder="Search…" value={query}
+                   onChange={(e) => runSearch(e.target.value)} aria-label="Global search" />
+            {hits.length > 0 && (
+              <div className="search-results">
+                {hits.map((h) => (
+                  <button key={`${h.type}-${h.id}`} onClick={() => {
+                    setTab(h.tab as Tab); setHits([]); setQuery('')
+                  }}>
+                    <span className="tag">{h.type}</span> {h.title}
+                    <span className="muted small"> {h.hint}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <nav>
           {NAV.map(([id, glyph, label]) => (
             <button key={id} className={tab === id ? 'active' : ''} title={label}

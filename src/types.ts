@@ -356,6 +356,7 @@ export interface GateCheck {
 }
 
 export interface QueuedIdea extends Idea {
+  review_summary?: { count: number; average: number | null }
   gate_checklist: GateCheck[]
 }
 

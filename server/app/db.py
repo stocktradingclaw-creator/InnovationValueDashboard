@@ -109,6 +109,26 @@ CREATE TABLE IF NOT EXISTS users (
     created_at    TEXT NOT NULL,
     password_hash TEXT
 );
+CREATE TABLE IF NOT EXISTS attachments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject_type TEXT NOT NULL,
+    subject_id   TEXT NOT NULL,
+    filename     TEXT NOT NULL,
+    content_type TEXT,
+    size         INTEGER NOT NULL,
+    uploaded_by  TEXT,
+    uploaded_at  TEXT NOT NULL,
+    data         BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reviews (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    idea_id    TEXT NOT NULL,
+    reviewer   TEXT NOT NULL,
+    scores     TEXT NOT NULL,
+    comment    TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (idea_id, reviewer)
+);
 CREATE TABLE IF NOT EXISTS audit_log (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     at      TEXT NOT NULL,
@@ -825,6 +845,18 @@ def notify(recipient: Optional[str], subject_type: str, subject_id: str, message
             "created_at) VALUES (?, ?, ?, ?, ?)",
             (recipient.strip(), subject_type, subject_id, message, _now()),
         )
+    url = meta_get("notify_webhook")
+    if url:
+        try:
+            import json as _json
+            import urllib.request
+            req = urllib.request.Request(
+                url, data=_json.dumps({"text": f"[Innovation Hub] {message}"}).encode(),
+                headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=2)
+        except Exception:
+            pass  # notifications must never break the workflow
+
 
 
 def notifications_for(recipient: str, limit: int = 50) -> List[Dict[str, Any]]:
@@ -1182,3 +1214,60 @@ def restore_state(state: Dict[str, Any]) -> Dict[str, int]:
                     [row[c] for c in cols])
             counts[t] = len(rows)
     return counts
+
+
+def add_attachment(subject_type: str, subject_id: str, filename: str,
+                   content_type: Optional[str], data: bytes,
+                   uploaded_by: Optional[str]) -> Dict[str, Any]:
+    with _conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO attachments (subject_type, subject_id, filename, content_type, "
+            "size, uploaded_by, uploaded_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (subject_type, subject_id, filename, content_type, len(data),
+             uploaded_by, _now(), data))
+        aid = cur.lastrowid
+    return {"id": aid, "filename": filename, "content_type": content_type,
+            "size": len(data), "uploaded_by": uploaded_by}
+
+
+def list_attachments(subject_type: str, subject_id: str) -> List[Dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT id, filename, content_type, size, uploaded_by, uploaded_at "
+            "FROM attachments WHERE subject_type = ? AND subject_id = ? ORDER BY id",
+            (subject_type, subject_id)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_attachment(attachment_id: int) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        row = conn.execute("SELECT * FROM attachments WHERE id = ?",
+                           (attachment_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def save_review(idea_id: str, reviewer: str, scores: Dict[str, int],
+                comment: Optional[str]) -> None:
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO reviews (idea_id, reviewer, scores, comment, created_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT (idea_id, reviewer) DO UPDATE SET "
+            "scores = excluded.scores, comment = excluded.comment, "
+            "created_at = excluded.created_at",
+            (idea_id, reviewer.strip().lower(), json.dumps(scores), comment, _now()))
+
+
+def reviews_for(idea_id: str) -> List[Dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT reviewer, scores, comment, created_at FROM reviews "
+            "WHERE idea_id = ? ORDER BY created_at", (idea_id,)).fetchall()
+    return [{**dict(r), "scores": json.loads(r["scores"])} for r in rows]
+
+
+def review_summary(idea_id: str) -> Dict[str, Any]:
+    revs = reviews_for(idea_id)
+    if not revs:
+        return {"count": 0, "average": None}
+    means = [sum(r["scores"].values()) / max(len(r["scores"]), 1) for r in revs]
+    return {"count": len(revs), "average": round(sum(means) / len(means), 1)}

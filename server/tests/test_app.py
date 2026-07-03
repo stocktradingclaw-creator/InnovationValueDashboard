@@ -1803,3 +1803,50 @@ def test_enterprise_admin_and_reporting_endpoints(client):
 
     # benchmarks expose the calibration layer
     assert "categories" in client.get("/api/benchmarks").json()
+
+
+def test_daily_ops_ux_endpoints(client):
+    client.post("/api/demo/seed-lifecycle")
+
+    # pre-submission similar-idea surfacing
+    sim = client.get("/api/ideas/similar", params={"q": "idle cloud instances"}).json()
+    assert sim["similar"] and "cloud" in sim["similar"][0]["title"].lower()
+
+    # global search spans ideas, cases, opportunities
+    res = client.get("/api/search", params={"q": "invoice"}).json()["results"]
+    assert {r["type"] for r in res} & {"idea", "case"}
+
+    # attachments round-trip
+    idea = client.get("/api/ideas").json()["ideas"][0]
+    up = client.post(f"/api/ideas/{idea['id']}/attachments",
+                     files={"file": ("cost-model.csv", b"a,b\n1,2", "text/csv")})
+    assert up.status_code == 200
+    atts = client.get(f"/api/ideas/{idea['id']}/attachments").json()["attachments"]
+    assert atts[0]["filename"] == "cost-model.csv"
+    body = client.get(f"/api/attachments/{atts[0]['id']}")
+    assert body.content == b"a,b\n1,2"
+
+    # rubric reviews aggregate; queue cards carry the summary
+    r = client.post(f"/api/ideas/{idea['id']}/reviews", json={
+        "reviewer": "rio", "scores": {"impact": 4, "feasibility": 3}}).json()
+    client.post(f"/api/ideas/{idea['id']}/reviews", json={
+        "reviewer": "eve", "scores": {"impact": 5, "feasibility": 5}})
+    r2 = client.post(f"/api/ideas/{idea['id']}/reviews", json={
+        "reviewer": "rio", "scores": {"impact": 2, "feasibility": 2}}).json()
+    assert r2["summary"]["count"] == 2  # upsert, not duplicate
+    q = client.get("/api/command/queue").json()
+    carded = [i for st in q["idea_steps"] for i in st["ideas"] if i["id"] == idea["id"]]
+    if carded:
+        assert carded[0]["review_summary"]["count"] == 2
+
+    # my-work inbox: submitter sees items needing response, sorted by age
+    work = client.get("/api/my-work", params={"user": "sam"}).json()["items"]
+    assert any(w["kind"] == "respond" for w in work)
+    ages = [w["age_days"] for w in work]
+    assert ages == sorted(ages, reverse=True)
+
+    # notification webhook settings validate
+    assert client.put("/api/settings/notifications",
+                      json={"webhook": "http://insecure"}).status_code == 400
+    assert client.put("/api/settings/notifications",
+                      json={"webhook": "https://example.com/hook"}).json()["webhook"]

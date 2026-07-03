@@ -748,7 +748,8 @@ def command_queue() -> Dict[str, Any]:
     cases = db.list_business_cases()
 
     def _with_checklist(items):
-        return [{**i, "gate_checklist": hub.gate_checklist(i)} for i in items]
+        return [{**i, "gate_checklist": hub.gate_checklist(i),
+                 "review_summary": db.review_summary(i["id"])} for i in items]
 
     steps = hub.get_workflow()
     return {
@@ -1872,6 +1873,166 @@ def benchmarks() -> Dict[str, Any]:
     return {"categories": calibration.report()["categories"],
             "note": "applied_factor is the clamped realization multiplier used "
                     "in prioritization; it is learned from actuals, not assumed."}
+
+
+# ------------------------------------- daily-ops UX: attachments, similar, search,
+# ------------------------------------- reviews, notification settings, my work
+
+@app.post("/api/ideas/{idea_id}/attachments")
+async def upload_attachment(idea_id: str, file: UploadFile = File(...)) -> Dict[str, Any]:
+    if db.get_idea(idea_id) is None:
+        raise HTTPException(404, f"Idea '{idea_id}' not found")
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(400, "attachments are limited to 5 MB")
+    att = db.add_attachment("idea", idea_id, file.filename or "attachment",
+                            file.content_type, data, _session_name())
+    db.audit("idea.attach", _session_name(), idea_id, att["filename"])
+    return att
+
+
+@app.get("/api/ideas/{idea_id}/attachments")
+def idea_attachments(idea_id: str) -> Dict[str, Any]:
+    return {"attachments": db.list_attachments("idea", idea_id)}
+
+
+@app.get("/api/attachments/{attachment_id}")
+def download_attachment(attachment_id: int) -> Any:
+    from fastapi.responses import Response
+    att = db.get_attachment(attachment_id)
+    if att is None:
+        raise HTTPException(404, "attachment not found")
+    return Response(att["data"], media_type=att["content_type"] or "application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{att["filename"]}"'})
+
+
+@app.get("/api/ideas/similar")
+def similar_ideas(q: str = Query(...)) -> Dict[str, Any]:
+    """Pre-submission duplicate surfacing: as-you-type similarity so people
+    join existing ideas instead of resubmitting them."""
+    tokens = hub._tokens(q)
+    if not tokens:
+        return {"similar": []}
+    scored = []
+    for i in db.list_ideas():
+        if i["status"] == "declined":
+            continue
+        overlap = len(tokens & hub._tokens(f"{i['title']} {i['description']}"))
+        if overlap >= 2:
+            scored.append((overlap, i))
+    scored.sort(key=lambda t: -t[0])
+    return {"similar": [
+        {"id": i["id"], "title": i["title"], "status": i["status"],
+         "submitter": i.get("submitter"), "vote_count": i.get("vote_count", 0)}
+        for _, i in scored[:3]]}
+
+
+@app.get("/api/search")
+def global_search(q: str = Query(...)) -> Dict[str, Any]:
+    ql = q.strip().lower()
+    if len(ql) < 2:
+        return {"results": []}
+    results = []
+    for i in db.list_ideas():
+        if ql in i["title"].lower() or ql in (i.get("description") or "").lower():
+            results.append({"type": "idea", "tab": "ideas", "id": i["id"],
+                            "title": i["title"], "hint": i["status"]})
+    for c in db.list_business_cases():
+        if ql in c["title"].lower():
+            results.append({"type": "case", "tab": "tracking", "id": c["id"],
+                            "title": c["title"], "hint": c["stage"]})
+    for o in _prioritized_opps():
+        if ql in o["title"].lower() or ql in o["category"].lower():
+            results.append({"type": "opportunity", "tab": "opportunities", "id": o["id"],
+                            "title": o["title"],
+                            "hint": f"${o['estimated_annual_savings']:,.0f}/yr"})
+    return {"results": results[:12]}
+
+
+class ReviewRequest(BaseModel):
+    reviewer: str
+    scores: Dict[str, int]
+    comment: Optional[str] = None
+
+
+@app.post("/api/ideas/{idea_id}/reviews")
+def review_idea(idea_id: str, body: ReviewRequest) -> Dict[str, Any]:
+    if db.get_idea(idea_id) is None:
+        raise HTTPException(404, f"Idea '{idea_id}' not found")
+    blocked = hub.check_role("reviewer", _session_name() or body.reviewer)
+    if blocked:
+        raise HTTPException(403, blocked)
+    if not body.scores or any(not (1 <= v <= 5) for v in body.scores.values()):
+        raise HTTPException(400, "scores must rate each criterion 1-5")
+    db.save_review(idea_id, _session_name() or body.reviewer, body.scores, body.comment)
+    db.audit("idea.review", _session_name() or body.reviewer, idea_id)
+    return {"summary": db.review_summary(idea_id),
+            "reviews": db.reviews_for(idea_id)}
+
+
+@app.get("/api/settings/notifications")
+def get_notification_settings() -> Dict[str, Any]:
+    return {"webhook": db.meta_get("notify_webhook") or ""}
+
+
+@app.put("/api/settings/notifications")
+def put_notification_settings(body: Dict[str, str],
+                              authorization: Optional[str] = Header(None),
+                              actor: Optional[str] = Query(None)) -> Dict[str, Any]:
+    _require_admin(authorization, actor)
+    url = (body.get("webhook") or "").strip()
+    if url and not url.startswith("https://"):
+        raise HTTPException(400, "webhook must be an https:// URL")
+    db.meta_set("notify_webhook", url)
+    return {"webhook": url}
+
+
+@app.get("/api/my-work")
+def my_work(user: str = Query(...)) -> Dict[str, Any]:
+    """The personal inbox: everything awaiting THIS person's action, with age.
+    Reviewers see gate queues they can act on; submitters see their items
+    needing response."""
+    from datetime import datetime, timezone
+    who = user.strip().lower()
+    role = db.get_role(who)
+    items = []
+
+    def _age(ts):
+        try:
+            then = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            if then.tzinfo is None:
+                then = then.replace(tzinfo=timezone.utc)
+            return max(int((datetime.now(timezone.utc) - then).days), 0)
+        except (ValueError, AttributeError):
+            return 0
+
+    # my submissions needing my response
+    for i in db.list_ideas():
+        if (i.get("submitter") or "").strip().lower() != who:
+            continue
+        history = db.events_for("idea", i["id"])
+        if (history and history[-1]["action"] == "feedback") or            (i.get("assessment") or {}).get("recommendation") == "needs_info":
+            items.append({"kind": "respond", "id": i["id"], "title": i["title"],
+                          "tab": "mine", "age_days": _age(i["submitted_at"]),
+                          "what": "Reviewers asked for more information"})
+    # decisions I can make (open mode: everyone; else by role)
+    can_review = role in (None, "reviewer", "executive", "admin")
+    if can_review:
+        steps = hub.get_workflow()
+        for step in steps:
+            for i in db.list_ideas():
+                if i["status"] == step["key"]:
+                    items.append({"kind": "decide", "id": i["id"], "title": i["title"],
+                                  "tab": "command", "age_days": _age(i["submitted_at"]),
+                                  "what": f"Awaiting {step['gate']}"})
+    if role in (None, "executive", "admin"):
+        for c in db.list_business_cases():
+            if c["stage"] in ("draft", "proposed"):
+                items.append({"kind": "decide", "id": c["id"], "title": c["title"],
+                              "tab": "command", "age_days": _age(c["submitted_at"]),
+                              "what": "Business case awaiting executive review"})
+    items.sort(key=lambda x: -x["age_days"])
+    return {"items": items[:15], "role": role}
 
 
 # ------------------------------------------------- full-lifecycle sample data

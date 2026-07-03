@@ -1691,3 +1691,31 @@ main > section {
 .lc-arrow { align-self: center; color: var(--accent-dim); font-size: 1.3rem; }
 
 .matrix-note { margin: 0.35rem 0 0; text-align: center; }
+
+/* daily-ops UX: search, my-work, wizard, rubric, attachments */
+.nav-search { position: relative; }
+.nav-search input { width: 100%; font-size: 0.85rem; padding: 0.45rem 0.6rem; }
+.search-results {
+  position: absolute; left: 0; right: -160px; top: 40px; z-index: 60;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); overflow: hidden;
+}
+.search-results button {
+  display: block; width: 100%; text-align: left; background: transparent;
+  border: none; border-bottom: 1px solid var(--border); color: var(--text);
+  padding: 0.5rem 0.7rem; font-size: 0.85rem;
+}
+.search-results button:hover { background: var(--surface-2); }
+
+.mywork-card { border-left: 3px solid var(--accent); }
+.decision-row { display: flex; gap: 0.7rem; align-items: center; padding: 0.45rem 0.2rem; cursor: pointer; }
+.decision-row:hover { background: var(--surface-2); }
+
+.wizard-steps .chip { font-size: 0.8rem; }
+.similar-box { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+
+.rubric { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.5rem 0; }
+.rubric-row { display: grid; grid-template-columns: 140px 1fr 24px; gap: 0.7rem; align-items: center; }
+.rubric-row input[type='range'] { width: 100%; padding: 0; accent-color: var(--accent); }
+
+.attach-box { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0.6rem 0; }

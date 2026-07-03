@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { loadSamples, money } from '../api'
+import { getMyWork, loadSamples, money } from '../api'
 import { useEffect } from 'react'
 import { getInitiatives } from '../api'
 import type { DashboardData, Decision, Initiative, Quadrant, TimelineMonth } from '../types'
@@ -208,6 +208,36 @@ function InitiativeRollup() {
   )
 }
 
+function MyWork({ onNavigate }: { onNavigate: (t: NavTab) => void }) {
+  const [items, setItems] = useState<{ kind: string; id: string; title: string; tab: string; age_days: number; what: string }[] | null>(null)
+  const who = localStorage.getItem('ivd_user')
+  useEffect(() => {
+    if (who) getMyWork(who).then((r) => setItems(r.items)).catch(() => setItems([]))
+  }, [who])
+  if (!who || !items || items.length === 0) return null
+  return (
+    <div className="card mywork-card">
+      <div className="card-header">
+        <h3>My work — {who}</h3>
+        <span className="muted small">{items.length} item(s) awaiting your action</span>
+      </div>
+      {items.slice(0, 6).map((w) => (
+        <div key={`${w.kind}-${w.id}`} className="decision-row" role="button" tabIndex={0}
+             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate(w.tab as NavTab) } }}
+             onClick={() => onNavigate(w.tab as NavTab)}>
+          <span className={`pill ${w.kind === 'respond' ? 'act-verify' : 'act-approve'}`}>
+            {w.kind === 'respond' ? 'respond' : 'decide'}
+          </span>
+          <span><strong>{w.title}</strong> <span className="muted small">{w.what}</span></span>
+          <span className={`muted small ${w.age_days > 7 ? 'aging-flag' : ''}`}>
+            {w.age_days === 0 ? 'today' : `${w.age_days}d`}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function DecisionQueue({ decisions, onNavigate }: { decisions: Decision[]; onNavigate: (t: NavTab) => void }) {
   if (decisions.length === 0) return null
   return (
@@ -307,6 +337,7 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
           URL.revokeObjectURL(a.href)
         }}>Export board pack</button>
       </div>
+      <MyWork onNavigate={onNavigate} />
 
       <div className="hero-band">
         {ts && ts.verified_run_rate > 0 ? (
