@@ -46,7 +46,7 @@ function ReviseBox({ idea, onDone }: { idea: SubmissionIdea; onDone: () => void 
 }
 
 function Chain({ idea, workflow }: { idea: SubmissionIdea; workflow: WorkflowStep[] }) {
-  const ideaKeys = workflow.map((w) => w.key)
+  const ideaKeys = (workflow ?? []).map((w) => w.key)
   const caseStages: Stage[] = ['proposed', 'experiment', 'approved', 'in_delivery', 'live', 'value_realized', 'scale']
   const passedIdea = (key: string) => {
     const pos = ideaKeys.indexOf(key)
@@ -57,10 +57,10 @@ function Chain({ idea, workflow }: { idea: SubmissionIdea; workflow: WorkflowSte
   }
   const reachedCase = (stage: Stage) =>
     idea.case_stage === stage ? 'current'
-      : idea.case_stage_history.some((h) => h.stage === stage)
+      : (idea.case_stage_history ?? []).some((h) => h.stage === stage)
   return (
     <div className="chain">
-      {workflow.map((w) => {
+      {(workflow ?? []).map((w) => {
         const state = passedIdea(w.key)
         return (
           <span key={w.key}
@@ -106,8 +106,8 @@ export default function MySubmissions({ me }: { me: { name: string; role: string
     if (me) { setName(me.name); load(me.name) } else if (name) load(name)
   }, [me])
 
-  const attention = data?.ideas.filter((i) => i.needs_attention) ?? []
-  const rest = data?.ideas.filter((i) => !i.needs_attention) ?? []
+  const attention = (data?.ideas ?? []).filter((i) => i.needs_attention)
+  const rest = (data?.ideas ?? []).filter((i) => !i.needs_attention)
 
   return (
     <section>
@@ -167,7 +167,7 @@ export default function MySubmissions({ me }: { me: { name: string; role: string
               <h3>{i.title}</h3>
               <p className="muted small">
                 {data?.scope === 'all' && i.submitter ? `from ${i.submitter} · ` : ''}
-                {i.submitted_at.slice(0, 10)}
+                {(i.submitted_at ?? '').slice(0, 10)}
                 {i.estimated_annual_benefit ? ` · ${money(i.estimated_annual_benefit)}/yr est` : ''}
                 {i.assessment ? ` · score ${i.assessment.score}` : ''}
               </p>
@@ -180,8 +180,8 @@ export default function MySubmissions({ me }: { me: { name: string; role: string
           {expanded === i.id && (
             <div className="plan">
               <h4>History</h4>
-              {[...i.history.map((h) => ({ ...h, scope: 'idea' })),
-                ...i.case_history.map((h) => ({ ...h, scope: 'case' }))]
+              {[...(i.history ?? []).map((h) => ({ ...h, scope: 'idea' })),
+                ...(i.case_history ?? []).map((h) => ({ ...h, scope: 'case' }))]
                 .sort((a, b) => a.created_at.localeCompare(b.created_at))
                 .map((h, idx) => (
                   <div key={idx} className="comment-row small">
@@ -193,7 +193,7 @@ export default function MySubmissions({ me }: { me: { name: string; role: string
                     <span className="muted">{h.comment ?? ''}</span>
                   </div>
                 ))}
-              {i.history.length + i.case_history.length === 0 && (
+              {(i.history ?? []).length + (i.case_history ?? []).length === 0 && (
                 <p className="muted small">No decisions yet — your idea is awaiting the first gate.</p>
               )}
             </div>

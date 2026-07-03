@@ -111,6 +111,7 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
       setBenefitType(''); setChallengeId(''); setInitiativeIds([]); setBeneficiary(''); setPainPoint('')
       setAssist(null)
       setSubmitted(created)
+      if (submitter.trim()) localStorage.setItem('ivd_user', submitter.trim())
       setStep(1)
       localStorage.removeItem('ivd_idea_draft')
       onChanged()

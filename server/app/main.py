@@ -2388,13 +2388,16 @@ def signal_radar(body: RadarRequest) -> Dict[str, Any]:
 # ------------------------------------------------- full-lifecycle sample data
 
 @app.post("/api/demo/seed-lifecycle")
-def seed_lifecycle() -> Dict[str, Any]:
+def seed_lifecycle(force: bool = Query(False)) -> Dict[str, Any]:
     """Populate every phase of the lifecycle with realistic sample content so
     the full look and feel is visible: ideas at each gate, cases at each stage,
     an experiment kill with learnings, funding tranches, claimed savings and
     KPI readings, plus a real measured reduction observed from changed data."""
     from datetime import datetime, timedelta
 
+    if (db.list_ideas() and not db.meta_get("seeded_lifecycle") and not force):
+        raise HTTPException(409, "This hub already has real ideas in it — seeding would "
+                                 "replace them. Pass ?force=true only if that's intended.")
     load_samples()
     days = lambda n: (datetime.utcnow() - timedelta(days=n)).isoformat()
 
