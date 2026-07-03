@@ -121,9 +121,15 @@ export function getDividends() {
     '/api/learning-dividends')
 }
 
-export function radarScan(topic: string) {
-  return request<{ challenge: { id: string; title: string }; signals: string[];
-    starter_ideas: string[]; generated_by: string }>('/api/radar/scan', json({ topic }))
+export function radarScan(topic: string, launch = false) {
+  return request<{ challenge: { id: string; title: string } | null; signals: string[];
+    draft: { challenge_title: string }; starter_ideas: string[]; generated_by: string }>(
+    '/api/radar/scan', json({ topic, launch }))
+}
+
+export function requestAccess(name: string, note?: string) {
+  return request<{ ok: boolean; admins_notified: number }>('/api/auth/request-access',
+    json({ name, note }))
 }
 
 export function getDatasets() {

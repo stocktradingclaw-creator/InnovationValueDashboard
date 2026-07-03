@@ -1898,7 +1898,7 @@ def test_compelling_capabilities(client):
     assert any("Learning dividend" in n["message"] for n in notes)
 
     # signal radar drafts a real challenge
-    r = client.post("/api/radar/scan", json={"topic": "competitor launches AI copilot"}).json()
+    r = client.post("/api/radar/scan", json={"topic": "competitor launches AI copilot", "launch": True}).json()
     assert r["challenge"]["id"].startswith("CH-") or r["challenge"]["id"]
     assert len(r["signals"]) >= 3 and r["starter_ideas"]
 

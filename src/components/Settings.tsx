@@ -369,7 +369,7 @@ function SignalRadar({ onChanged }: { onChanged: () => void }) {
                onChange={(e) => setTopic(e.target.value)} />
         <button disabled={busy || !topic.trim()} onClick={async () => {
           setBusy(true); setError(null)
-          try { setResult(await radarScan(topic)); onChanged() }
+          try { setResult(await radarScan(topic, false)) }
           catch (e) { setError(e instanceof Error ? e.message : String(e)) }
           finally { setBusy(false) }
         }}>{busy ? 'Scanning…' : 'Scan & draft challenge'}</button>
@@ -377,8 +377,16 @@ function SignalRadar({ onChanged }: { onChanged: () => void }) {
       {error && <p className="error">{error}</p>}
       {result && (
         <div className="plan">
-          <p className="small"><strong>Challenge created:</strong> {result.challenge.title}{' '}
-            <span className="muted small">({result.generated_by})</span></p>
+          <p className="small">
+            <strong>{result.challenge ? 'Challenge launched:' : 'Draft (not published yet):'}</strong>{' '}
+            {result.challenge?.title ?? result.draft.challenge_title}{' '}
+            <span className="muted small">({result.generated_by})</span>
+          </p>
+          {!result.challenge && (
+            <button onClick={async () => { setResult(await radarScan(topic, true)); onChanged() }}>
+              Launch this challenge
+            </button>
+          )}
           <ul className="muted small">{result.signals.map((sg) => <li key={sg}>{sg}</li>)}</ul>
           <p className="muted small"><strong>Starter ideas:</strong> {result.starter_ideas.join(' · ')}</p>
         </div>

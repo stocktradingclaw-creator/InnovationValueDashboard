@@ -57,6 +57,7 @@ interface AuthUser { name: string; role: string }
 
 function LoginScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
   const [name, setName] = useState('')
+  const [requested, setRequested] = useState(false)
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -80,7 +81,13 @@ function LoginScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
         <button disabled={busy || !name.trim() || !password} onClick={() => submit()}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
-        {error && <p className="error">{error}</p>}
+        <button className="secondary" disabled={!name.trim() || requested} onClick={async () => {
+          const { requestAccess } = await import('./api')
+          const r = await requestAccess(name).catch(() => null)
+          setRequested(true)
+          setError(r ? `Request sent — ${r.admins_notified} admin(s) notified. They'll add you in Hub Settings.` : 'Could not send the request.')
+        }}>{requested ? 'Request sent ✓' : 'No account? Request access'}</button>
+        {error && <p className={requested ? 'success' : 'error'}>{error}</p>}
       </div>
     </div>
   )
@@ -326,9 +333,20 @@ export default function App() {
           .catch(() => {}))
     }
     window.addEventListener('ivd-auth-required', onAuthRequired)
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setCollapsed(false)
+        window.setTimeout(() => {
+          (document.querySelector('.nav-search input') as HTMLInputElement | null)?.focus()
+        }, 50)
+      }
+    }
+    window.addEventListener('keydown', onKey)
     window.addEventListener('ivd-nav', onNav)
     return () => {
       window.removeEventListener('ivd-auth-required', onAuthRequired)
+      window.removeEventListener('keydown', onKey)
       window.removeEventListener('ivd-nav', onNav)
     }
   }, [])

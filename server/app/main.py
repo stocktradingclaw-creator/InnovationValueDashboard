@@ -97,6 +97,25 @@ def login(body: LoginRequest) -> Dict[str, Any]:
     return {"token": db.create_session(user["name"]), "user": user}
 
 
+class AccessRequest(BaseModel):
+    name: str
+    note: Optional[str] = None
+
+
+@app.post("/api/auth/request-access")
+def request_access(body: AccessRequest) -> Dict[str, Any]:
+    if not body.name.strip():
+        raise HTTPException(400, "your name is required")
+    admins = [u["name"] for u in db.list_users() if u["role"] == "admin"]
+    for a in admins:
+        db.notify(a, "user", body.name.strip().lower(),
+                  f"Access request: {body.name.strip()} wants to join this workspace"
+                  + (f" — \"{body.note.strip()}\"" if body.note else "")
+                  + ". Add them in Hub Settings → User profiles.")
+    db.audit("auth.request_access", body.name.strip().lower())
+    return {"ok": True, "admins_notified": len(admins)}
+
+
 @app.get("/api/auth/me")
 def me() -> Dict[str, Any]:
     return {"auth_required": bool(db.list_users()), "user": _CURRENT_USER.get(),
@@ -2268,6 +2287,7 @@ def get_learning_dividends() -> Dict[str, Any]:
 
 class RadarRequest(BaseModel):
     topic: str
+    launch: bool = False
 
 
 @app.post("/api/radar/scan")
@@ -2278,11 +2298,13 @@ def signal_radar(body: RadarRequest) -> Dict[str, Any]:
     if not body.topic.strip():
         raise HTTPException(400, "a topic (competitor, trend, or market) is required")
     draft = hub.radar_scan(body.topic.strip())
-    challenge = create_challenge(ChallengeRequest(
-        title=draft["challenge_title"], question=draft["challenge_question"],
-        theme=draft.get("theme")))
-    db.audit("radar.scan", _session_name(), challenge["id"], body.topic)
-    return {"challenge": challenge, "signals": draft["signals"],
+    challenge = None
+    if body.launch:
+        challenge = create_challenge(ChallengeRequest(
+            title=draft["challenge_title"], question=draft["challenge_question"],
+            theme=draft.get("theme")))
+        db.audit("radar.launch", _session_name(), challenge["id"], body.topic)
+    return {"challenge": challenge, "draft": draft, "signals": draft["signals"],
             "starter_ideas": draft["starter_ideas"], "generated_by": draft["generated_by"]}
 
 

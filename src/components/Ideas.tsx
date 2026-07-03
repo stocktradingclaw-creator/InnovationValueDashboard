@@ -130,7 +130,13 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
           {STEPS.map((label, i) => (
             <button key={label} type="button"
                     className={step === i + 1 ? 'chip chip-active' : 'chip'}
-                    onClick={() => setStep(i + 1)}>
+                    onClick={() => {
+                      if (i > 0 && (!title.trim() || !description.trim())) {
+                        toast('Give your idea a title and description first (step 1).')
+                        return
+                      }
+                      setStep(i + 1)
+                    }}>
               {i + 1}. {label}
             </button>
           ))}
@@ -199,6 +205,9 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
       <div className="row">
         <button type="button" disabled={!title.trim() || !description.trim()}
                 onClick={() => setStep(2)}>Next: who is it for →</button>
+        {(!title.trim() || !description.trim()) && (
+          <span className="muted small">Add a title and description to continue.</span>
+        )}
       </div>
       </>)}
       {step === 2 && (<>
