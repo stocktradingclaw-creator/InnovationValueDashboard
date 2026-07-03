@@ -1329,3 +1329,15 @@ def snapshot_before(day: str) -> Optional[Dict[str, Any]]:
             row = conn.execute(
                 "SELECT * FROM metric_snapshots ORDER BY day ASC LIMIT 1").fetchone()
     return dict(row) if row else None
+
+
+def update_idea_fields(idea_id: str, title: str, description: str,
+                       benefit: Optional[float]) -> None:
+    with _conn() as conn:
+        if benefit is not None:
+            conn.execute("UPDATE ideas SET title = ?, description = ?, "
+                         "estimated_annual_benefit = ? WHERE id = ?",
+                         (title, description, benefit, idea_id))
+        else:
+            conn.execute("UPDATE ideas SET title = ?, description = ? WHERE id = ?",
+                         (title, description, idea_id))

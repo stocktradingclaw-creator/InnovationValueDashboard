@@ -1843,3 +1843,5 @@ strong, .num, .metric strong, .hero-stat strong { font-variant-numeric: tabular-
 body.present .sidebar, body.present .banner-demo, body.present .profile-menu,
 body.present .mobile-search, body.present .banner-error { display: none; }
 body.present .content { max-width: 1400px; padding: 2rem 3rem; }
+
+.revise-box { margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.4rem; }

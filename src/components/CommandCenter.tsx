@@ -758,7 +758,29 @@ export default function CommandCenter({ onChanged }: Props) {
         </div>
       ))}
       {queue.idea_backlog.length > 0 && (
-        <p className="muted small">{queue.idea_backlog.length} qualified ideas parked on the backlog.</p>
+        <>
+          <h3 className="spaced">Backlog ({queue.idea_backlog.length}) — parked, not forgotten</h3>
+          {queue.idea_backlog.map((i) => (
+            <div key={i.id} className="card">
+              <div className="card-header">
+                <div>
+                  <h3>{i.title}</h3>
+                  <p className="muted small">
+                    {(i as unknown as { held_reason?: string }).held_reason
+                      ? `held: ${(i as unknown as { held_reason?: string }).held_reason}`
+                      : 'no hold reason recorded'}
+                  </p>
+                </div>
+                <button onClick={async () => {
+                  await decide({ subject_type: 'idea', subject_id: i.id, decision: 'resume',
+                                 actor: actor || undefined }).catch(() => {})
+                  toast('Back in review.')
+                  refresh()
+                }}>Resume review</button>
+              </div>
+            </div>
+          ))}
+        </>
       )}
 
       <h3 className="spaced" id="cc-cases">Gate 4 — Executive review ({queue.cases_pending_approval.length})</h3>

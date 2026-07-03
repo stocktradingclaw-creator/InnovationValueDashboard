@@ -345,7 +345,7 @@ export function getCommandQueue() {
 export function decide(body: {
   subject_type: 'idea' | 'case'
   subject_id: string
-  decision: 'approve' | 'reject' | 'feedback' | 'experiment' | 'qualify' | 'prioritize' | 'hold' | 'develop' | 'advance'
+  decision: 'approve' | 'reject' | 'feedback' | 'experiment' | 'qualify' | 'prioritize' | 'hold' | 'develop' | 'advance' | 'resume'
   actor?: string
   comment?: string
 }) {

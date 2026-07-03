@@ -18,6 +18,33 @@ interface Payload {
   workflow: WorkflowStep[]
 }
 
+function ReviseBox({ idea, onDone }: { idea: SubmissionIdea; onDone: () => void }) {
+  const [text, setText] = useState(idea.description ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <div className="revise-box">
+      <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)}
+                placeholder="Answer the reviewers' feedback by revising your idea…" />
+      <div className="row">
+        <button disabled={busy || !text.trim()} onClick={async () => {
+          setBusy(true); setError(null)
+          try {
+            const res = await fetch(`/api/ideas/${idea.id}/revise`, {
+              method: 'PUT', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ description: text }),
+            })
+            if (!res.ok) throw new Error((await res.json()).detail ?? 'revision failed')
+            onDone()
+          } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+          finally { setBusy(false) }
+        }}>{busy ? 'Sending…' : 'Send revision — back to review'}</button>
+        {error && <span className="error small">{error}</span>}
+      </div>
+    </div>
+  )
+}
+
 function Chain({ idea, workflow }: { idea: SubmissionIdea; workflow: WorkflowStep[] }) {
   const ideaKeys = workflow.map((w) => w.key)
   const caseStages: Stage[] = ['proposed', 'experiment', 'approved', 'in_delivery', 'live', 'value_realized', 'scale']
@@ -123,6 +150,7 @@ export default function MySubmissions({ me }: { me: { name: string; role: string
                 <span className="pill act-verify">action needed</span>
               </div>
               <p className="small">{i.attention_reason}</p>
+              <ReviseBox idea={i} onDone={() => load(name)} />
               <Chain idea={i} workflow={data!.workflow} />
             </div>
           ))}

@@ -1916,3 +1916,52 @@ def test_workspace_start_flow(client):
     # claimed workspaces refuse a second start
     assert client.post("/api/workspace/start", json={
         "name": "x", "company": "y", "email": "x@y.z", "password": "z"}).status_code == 403
+
+
+def test_negative_e2e_loops_close(client):
+    """Negative paths: feedback must be answerable, hold must be resumable,
+    and neither loop accepts illegal transitions."""
+    client.post("/api/datasets/load-samples")
+    idea = client.post("/api/ideas", json={
+        "title": "Better reports", "description": "Improve reports.", "submitter": "sana",
+    }).json()
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "feedback",
+        "actor": "rio", "comment": "Which reports?"})
+    assert idea["id"] in client.get("/api/my-submissions",
+                                    params={"submitter": "sana"}).json()["updates_needed"]
+
+    # feedback loop closes: revise -> rescored -> attention flag cleared
+    old_score = idea["assessment"]["score"]
+    r = client.put(f"/api/ideas/{idea['id']}/revise", json={
+        "description": "Consolidate the four weekly finance reports the CFO team compiles "
+                       "by hand into one automated pack, saving ~10 analyst hours a week.",
+        "estimated_annual_benefit": 45000})
+    assert r.status_code == 200
+    assert r.json()["assessment"]["score"] > old_score
+    assert idea["id"] not in client.get("/api/my-submissions",
+                                        params={"submitter": "sana"}).json()["updates_needed"]
+
+    # hold loop closes: hold -> visible with reason -> resume -> back in queue
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "qualify", "actor": "rio"})
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "hold",
+        "actor": "rio", "comment": "revisit next quarter"})
+    backlog = client.get("/api/command/queue").json()["idea_backlog"]
+    assert backlog[0]["held_reason"] == "revisit next quarter"
+    r = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "resume", "actor": "rio"})
+    assert r.status_code == 200
+    assert r.json()["result"]["idea"]["status"] == "qualified"
+
+    # illegal transitions refused
+    assert client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "resume", "actor": "rio",
+    }).status_code == 400  # not on backlog
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "reject", "actor": "rio"})
+    assert client.put(f"/api/ideas/{idea['id']}/revise",
+                      json={"description": "zombie edit"}).status_code == 400  # declined is final
+    assert client.put("/api/ideas/IDEA-nope/revise",
+                      json={"description": "x"}).status_code == 404

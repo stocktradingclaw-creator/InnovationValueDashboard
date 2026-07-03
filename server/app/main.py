@@ -816,7 +816,10 @@ def command_queue() -> Dict[str, Any]:
              "ideas": _with_checklist([x for x in ideas if x["status"] == s["key"]])}
             for i, s in enumerate(steps)
         ],
-        "idea_backlog": [i for i in ideas if i["status"] == "backlog"],
+        "idea_backlog": [
+            {**i, "held_reason": next((e["comment"] for e in reversed(db.events_for("idea", i["id"]))
+                                       if e["action"] == "hold"), None)}
+            for i in ideas if i["status"] == "backlog"],
         "cases_pending_approval": [c for c in cases if c["stage"] in ("draft", "proposed")],
         "cases_in_experiment": [c for c in cases if c["stage"] == "experiment"],
         "cases_in_motion": [
@@ -838,7 +841,7 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
     if body.subject_type not in ("idea", "case"):
         raise HTTPException(400, "subject_type must be 'idea' or 'case'")
     valid = ("approve", "advance", "reject", "feedback", "experiment",
-             "qualify", "prioritize", "hold", "develop")
+             "qualify", "prioritize", "hold", "develop", "resume")
     if body.decision not in valid:
         raise HTTPException(400, f"decision must be one of {valid}")
     db.audit(f"decide.{body.decision}", _session_name() or body.actor,
@@ -868,6 +871,18 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
                 raise HTTPException(400, f"'prioritize' applies at the gate before development (status: {idea['status']})")
             decision = "advance"
 
+        if decision == "resume":
+            if idea["status"] != "backlog":
+                raise HTTPException(400, "only backlog ideas can be resumed")
+            blocked = hub.check_role("reviewer", _session_name() or body.actor)
+            if blocked:
+                raise HTTPException(403, blocked)
+            target = keys[1] if len(keys) > 1 else keys[0]
+            db.update_idea(idea["id"], target)
+            db.add_workflow_event("idea", idea["id"], "resume", body.actor, body.comment)
+            db.notify(idea.get("submitter"), "idea", idea["id"],
+                      f"Your idea '{idea['title']}' is back in review.")
+            return {"result": {"idea": db.get_idea(idea["id"])}}
         if pos < 0 and decision in ("advance", "develop", "hold"):
             raise HTTPException(400, f"No forward gate from status '{idea['status']}'")
         minimum = "contributor" if decision == "feedback" else "reviewer"
@@ -1213,6 +1228,33 @@ def release_tranche(case_id: str, tranche_id: int, body: ReleaseRequest) -> Dict
 
 
 # --------------------------------------------------------------- notifications
+
+class ReviseRequest(BaseModel):
+    description: str
+    title: Optional[str] = None
+    estimated_annual_benefit: Optional[float] = None
+    actor: Optional[str] = None
+
+
+@app.put("/api/ideas/{idea_id}/revise")
+def revise_idea(idea_id: str, body: ReviseRequest) -> Dict[str, Any]:
+    """Close the feedback loop: the submitter answers reviewer feedback by
+    revising the idea in place — it re-triages and returns to the queue."""
+    idea = db.get_idea(idea_id)
+    if idea is None:
+        raise HTTPException(404, f"Idea '{idea_id}' not found")
+    if idea["status"] in ("declined", "business_case"):
+        raise HTTPException(400, f"ideas in status '{idea['status']}' can't be revised")
+    if not body.description.strip():
+        raise HTTPException(400, "a description is required")
+    db.update_idea_fields(idea_id, (body.title or idea["title"]).strip(),
+                          body.description.strip(), body.estimated_annual_benefit)
+    fresh = _rescore_idea(idea_id)
+    actor = _session_name() or body.actor or idea.get("submitter")
+    db.add_workflow_event("idea", idea_id, "revise", actor, "revised after feedback")
+    db.audit("idea.revise", actor, idea_id)
+    return fresh
+
 
 @app.get("/api/my-submissions")
 def my_submissions(submitter: str = Query(...)) -> Dict[str, Any]:
@@ -1938,6 +1980,8 @@ def metric_deltas() -> Dict[str, Any]:
     today = datetime.date.today().isoformat()
     db.record_snapshot(today, verified, claimed, ideas_n, len(cases))
     prior = db.snapshot_before(today)
+    if prior and prior["day"] == today:
+        prior = None
     observed = [o["observed_at"] for c in cases for b in c.get("metric_bindings", [])
                 for o in b.get("observations", [])]
     return {
