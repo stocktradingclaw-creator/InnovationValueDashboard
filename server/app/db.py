@@ -109,6 +109,13 @@ CREATE TABLE IF NOT EXISTS users (
     created_at    TEXT NOT NULL,
     password_hash TEXT
 );
+CREATE TABLE IF NOT EXISTS metric_snapshots (
+    day      TEXT PRIMARY KEY,
+    verified REAL NOT NULL,
+    claimed  REAL NOT NULL,
+    ideas    INTEGER NOT NULL,
+    cases    INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS learning_citations (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
     idea_id  TEXT NOT NULL,
@@ -1303,3 +1310,22 @@ def learning_dividends() -> List[Dict[str, Any]]:
             "FROM learning_citations lc JOIN business_cases b ON b.id = lc.case_id "
             "GROUP BY lc.case_id ORDER BY citations DESC LIMIT 20").fetchall()
     return [dict(r) for r in rows]
+
+
+def record_snapshot(day: str, verified: float, claimed: float,
+                    ideas: int, cases: int) -> None:
+    with _conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO metric_snapshots (day, verified, claimed, ideas, cases) "
+            "VALUES (?, ?, ?, ?, ?)", (day, verified, claimed, ideas, cases))
+
+
+def snapshot_before(day: str) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM metric_snapshots WHERE day < ? ORDER BY day DESC LIMIT 1",
+            (day,)).fetchone()
+        if row is None:
+            row = conn.execute(
+                "SELECT * FROM metric_snapshots ORDER BY day ASC LIMIT 1").fetchone()
+    return dict(row) if row else None

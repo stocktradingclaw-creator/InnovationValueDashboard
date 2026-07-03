@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { getGenome, getMyWork, getPnl, loadSamples, money } from '../api'
+import { getInitiatives as getObjectives } from '../api'
 import { useEffect } from 'react'
 import { getInitiatives } from '../api'
 import type { DashboardData, Decision, Initiative, Quadrant, TimelineMonth } from '../types'
@@ -238,9 +239,35 @@ function MyWork({ onNavigate }: { onNavigate: (t: NavTab) => void }) {
   )
 }
 
+function StrategyCard({ onNavigate }: { onNavigate: (t: NavTab) => void }) {
+  const [rows, setRows] = useState<Initiative[]>([])
+  useEffect(() => { getObjectives().then((r) => setRows(r.initiatives)).catch(() => {}) }, [])
+  if (rows.length === 0) return null
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h3>Strategy performance</h3>
+        <span className="muted small">value rolled up per objective, in priority order</span>
+      </div>
+      {rows.slice(0, 5).map((o) => (
+        <div key={o.id} className="decision-row" role="button" tabIndex={0}
+             onKeyDown={(e) => { if (e.key === 'Enter') onNavigate('tracking') }}
+             onClick={() => onNavigate('tracking')}>
+          <span><strong>{o.name}</strong> <span className="muted small">{o.objective}</span></span>
+          <span className="muted small">
+            {(o as unknown as { ideas_count?: number }).ideas_count ?? 0} ideas ·{' '}
+            {(o as unknown as { cases_count?: number }).cases_count ?? 0} cases ·{' '}
+            {money((o as unknown as { forecast_annual_savings?: number }).forecast_annual_savings ?? 0)}/yr forecast
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function PnlCard() {
   const [pnl, setPnl] = useState<Awaited<ReturnType<typeof getPnl>> | null>(null)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(['executive', 'admin'].includes(localStorage.getItem('ivd_role') ?? ''))
   useEffect(() => { getPnl().then(setPnl).catch(() => {}) }, [])
   if (!pnl || pnl.capital_deployed === 0) return null
   if (!open) {
@@ -343,6 +370,10 @@ function DecisionQueue({ decisions, onNavigate }: { decisions: Decision[]; onNav
 
 export default function Dashboard({ data, onNavigate, onChanged }: Props) {
   const [seeding, setSeeding] = useState(false)
+  const [deltas, setDeltas] = useState<{ verified_delta: number | null; since: string | null; last_observed_at: string | null } | null>(null)
+  useEffect(() => {
+    fetch('/api/deltas').then((r) => r.json()).then(setDeltas).catch(() => {})
+  }, [])
   if (!data) {
     return (
       <section aria-busy="true" aria-label="Loading overview">
@@ -403,6 +434,10 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
     <section className="exec">
       <div className="section-header">
         <p className="headline-sentence">{data.headline}</p>
+        <button className="secondary" title="Hide navigation and chrome for a steering meeting"
+                onClick={() => document.body.classList.toggle('present')}>
+          Present
+        </button>
         <button className="secondary"
                 onClick={() => window.open('/api/reports/board-pack?format=html', '_blank')}
                 title="Opens a print-ready page — save as PDF from the print dialog">
@@ -410,15 +445,25 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
         </button>
       </div>
       <MyWork onNavigate={onNavigate} />
+      <StrategyCard onNavigate={onNavigate} />
       <PnlCard />
 
       <div className="hero-band">
         {ts && ts.verified_run_rate > 0 ? (
           <>
             <div className="hero-stat verified">
-              <span className="hero-label">Verified savings run-rate</span>
+              <span className="hero-label">Verified savings run-rate{' '}
+                <button className="info-i" title="How is this computed? Every dollar is traceable — open the ledger"
+                        aria-label="How verified value is computed"
+                        onClick={() => onNavigate('tracking')}>ⓘ</button>
+              </span>
               <strong>{money(ts.verified_run_rate)}<em>/yr</em></strong>
-              <span className="muted small">computed from source data, not self-reported</span>
+              <span className="muted small">computed from source data, not self-reported
+                {deltas?.verified_delta != null && deltas.since && (
+                  <> · {deltas.verified_delta >= 0 ? '▲ +' : '▼ '}{money(Math.abs(deltas.verified_delta))} since {deltas.since}</>
+                )}
+                {deltas?.last_observed_at && <> · last observed {deltas.last_observed_at.slice(0, 10)}</>}
+              </span>
             </div>
             <div className="hero-stat">
               <span className="hero-label">Invested to date</span>

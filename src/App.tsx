@@ -321,7 +321,7 @@ export default function App() {
 
   useEffect(() => {
     getMe()
-      .then((r) => { setAuthRequired(r.auth_required); setMe(r.user); setWorkspace((r as { workspace?: string }).workspace ?? null) })
+      .then((r) => { setAuthRequired(r.auth_required); setMe(r.user); setWorkspace((r as { workspace?: string }).workspace ?? null); if (r.user) localStorage.setItem('ivd_role', r.user.role) })
       .catch(() => {})
       .finally(() => setAuthChecked(true))
     const onAuthRequired = () => { setAuthRequired(true); setMe(null) }

@@ -819,7 +819,12 @@ def command_queue() -> Dict[str, Any]:
         "idea_backlog": [i for i in ideas if i["status"] == "backlog"],
         "cases_pending_approval": [c for c in cases if c["stage"] in ("draft", "proposed")],
         "cases_in_experiment": [c for c in cases if c["stage"] == "experiment"],
-        "cases_in_motion": [c for c in cases if c["stage"] in ("approved", "in_delivery")],
+        "cases_in_motion": [
+            {**c, "approved_by": next((e["actor"] for e in reversed(db.events_for("case", c["id"]))
+                                       if e["action"] == "approve"), None),
+             "approved_at": next((e["created_at"][:10] for e in reversed(db.events_for("case", c["id"]))
+                                  if e["action"] == "approve"), None)}
+            for c in cases if c["stage"] in ("approved", "in_delivery")],
         "history": db.workflow_events(30),
         "governance": hub.get_governance(),
         "automation_ran": automation,
@@ -1861,14 +1866,17 @@ def board_pack(format: str = Query("md")) -> Any:
         for c in cases for b in c.get("metric_bindings", []))
     claimed = sum(e["amount"] for c in cases for e in c.get("savings_entries", []))
     released = sum((c.get("funding") or {}).get("released", 0) for c in cases)
+    prior = db.snapshot_before(datetime.date.today().isoformat())
     lines = [
-        "# Innovation Hub — Board Pack",
+        f"# {db.meta_get('workspace_name') or 'Innovation Hub'} — Board Pack",
         f"_Generated {datetime.date.today().isoformat()}_",
         "",
         f"**Headline:** {d.get('headline', {}).get('text', 'n/a') if isinstance(d.get('headline'), dict) else d.get('headline', 'n/a')}",
         "",
         "## Value (verified vs claimed — never blended)",
-        f"- Verified annual value (computed from data): ${verified:,.0f}",
+        f"- Verified annual value (computed from data): ${verified:,.0f}"
+        + (f" ({'+' if verified - prior['verified'] >= 0 else ''}"
+           f"${verified - prior['verified']:,.0f} vs {prior['day']})" if prior else ""),
         f"- Claimed savings to date (self-reported): ${claimed:,.0f}",
         f"- Funding released through gated tranches: ${released:,.0f}",
         "",
@@ -1916,6 +1924,31 @@ def board_pack(format: str = Query("md")) -> Any:
     return PlainTextResponse("\n".join(lines), media_type="text/markdown",
                              headers={"Content-Disposition":
                                       "attachment; filename=board-pack.md"})
+
+
+@app.get("/api/deltas")
+def metric_deltas() -> Dict[str, Any]:
+    """Leaders manage deltas, not snapshots: today's core numbers vs the
+    prior recorded day, plus data freshness."""
+    cases = db.list_business_cases()
+    verified = round(sum((b.get("annualized_delta") or 0)
+                         for c in cases for b in c.get("metric_bindings", [])), 2)
+    claimed = round(sum(e["amount"] for c in cases for e in c.get("savings_entries", [])), 2)
+    ideas_n = len(db.list_ideas())
+    today = datetime.date.today().isoformat()
+    db.record_snapshot(today, verified, claimed, ideas_n, len(cases))
+    prior = db.snapshot_before(today)
+    observed = [o["observed_at"] for c in cases for b in c.get("metric_bindings", [])
+                for o in b.get("observations", [])]
+    return {
+        "as_of": today,
+        "verified": verified,
+        "verified_delta": round(verified - prior["verified"], 2) if prior else None,
+        "claimed_delta": round(claimed - prior["claimed"], 2) if prior else None,
+        "ideas_delta": ideas_n - prior["ideas"] if prior else None,
+        "since": prior["day"] if prior else None,
+        "last_observed_at": max(observed) if observed else None,
+    }
 
 
 @app.get("/api/value-ledger")
