@@ -63,10 +63,14 @@ function LoginScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
   return (
     <div className="login-screen">
       <div className="card login-card">
+        <svg viewBox="0 0 24 24" width="44" height="44" aria-hidden="true" className="login-mark">
+          <rect width="24" height="24" rx="6" fill="var(--surface-2)" />
+          <path d="M7 16l4-5 3 2 4-6" stroke="var(--accent)" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+        </svg>
         <h1>Innovation<span className="accent">Hub</span></h1>
         <p className="muted small">
-          Sign in to continue. If no accounts exist yet, your first sign-in creates
-          the admin account.
+          Welcome back — sign in to pick up where you left off.
+          First time here? Your first sign-in creates the admin account.
         </p>
         <input placeholder="User ID" value={name} autoFocus
                onChange={(e) => setName(e.target.value)} />
@@ -216,6 +220,7 @@ export default function App() {
   const [ideas, setIdeas] = useState<Idea[]>([])
   const [demoStatus, setDemoStatus] = useState<DemoStatus | null>(null)
   const [seeded, setSeeded] = useState(false)
+  const [needsMe, setNeedsMe] = useState(0)
   const [sources, setSources] = useState<SourceStatus[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [total, setTotal] = useState(0)
@@ -256,6 +261,12 @@ export default function App() {
       .finally(() => setAuthChecked(true))
     const onAuthRequired = () => { setAuthRequired(true); setMe(null) }
     const onNav = (e: Event) => setTab((e as CustomEvent).detail as Tab)
+    const who = localStorage.getItem('ivd_user')
+    if (who) {
+      import('./api').then(({ getMyWork }) =>
+        getMyWork(who).then((r) => setNeedsMe(r.items.filter((i) => i.kind === 'respond').length))
+          .catch(() => {}))
+    }
     window.addEventListener('ivd-auth-required', onAuthRequired)
     window.addEventListener('ivd-nav', onNav)
     return () => {
@@ -337,6 +348,11 @@ export default function App() {
                         onClick={() => setTab(id)}>
                   <Icon name={id} />
                   <span className="nav-label">{label}</span>
+                  {id === 'mine' && needsMe > 0 && (
+                    <span className="nav-dot" title={`${needsMe} item(s) need your response`}>
+                      {needsMe}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
