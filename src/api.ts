@@ -470,3 +470,7 @@ export function reorderInitiatives(ids: string[]) {
 export function updateChallenge(id: string, body: { title?: string; question?: string; theme?: string }) {
   return request<import('./types').Challenge>(`/api/challenges/${id}`, { ...json(body), method: 'PUT' })
 }
+
+export function toast(msg: string, undo?: () => void) {
+  window.dispatchEvent(new CustomEvent('ivd-toast', { detail: { msg, undo } }))
+}

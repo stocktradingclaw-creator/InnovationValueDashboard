@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   addExperiment, addTranche, concludeExperiment, decide, getCommandQueue, getDividends, getLearnings, redTeamCase, reviewIdea,
-  getLifecycle, getPatterns, money, releaseTranche, replicatePattern, runAutomation,
+  getLifecycle, getPatterns, money, toast, releaseTranche, replicatePattern, runAutomation,
 } from '../api'
 import type { BusinessCase, CommandQueue, Learning, Lifecycle, Pattern, QueuedIdea, Stage } from '../types'
 
@@ -145,33 +145,58 @@ function GateActions({
           <button
             key={decision}
             className={cls}
-            disabled={!!busy}
+            disabled={!!busy && busy !== `confirm-${decision}`}
             onClick={async () => {
-              setBusy(decision)
-              setError(null)
-              try {
-                await decide({
-                  subject_type: 'idea', subject_id: ideaId,
-                  decision: decision as Parameters<typeof decide>[0]['decision'],
-                  actor: actor || undefined, comment: comment || undefined,
-                })
-                setComment('')
-                onDone()
-              } catch (e) {
-                const msg = e instanceof Error ? e.message : String(e)
-                if (msg.includes('not found')) {
-                  setError('This idea no longer exists on the server (the demo data was '
-                    + 'reset or reverted since this queue loaded) — refreshing the queue.')
-                  setTimeout(onDone, 1200)
-                } else {
-                  setError(msg)
+              const fire = async () => {
+                try {
+                  await decide({
+                    subject_type: 'idea', subject_id: ideaId,
+                    decision: decision as Parameters<typeof decide>[0]['decision'],
+                    actor: actor || undefined, comment: comment || undefined,
+                  })
+                  setComment('')
+                  onDone()
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : String(e)
+                  if (msg.includes('not found')) {
+                    setError('This idea no longer exists on the server (the demo data was '
+                      + 'reset or reverted since this queue loaded) — refreshing the queue.')
+                    setTimeout(onDone, 1200)
+                  } else if (msg.includes('requires') || msg.includes('profile')) {
+                    setError(`${msg} — set who you are in the "Acting as" field at the top.`)
+                  } else {
+                    setError(msg)
+                  }
+                } finally {
+                  setBusy(null)
                 }
-              } finally {
-                setBusy(null)
               }
+              setError(null)
+              if (decision === 'reject') {
+                // destructive: explicit two-tap confirmation
+                if (busy !== 'confirm-reject') { setBusy('confirm-reject'); return }
+                setBusy(decision)
+                await fire()
+                toast('Declined.')
+                return
+              }
+              if (decision === 'advance' || decision === 'develop' || decision === 'hold') {
+                // reversible window: commit after 8s unless undone
+                setBusy(decision)
+                const timer = window.setTimeout(fire, 8000)
+                toast(`${label} — applying in a few seconds`, () => {
+                  window.clearTimeout(timer)
+                  setBusy(null)
+                })
+                return
+              }
+              setBusy(decision)
+              await fire()
+              toast('Feedback sent to the submitter.')
             }}
           >
-            {busy === decision ? '…' : label}
+            {busy === `confirm-${decision}` ? 'Decline — are you sure?'
+              : busy === decision ? 'Applying…' : label}
           </button>
         ))}
       </div>
@@ -584,7 +609,8 @@ function Pipeline({ cases }: { cases: BusinessCase[] }) {
 export default function CommandCenter({ onChanged }: Props) {
   const [queue, setQueue] = useState<CommandQueue | null>(null)
   const [lifecycle, setLifecycle] = useState<Lifecycle | null>(null)
-  const [actor, setActor] = useState('')
+  const [actor, setActor] = useState(localStorage.getItem('ivd_user') ?? '')
+  const [openGates, setOpenGates] = useState<Record<string, boolean>>({})
   const [autoBusy, setAutoBusy] = useState(false)
 
   const refresh = async () => {
@@ -611,6 +637,9 @@ export default function CommandCenter({ onChanged }: Props) {
   const allCases = [
     ...queue.cases_pending_approval, ...queue.cases_in_experiment, ...queue.cases_in_motion,
   ]
+  const firstBusy = queue.idea_steps.findIndex((st) => st.ideas.length > 0)
+  const isOpen = (key: string, i: number) =>
+    openGates[key] ?? (i === (firstBusy === -1 ? 0 : firstBusy))
 
   return (
     <section>
@@ -691,10 +720,15 @@ export default function CommandCenter({ onChanged }: Props) {
                               comment: 'advanced by drag on the board' }).catch(() => {})
                refresh()
              }}>
-          <h3 className={i > 0 ? 'spaced' : undefined} id={`cc-step-${step.key}`}>
+          <h3 className={`gate-head ${i > 0 ? 'spaced' : ''}`} id={`cc-step-${step.key}`}
+              role="button" tabIndex={0} aria-expanded={isOpen(step.key, i)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenGates({ ...openGates, [step.key]: !isOpen(step.key, i) }) } }}
+              onClick={() => setOpenGates({ ...openGates, [step.key]: !isOpen(step.key, i) })}>
+            <span className={`chev ${isOpen(step.key, i) ? 'chev-open' : ''}`} aria-hidden="true">▸</span>{' '}
             Gate {i + 1} — {step.gate} ({step.ideas.length})
             {i > 0 && <span className="muted small"> · drop a card here to pass its gate</span>}
           </h3>
+          {isOpen(step.key, i) && (<>
           <p className="muted small">{step.purpose}</p>
           {i === queue.idea_steps.length - 1 && <PortfolioRegister lifecycle={lifecycle} />}
           {step.ideas.length === 0 && (
@@ -710,6 +744,7 @@ export default function CommandCenter({ onChanged }: Props) {
                   : [['advance', 'Pass gate', ''], ['hold', 'Hold (backlog)', 'secondary'], ['reject', 'Decline', 'danger']]}
             />
           ))}
+          </>)}
         </div>
       ))}
       {queue.idea_backlog.length > 0 && (

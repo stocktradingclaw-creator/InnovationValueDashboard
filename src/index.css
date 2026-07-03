@@ -4,7 +4,7 @@
   --surface-2: #232c36;
   --border: #2e3a46;
   --text: #e6edf3;
-  --muted: #8b9aa8;
+  --muted: #97a6b4;
   --accent: #4cc38a;
   --accent-dim: #2d7a57;
   --error: #e5534b;
@@ -1722,3 +1722,49 @@ main > section {
 
 .delay-ticker { border-color: var(--warn); }
 .redteam-memo { border-left: 3px solid var(--danger-soft); padding-left: 0.8rem; margin: 0.5rem 0; }
+
+/* -------- world-class UX pass: feedback, affordance, touch, focus -------- */
+
+:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; border-radius: 4px; }
+
+.toasts { position: fixed; bottom: 1.2rem; right: 1.2rem; z-index: 100;
+  display: flex; flex-direction: column; gap: 0.5rem; }
+.toast { background: var(--surface-2); border: 1px solid var(--accent-dim);
+  border-radius: 10px; padding: 0.7rem 1rem; box-shadow: 0 12px 32px rgba(0,0,0,.5);
+  display: flex; gap: 0.8rem; align-items: center; font-size: 0.9rem; }
+.toast button { padding: 0.3rem 0.8rem; }
+
+.new-idea-cta { display: flex; align-items: center; gap: 0.6rem; width: 100%;
+  background: var(--accent-dim); border: 1px solid var(--accent);
+  padding: 0.6rem; font-weight: 600; }
+.nav-group { margin-bottom: 0.6rem; }
+.nav-group-label { display: block; font-size: 0.68rem; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--muted); padding: 0.3rem 0.6rem 0.1rem; }
+.nav-collapsed .nav-group-label { display: none; }
+
+.card-header.clickable:hover { background: var(--surface-2); border-radius: 8px; }
+.card-header.clickable::after { content: '▸'; color: var(--muted); margin-left: auto; }
+.chev { display: inline-block; transition: transform 0.15s ease; }
+.chev-open { transform: rotate(90deg); }
+.gate-head { cursor: pointer; }
+.gate-head:hover { color: var(--accent); }
+[draggable='true'] { cursor: grab; }
+[draggable='true']:active { cursor: grabbing; }
+
+.search-results .hit-active { background: var(--surface-2); }
+.mobile-search { display: none; }
+
+.matrix-legend { display: flex; gap: 1rem; justify-content: center; margin-top: 0.3rem; flex-wrap: wrap; }
+.legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
+
+@media (max-width: 900px) {
+  .opps-table, .kpi-table { display: block; overflow-x: auto; }
+}
+
+@media (max-width: 760px) {
+  .mobile-search { display: block; margin: 0 0 0.8rem; max-width: calc(100vw - 140px); }
+  button, .chip, .sidebar nav button, .new-idea-cta { min-height: 48px; }
+  .profile-fab { width: 48px; height: 48px; }
+  input, select { min-height: 48px; }
+  .rubric-row input[type='range'] { min-height: 48px; }
+}

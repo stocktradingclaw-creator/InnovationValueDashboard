@@ -52,6 +52,7 @@ function WeightSliders({ weights, onChange }: { weights: Weights; onChange: (w: 
             type="range"
             min={0}
             max={100}
+            aria-label={`Weight for ${label}`}
             value={weights[key]}
             onChange={(e) => onChange({ ...weights, [key]: Number(e.target.value) })}
           />
@@ -104,6 +105,11 @@ function QuadrantMatrix({ opportunities }: { opportunities: Opportunity[] }) {
       <div className="matrix-axes muted small">
         <span>← cheaper to implement</span>
         <span>more expensive →</span>
+      </div>
+      <div className="matrix-legend muted small" aria-hidden="false">
+        {(['quick_win', 'strategic_bet', 'fill_in', 'deprioritize'] as Quadrant[]).map((q) => (
+          <span key={q}><i className={`legend-dot dot-${q}`} /> {QUADRANT_LABELS[q]}</span>
+        ))}
       </div>
       <p className="matrix-note muted small">
         Higher = more risk-adjusted value per year · dot size = size of the prize ·

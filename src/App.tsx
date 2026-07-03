@@ -66,8 +66,48 @@ function LoginScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
   }
 }
 
+function Toasts() {
+  const [toasts, setToasts] = useState<{ id: number; msg: string; undo?: () => void }[]>([])
+  useEffect(() => {
+    const h = (e: Event) => {
+      const d = (e as CustomEvent).detail as { msg: string; undo?: () => void }
+      const id = Date.now() + Math.random()
+      setToasts((t) => [...t, { id, ...d }])
+      window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), d.undo ? 8000 : 4000)
+    }
+    window.addEventListener('ivd-toast', h)
+    return () => window.removeEventListener('ivd-toast', h)
+  }, [])
+  if (toasts.length === 0) return null
+  return (
+    <div className="toasts" role="status" aria-live="polite">
+      {toasts.map((t) => (
+        <div key={t.id} className="toast">
+          {t.msg}
+          {t.undo && (
+            <button onClick={() => { t.undo!(); setToasts((x) => x.filter((y) => y.id !== t.id)) }}>
+              Undo
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function ProfileMenu({ me, onChangeUser }: { me: AuthUser | null; onChangeUser: () => void }) {
   const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent && e.key !== 'Escape') return
+      if (e instanceof MouseEvent && (e.target as HTMLElement).closest('.profile-menu')) return
+      setOpen(false)
+    }
+    document.addEventListener('keydown', close)
+    document.addEventListener('mousedown', close)
+    return () => { document.removeEventListener('keydown', close); document.removeEventListener('mousedown', close) }
+  }, [open])
   return (
     <div className="profile-menu">
       <button className="profile-fab" aria-label="User profile" aria-expanded={open}
@@ -107,14 +147,44 @@ export default function App() {
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<{ type: string; tab: string; id: string; title: string; hint: string }[]>([])
   const searchTimer = (window as unknown as { __ivdT?: number })
+  const [hitIndex, setHitIndex] = useState(-1)
   const runSearch = (q: string) => {
     setQuery(q)
+    setHitIndex(-1)
     if (searchTimer.__ivdT) window.clearTimeout(searchTimer.__ivdT)
     if (q.trim().length < 2) { setHits([]); return }
     searchTimer.__ivdT = window.setTimeout(() => {
       searchAll(q).then((r) => setHits(r.results)).catch(() => {})
     }, 350)
   }
+  const pickHit = (h: { tab: string }) => { setTab(h.tab as Tab); setHits([]); setQuery('') }
+  const searchKeys = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHitIndex((i) => Math.min(i + 1, hits.length - 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHitIndex((i) => Math.max(i - 1, 0)) }
+    else if (e.key === 'Enter' && hitIndex >= 0 && hits[hitIndex]) pickHit(hits[hitIndex])
+    else if (e.key === 'Escape') { setHits([]); setQuery('') }
+  }
+  const searchBlock = (
+    <div className="nav-search">
+      <input placeholder="Search…" value={query} role="combobox" aria-expanded={hits.length > 0}
+             aria-controls="ivd-search-results" aria-activedescendant={hitIndex >= 0 ? `hit-${hitIndex}` : undefined}
+             onChange={(e) => runSearch(e.target.value)} onKeyDown={searchKeys}
+             aria-label="Global search" />
+      {hits.length > 0 && (
+        <div className="search-results" id="ivd-search-results" role="listbox">
+          {hits.map((h, i) => (
+            <button key={`${h.type}-${h.id}`} id={`hit-${i}`} role="option"
+                    aria-selected={i === hitIndex}
+                    className={i === hitIndex ? 'hit-active' : ''}
+                    onClick={() => pickHit(h)}>
+              <span className="tag">{h.type}</span> {h.title}
+              <span className="muted small"> {h.hint}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
   const [collapsed, setCollapsed] = useState(localStorage.getItem('ivd_nav') === 'collapsed')
   const [tab, setTab] = useState<Tab>('overview')
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
@@ -183,18 +253,25 @@ export default function App() {
 
   const hasData = sources.some((s) => s.rows_loaded > 0)
 
-  const NAV: [Tab, string, string][] = [
-    ['overview', '◉', 'Overview'],
-    ['ideas', '✎', 'Idea Submission'],
-    ['mine', '★', 'My Submissions'],
-    ['command', '⌘', 'Command Center'],
-    ['pipeline', '⇶', 'Pipeline'],
-    ['sources', '⛁', 'Data Sources'],
-    ['opportunities', '◎', 'Opportunities'],
-    ['cases', '▤', 'Business Cases'],
-    ['tracking', '✓', 'ROI Tracking'],
-    ['portfolio', '▦', 'Portfolio'],
-    ['settings', '⚙', 'Hub Settings'],
+  const NAV_GROUPS: [string, [Tab, string, string][]][] = [
+    ['My work', [
+      ['overview', '⌂', 'Overview'],
+      ['mine', '★', 'My Submissions'],
+    ]],
+    ['Decide', [
+      ['command', '☑', 'Approvals'],
+      ['pipeline', '≫', 'Pipeline'],
+    ]],
+    ['Value', [
+      ['opportunities', '◎', 'Opportunities'],
+      ['cases', '▤', 'Business Cases'],
+      ['tracking', '✓', 'ROI Tracking'],
+      ['portfolio', '▦', 'Portfolio'],
+    ]],
+    ['Configure', [
+      ['sources', '⛁', 'Data Sources'],
+      ['settings', '⚙', 'Hub Settings'],
+    ]],
   ]
 
   return (
@@ -213,35 +290,30 @@ export default function App() {
             {collapsed ? '»' : '«'}
           </button>
         </div>
-        {!collapsed && (
-          <div className="nav-search">
-            <input placeholder="Search…" value={query}
-                   onChange={(e) => runSearch(e.target.value)} aria-label="Global search" />
-            {hits.length > 0 && (
-              <div className="search-results">
-                {hits.map((h) => (
-                  <button key={`${h.type}-${h.id}`} onClick={() => {
-                    setTab(h.tab as Tab); setHits([]); setQuery('')
-                  }}>
-                    <span className="tag">{h.type}</span> {h.title}
-                    <span className="muted small"> {h.hint}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        {!collapsed && searchBlock}
+        <button className="new-idea-cta" onClick={() => setTab('ideas')}
+                title="Submit a new idea">
+          <span className="nav-glyph" aria-hidden="true">＋</span>
+          <span className="nav-label">New idea</span>
+        </button>
         <nav>
-          {NAV.map(([id, glyph, label]) => (
-            <button key={id} className={tab === id ? 'active' : ''} title={label}
-                    onClick={() => setTab(id)}>
-              <span className="nav-glyph" aria-hidden="true">{glyph}</span>
-              <span className="nav-label">{label}</span>
-            </button>
+          {NAV_GROUPS.map(([group, items]) => (
+            <div key={group} className="nav-group">
+              <span className="nav-group-label nav-label">{group}</span>
+              {items.map(([id, glyph, label]) => (
+                <button key={id} className={tab === id ? 'active' : ''} title={label}
+                        onClick={() => setTab(id)}>
+                  <span className="nav-glyph" aria-hidden="true">{glyph}</span>
+                  <span className="nav-label">{label}</span>
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
       </aside>
       <div className="content">
+      <Toasts />
+      <div className="mobile-search">{searchBlock}</div>
       <ProfileMenu me={me} onChangeUser={changeUser} />
       {demoStatus && (
         <div className="banner-demo">

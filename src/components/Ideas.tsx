@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useEffect } from 'react'
-import { getIdeaAttachments, similarIdeas, uploadIdeaAttachment, assistDescription, commentOnIdea, evaluateIdea, getChallenges, getInitiatives, getNotifications, importIdeas, money, submitIdea, voteIdea } from '../api'
+import { toast, voteIdea as voteSimilar, getIdeaAttachments, similarIdeas, uploadIdeaAttachment, assistDescription, commentOnIdea, evaluateIdea, getChallenges, getInitiatives, getNotifications, importIdeas, money, submitIdea, voteIdea } from '../api'
 import type { AssistResult } from '../api'
 import type { Challenge, Idea, Initiative, Notification } from '../types'
 
@@ -145,9 +145,13 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
         <div className="similar-box">
           <span className="muted small">Similar ideas already exist — consider joining one instead:</span>
           {similar.map((si) => (
-            <span key={si.id} className="chip" title={si.status}>
-              {si.title} <span className="muted small">({si.vote_count} votes · {si.status.replace('_', ' ')})</span>
-            </span>
+            <button key={si.id} type="button" className="chip" title={`Add your vote to "${si.title}" instead of duplicating it`}
+                    onClick={async () => {
+                      await voteSimilar(si.id, submitter || 'anonymous').catch(() => {})
+                      toast(`Joined "${si.title}" with your vote.`)
+                    }}>
+              ▲ {si.title} <span className="muted small">({si.vote_count} votes · {si.status.replace('_', ' ')})</span>
+            </button>
           ))}
         </div>
       )}

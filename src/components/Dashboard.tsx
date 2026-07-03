@@ -240,11 +240,26 @@ function MyWork({ onNavigate }: { onNavigate: (t: NavTab) => void }) {
 
 function PnlCard() {
   const [pnl, setPnl] = useState<Awaited<ReturnType<typeof getPnl>> | null>(null)
+  const [open, setOpen] = useState(false)
   useEffect(() => { getPnl().then(setPnl).catch(() => {}) }, [])
   if (!pnl || pnl.capital_deployed === 0) return null
+  if (!open) {
+    return (
+      <div className="card card-header clickable" role="button" tabIndex={0}
+           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(true) } }}
+           onClick={() => setOpen(true)}>
+        <h3>Innovation P&amp;L</h3>
+        <span className="muted small">
+          {money(pnl.capital_deployed)} deployed · {money(pnl.verified_annual_return)}/yr verified
+        </span>
+      </div>
+    )
+  }
   return (
     <div className="card">
-      <div className="card-header">
+      <div className="card-header clickable" role="button" tabIndex={0}
+           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(false) } }}
+           onClick={() => setOpen(false)}>
         <h3>Innovation P&amp;L</h3>
         <span className="muted small">CFO-signable — verified and claimed never blended</span>
       </div>
@@ -272,15 +287,21 @@ function PnlCard() {
 
 function GenomeCard() {
   const [g, setG] = useState<Awaited<ReturnType<typeof getGenome>> | null>(null)
+  const [open, setOpen] = useState(false)
   useEffect(() => { getGenome().then(setG).catch(() => {}) }, [])
   if (!g || g.traits.length === 0) return null
   return (
     <div className="card">
-      <div className="card-header">
+      <div className="card-header clickable" role="button" tabIndex={0}
+           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(!open) } }}
+           onClick={() => setOpen(!open)}>
         <h3>Innovation genome</h3>
-        <span className="muted small">what predicts success here, learned from {g.ideas} ideas</span>
+        <span className="muted small">
+          {open ? `what predicts success here, learned from ${g.ideas} ideas`
+            : `top trait: ${g.traits[0].trait} (${g.traits[0].multiplier}×)`}
+        </span>
       </div>
-      {g.traits.slice(0, 4).map((t) => (
+      {open && g.traits.slice(0, 4).map((t) => (
         <div key={t.trait} className="decision-row">
           <span className={`pill ${t.multiplier >= 1 ? 'act-approve' : 'act-verify'}`}>
             {t.multiplier}×
