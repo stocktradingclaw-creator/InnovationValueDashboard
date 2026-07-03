@@ -135,9 +135,11 @@ export default function Opportunities({
       <section>
         <h2>Prioritized opportunities</h2>
         <p className="muted">
-          No data loaded yet. Go to <strong>Data Sources</strong> and upload customer exports,
-          sync a live connector, or load the sample data.
+          Nothing to prioritize yet — connect data and the engine finds the opportunities.
         </p>
+        <button onClick={() => window.dispatchEvent(new CustomEvent('ivd-nav', { detail: 'sources' }))}>
+          Connect data →
+        </button>
       </section>
     )
   }
@@ -202,6 +204,7 @@ export default function Opportunities({
             <>
               <tr
                 key={o.id}
+                data-eid={o.id}
                 className="opp-row"
                 tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(expanded === o.id ? null : o.id) } }}
                 onClick={() => setExpanded(expanded === o.id ? null : o.id)}

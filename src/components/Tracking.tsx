@@ -186,7 +186,7 @@ function CaseTracker({ bc, onChanged }: { bc: BusinessCase; onChanged: () => voi
   }
 
   return (
-    <div className="card">
+    <div className="card" data-eid={bc.id}>
       <div className="card-header">
         <h3>{bc.title}</h3>
         <div className="row">
@@ -358,9 +358,11 @@ export default function Tracking({ cases, onChanged }: Props) {
       <section>
         <h2>ROI tracking</h2>
         <p className="muted">
-          No business cases yet. Submit one under <strong>Business Cases</strong>, then come back
-          here after implementation to record KPI readings and realized savings against the plan.
+          No business cases yet — value tracking starts the moment one exists.
         </p>
+        <button onClick={() => window.dispatchEvent(new CustomEvent('ivd-nav', { detail: 'cases' }))}>
+          Create a business case →
+        </button>
       </section>
     )
   }

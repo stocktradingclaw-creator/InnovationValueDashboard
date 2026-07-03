@@ -403,15 +403,11 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
     <section className="exec">
       <div className="section-header">
         <p className="headline-sentence">{data.headline}</p>
-        <button className="secondary" onClick={async () => {
-          const res = await fetch('/api/reports/board-pack')
-          const blob = await res.blob()
-          const a = document.createElement('a')
-          a.href = URL.createObjectURL(blob)
-          a.download = 'board-pack.md'
-          a.click()
-          URL.revokeObjectURL(a.href)
-        }}>Export board pack</button>
+        <button className="secondary"
+                onClick={() => window.open('/api/reports/board-pack?format=html', '_blank')}
+                title="Opens a print-ready page — save as PDF from the print dialog">
+          Export board pack (PDF)
+        </button>
       </div>
       <MyWork onNavigate={onNavigate} />
       <PnlCard />

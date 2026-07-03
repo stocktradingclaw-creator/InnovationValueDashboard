@@ -324,7 +324,7 @@ function IdeaCard({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
   }
 
   return (
-    <div className="card idea-card">
+    <div className="card idea-card" data-eid={idea.id}>
       <div className="card-header clickable" role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded) } }} onClick={() => setExpanded(!expanded)}>
         <div className="idea-identity">
           <span className={`benefit-glyph ${BENEFIT_GLYPHS[idea.benefit_type ?? 'cost_reduction']?.[1] ?? 'g-cost'}`} aria-hidden="true">

@@ -185,7 +185,17 @@ export default function App() {
       searchAll(q).then((r) => setHits(r.results)).catch(() => {})
     }, 350)
   }
-  const pickHit = (h: { tab: string }) => { setTab(h.tab as Tab); setHits([]); setQuery('') }
+  const pickHit = (h: { tab: string; id: string }) => {
+    setTab(h.tab as Tab); setHits([]); setQuery('')
+    window.setTimeout(() => {
+      const el = document.querySelector(`[data-eid="${h.id}"]`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        el.classList.add('flash')
+        window.setTimeout(() => el.classList.remove('flash'), 2400)
+      }
+    }, 450)
+  }
   const searchKeys = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setHitIndex((i) => Math.min(i + 1, hits.length - 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setHitIndex((i) => Math.max(i - 1, 0)) }

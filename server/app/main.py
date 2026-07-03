@@ -1801,7 +1801,7 @@ def delivery_handoff(case_id: str) -> Dict[str, Any]:
 # -------------------------------------------------- board pack + value ledger
 
 @app.get("/api/reports/board-pack")
-def board_pack() -> Any:
+def board_pack(format: str = Query("md")) -> Any:
     """One-page markdown board pack: the numbers leadership asks for, in the
     order they ask for them — claimed and verified value never blended."""
     from fastapi.responses import PlainTextResponse
@@ -1840,6 +1840,31 @@ def board_pack() -> Any:
     lines += ["", "## Kills & learnings",
               f"- Experiments concluded with learnings captured: "
               f"{sum(1 for c in cases for e in c.get('experiments', []) if e.get('outcome'))}"]
+    if format == "html":
+        from fastapi.responses import HTMLResponse
+        import html as _h
+        body = ""
+        for ln in lines:
+            t = _h.escape(ln)
+            if ln.startswith("# "):
+                body += f"<h1>{t[2:]}</h1>"
+            elif ln.startswith("## "):
+                body += f"<h2>{t[3:]}</h2>"
+            elif ln.startswith("- "):
+                body += f"<li>{t[2:]}</li>"
+            elif ln.startswith("**"):
+                body += f"<p><strong>{t.replace('**', '')}</strong></p>"
+            elif ln.startswith("_"):
+                body += f"<p><em>{t.strip('_')}</em></p>"
+            elif ln:
+                body += f"<p>{t}</p>"
+        return HTMLResponse(
+            "<html><head><title>Innovation Hub — Board Pack</title><style>"
+            "body{font-family:-apple-system,system-ui,sans-serif;max-width:720px;"
+            "margin:2rem auto;color:#111;line-height:1.5}h1{border-bottom:2px solid #4cc38a;"
+            "padding-bottom:.3rem}h2{color:#2d7a57;margin-top:1.4rem}li{margin:.2rem 0}"
+            "@media print{body{margin:0}}</style></head><body>"
+            + body + "<script>window.print()</script></body></html>")
     return PlainTextResponse("\n".join(lines), media_type="text/markdown",
                              headers={"Content-Disposition":
                                       "attachment; filename=board-pack.md"})
