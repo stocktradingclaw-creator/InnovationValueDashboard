@@ -179,3 +179,116 @@ choreography (C2/U1/U2). Fix the seeded verified number, add a first-run
 "make it yours in 60 seconds" moment, replace the glyphs, and enforce one
 accent — those four changes do more for trial conversion than everything
 else on this list combined.
+
+---
+---
+
+# Round 2 — post-fix re-audit (2026-07-02, same day)
+
+*Round 1's critical list is confirmed fixed on the live deployment: verified
+value is real ($10K computed), sample-data banner greets visitors, SVG icons
+shipped, accent discipline enforced, undo/confirm on decisions, mobile
+search/labels/touch targets landed. This round judges what's left — and what
+the fixes exposed.*
+
+## Pass 1 — The designer, round 2
+
+### CRITICAL
+
+**R2-C1. There is still nothing to convert TO.** My only goal is trial
+starts, and this product has no trial: no sign-up path, no pricing page, no
+"Start free" button, no workspace-creation flow. The demo converts interest
+into… more demo. Every fix so far polishes the museum; there's still no gift
+shop. Ship a `/start` moment: name + email → fresh workspace (the state
+export/import and open-mode plumbing already make this a day of work).
+
+**R2-C2. The verified story is real but timid.** $10,080 verified against
+$131,700 claimed reads as "8% of what people promise is real" — technically
+honest, emotionally weak. The seed should verify six figures across 2–3
+cases so the hero band leads with a number that sells the wedge.
+
+**R2-C3. "Make it yours" evaporates after the banner.** Dismiss the
+sample-data banner and the only path to a personalized demo (Demo Studio —
+the single best sales weapon in the product) is buried behind a gear icon a
+contributor would never open. Promote "Generate MY company's portfolio" to
+the Overview empty/demo state permanently.
+
+### HIGH IMPACT
+
+**R2-H1. Charts still speak four dialects.** Gauge, slope, funnel, and
+matrix have different stroke weights, paddings, and label styles (Round 1
+H5, carried). One chart language = one afternoon with shared SVG constants.
+
+**R2-H2. The rise animation replays on unchanged cards.** Every decide →
+refresh → full remount → every card re-rises. What softened one reflow now
+reads as whole-board flicker on busy gates. Key-stable rendering or animate
+only entering cards.
+
+**R2-H3. Type scale is still flat.** h2 1.15rem vs body 0.92rem. The
+tracking fix helped texture, not hierarchy. Display numbers (hero band,
+P&L) deserve 1.6–2rem with the new tabular figures.
+
+**R2-H4. Wizard lets you jump to step 3 with an empty title** and the Next
+button disables silently — disabled states without explanations are dead
+ends (why can't I click this?). Inline "add a title first" beats a greyed
+button.
+
+**R2-H5. Phone first-viewport is crowded:** banner + mobile search + profile
+fab + headline stack before any content. Collapse the banner to one line on
+small screens.
+
+### NICE TO HAVE
+
+- **R2-N1.** Border-radius roulette persists (4/6/8/10/12/999).
+- **R2-N2.** aging-orange vs warn-orange still share one hue for two meanings.
+- **R2-N3.** Print board pack lacks the brand mark its login screen now has.
+- **R2-N4.** Toasts and profile popover can overlap at z-100 vs z-40.
+- **R2-N5.** Similar-idea "join" confirms via toast only — the chip itself
+  should flip to "✓ joined".
+
+## Pass 2 — The first-time user, round 2
+
+### CRITICAL
+
+**R2-U1. "I finished exploring and had nowhere to go."** I got it — the
+numbers are real, the red team is cool. Then I looked for "sign up," found
+nothing, and closed the tab. That's the whole funnel leaking at the last
+step.
+
+**R2-U2. "I dismissed the sample banner and couldn't find my way back to
+'try it with MY data.'"** The one thing that would have hooked me — seeing
+my own company's portfolio — I only found because someone told me it was
+under Hub Settings.
+
+### HIGH IMPACT
+
+**R2-U3. "The undo toast made me confident — then the whole gate blinked."**
+After the timer fired, every remaining card re-animated and I lost my scroll
+position mid-review. (Same root cause as R2-H2.)
+
+**R2-U4. "Search found my business case but landed me on ROI Tracking above
+the fold — the case was two screens down under a section I didn't know."**
+The flash works when the target is near; it should also expand the target's
+section.
+
+**R2-U5. "Step 2 asked who benefits — I'd already written that in the
+description the AI drafted."** The wizard doesn't notice the AI draft
+already contains beneficiary/pain, so it nags for what it has. Parse the
+draft's sections into the step-2 fields.
+
+### NICE TO HAVE
+
+- **R2-U6.** The genome bar collapsed says "top trait: Tagged to a strategic
+  objective (1.8×)" — cryptic before you know what the genome is.
+- **R2-U7.** Attachments only appear after expanding a card — no paperclip
+  count on the collapsed row.
+- **R2-U8.** After using search once, I expected ⌘K. Muscle memory from
+  every tool I use daily.
+
+## Round 2 verdict
+
+The product no longer looks vibe-coded — it looks designed, and the demo
+finally proves its own pitch. The remaining conversion gap is structural,
+not cosmetic: **there is no trial to start and no self-serve "my data"
+moment on the main path.** R2-C1 and R2-C3 are the whole ballgame; R2-H2 is
+the one polish item users physically feel. Everything else is tuning.
