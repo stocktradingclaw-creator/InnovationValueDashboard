@@ -91,7 +91,11 @@ export default function PipelineView() {
                   )}
                 </div>
                 {s.items.map((item) => (
-                  <div key={item.id} className={`pipeline-item${(item.days_in_stage ?? 0) > data.aging_threshold_days * 2 ? ' item-hot' : (item.days_in_stage ?? 0) > data.aging_threshold_days ? ' item-aging' : ''}`}>
+                  <div key={item.id} role="button" tabIndex={0}
+                       title="Open in Approvals to act on this"
+                       onKeyDown={(e) => { if (e.key === 'Enter') window.dispatchEvent(new CustomEvent('ivd-nav', { detail: 'command' })) }}
+                       onClick={() => window.dispatchEvent(new CustomEvent('ivd-nav', { detail: 'command' }))}
+                       className={`pipeline-item clickable${(item.days_in_stage ?? 0) > data.aging_threshold_days * 2 ? ' item-hot' : (item.days_in_stage ?? 0) > data.aging_threshold_days ? ' item-aging' : ''}`}>
                     <div className="small"><strong>{item.title}</strong></div>
                     <div className="muted small">
                       {item.value > 0 ? `${money(item.value)}/yr` : 'unsized'}

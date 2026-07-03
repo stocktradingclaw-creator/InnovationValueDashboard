@@ -228,8 +228,12 @@ function RubricPanel({ ideaId, actor, criteria, onDone }: {
         </label>
       ))}
       <div className="row">
-        <button disabled={busy || !actor.trim()} title={actor ? '' : 'Enter your name above first'}
+        <button disabled={busy}
                 onClick={async () => {
+                  if (!actor.trim()) {
+                    setMsg('Tell the hub who you are first — sign in or fill "Acting as" at the top.')
+                    return
+                  }
                   setBusy(true); setMsg(null)
                   try {
                     const filled = Object.fromEntries(crits.map((c) => [c, scores[c] ?? 3]))

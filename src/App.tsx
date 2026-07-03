@@ -399,7 +399,7 @@ export default function App() {
           </button>
         </div>
         {!collapsed && searchBlock}
-        <button className="new-idea-cta" onClick={() => setTab('ideas')}
+        <button className={authRequired ? "new-idea-cta" : "new-idea-cta cta-neutral"} onClick={() => setTab('ideas')}
                 title="Submit a new idea">
           <Icon name="plus" />
           <span className="nav-label">New idea</span>
@@ -423,6 +423,8 @@ export default function App() {
             </div>
           ))}
         </nav>
+        <a className="help-link nav-label" href="https://github.com/stocktradingclaw-creator/InnovationValueDashboard#readme"
+           target="_blank" rel="noreferrer">Help &amp; docs ↗</a>
         {!authRequired && (
           <button className="new-idea-cta start-cta" onClick={() => setWantStart(true)}>
             <span className="nav-label">Start free</span>

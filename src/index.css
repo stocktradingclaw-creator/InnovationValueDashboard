@@ -1823,3 +1823,11 @@ strong, .num, .metric strong, .hero-stat strong { font-variant-numeric: tabular-
 .flash { outline: 2px solid var(--info); outline-offset: 3px; transition: outline-color 1.8s ease; }
 
 .start-cta { margin-top: auto; }
+
+.cta-neutral, .cta-neutral:hover:not(:disabled) { background: var(--surface-2); border-color: var(--border); color: var(--text); }
+.cta-neutral:hover:not(:disabled) { border-color: var(--accent); }
+.pipeline-item.clickable { cursor: pointer; }
+.pipeline-item.clickable:hover { border-color: var(--accent); }
+.help-link { display: block; text-align: center; color: var(--muted); font-size: 0.78rem; margin-top: auto; text-decoration: none; }
+.help-link:hover { color: var(--text); }
+.start-cta { margin-top: 0.4rem; }

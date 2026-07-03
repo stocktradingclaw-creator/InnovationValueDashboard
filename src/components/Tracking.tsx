@@ -51,7 +51,7 @@ function Evidence({ bc, onChanged }: { bc: BusinessCase; onChanged: () => void }
                     }
                   }}
                 >
-                  {busy === b.id ? 'Observing…' : 'Observe now'}
+                  {busy === b.id ? 'Re-measuring…' : 'Re-measure from data'}
                 </button>
               </td>
             </tr>

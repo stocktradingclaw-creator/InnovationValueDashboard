@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { money, submitBusinessCase } from '../api'
+import { assistDescription, money, submitBusinessCase, toast } from '../api'
 import type { BusinessCase, Opportunity, ROIPlan } from '../types'
 
 interface Props {
@@ -158,6 +158,17 @@ export default function BusinessCases({ cases, opportunities, onChanged }: Props
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
+        <div className="row">
+          <button type="button" className={description.trim() ? 'secondary' : ''}
+                  disabled={!title.trim()}
+                  onClick={async () => {
+                    const r = await assistDescription({ title, description: description || undefined })
+                    setDescription(r.draft)
+                    toast(r.mode === 'generate' ? 'Draft written — edit before submitting.' : 'Description reviewed and tightened.')
+                  }}>
+            ✦ {description.trim() ? 'Review & improve' : 'Draft with AI'}
+          </button>
+        </div>
         <select value={linkedOpp} onChange={(e) => setLinkedOpp(e.target.value)}>
           <option value="">No linked opportunity (standalone idea)</option>
           {opportunities.map((o) => (

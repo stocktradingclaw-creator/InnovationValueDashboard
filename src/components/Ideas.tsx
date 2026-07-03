@@ -147,7 +147,12 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
           {similar.map((si) => (
             <button key={si.id} type="button" className="chip" title={`Add your vote to "${si.title}" instead of duplicating it`}
                     onClick={async () => {
-                      await voteSimilar(si.id, submitter || 'anonymous').catch(() => {})
+                      if (!submitter.trim()) {
+                        toast('Add your name (step 2) first so your vote counts as you.')
+                        setStep(2)
+                        return
+                      }
+                      await voteSimilar(si.id, submitter).catch(() => {})
                       toast(`Joined "${si.title}" with your vote.`)
                     }}>
               ▲ {si.title} <span className="muted small">({si.vote_count} votes · {si.status.replace('_', ' ')})</span>
