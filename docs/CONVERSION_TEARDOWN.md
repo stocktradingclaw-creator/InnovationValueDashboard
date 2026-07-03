@@ -366,3 +366,66 @@ The funnel exists; now it leaks at its two ends — a CTA that can be
 dismissed out of existence (R3-C1) and a post-conversion void (R3-C2).
 Those plus email capture are a half-day of work and complete the story:
 land → orient → try with your data → claim → be led to first value.
+
+---
+---
+
+# Round 4 — user-only pass, whole-app click-through (2026-07-02)
+
+*Every tab, anonymous first, then signed in. Reporting only where I got
+confused or wanted to leave.*
+
+### CRITICAL
+
+**R4-U1. "Two green buttons — which one is THE button?"** The sidebar now
+has "New idea" and "Start free" both in accent green, stacked in the same
+rail. My eye bounced between them; the one that makes you money (Start
+free) loses to the one above the fold (New idea). One accent CTA per
+surface — demote New idea to neutral until the workspace is claimed.
+
+**R4-U2. "Pipeline and Approvals show the same stages in two places."** I
+opened Pipeline, saw gates with counts, tried to click an idea to approve
+it — nothing is clickable. Then found Approvals does that. Two tabs, one
+mental model, only one of them acts. Either make Pipeline rows deep-link
+into Approvals or merge them; as-is I felt lost in a hall of mirrors.
+
+**R4-U3. "I voted on a similar idea as 'anonymous' before the app knew my
+name."** On wizard step 1 I clicked join on a similar idea — the toast
+thanked me, but my name field was still empty (that's step 2). My vote is
+now from "anonymous," forever. Sequence identity before social actions, or
+ask my name in the join moment.
+
+### HIGH IMPACT
+
+- **R4-U4.** "Business Cases made me write a description by hand — the
+  Ideas tab had AI drafting. Same job, one tab is magic, the other is
+  homework." Inconsistent superpowers read as broken promises.
+- **R4-U5.** "The rubric button was greyed out and never told me why"
+  (needs an actor; hint only on hover — invisible on touch).
+- **R4-U6.** "'Observe now' on ROI Tracking — observe what? I clicked it
+  scared." Label it "Re-measure from data."
+- **R4-U7.** "Portfolio tab = a CSV-upload diagnostic AND a Monte Carlo
+  simulator sharing one page. I couldn't tell what the tab was FOR."
+- **R4-U8.** "The signal radar created a live challenge instantly — no
+  preview, no undo. I made a junk challenge ('test') that now shows on
+  Idea Submission for everyone."
+- **R4-U9.** "No help, no docs, no support link anywhere in the app. When I
+  got stuck there was no rope to grab."
+
+### NICE TO HAVE
+
+- **R4-N1.** Red-team memo bullets can run long enough to dwarf the case
+  they critique — clamp to two lines with expand.
+- **R4-N2.** "Frozen baseline" jargon is everywhere the ledger goes;
+  one-line tooltip glossary would ease first contact.
+- **R4-N3.** ⌘K still missing (third round in a row I reached for it).
+- **R4-N4.** After demo revert, my open accordions and scroll reset
+  (carried from R1).
+
+## Round 4 verdict
+
+The funnel is sound; the confusion now lives in **role boundaries between
+tabs** (Pipeline vs Approvals, Portfolio's split personality) and
+**inconsistent magic** (AI drafts here but not there, identity asked after
+it's needed). Fix R4-U1/U2/U3 and a first-timer can no longer get lost —
+everything else is comfort.
