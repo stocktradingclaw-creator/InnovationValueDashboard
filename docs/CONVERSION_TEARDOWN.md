@@ -429,3 +429,46 @@ tabs** (Pipeline vs Approvals, Portfolio's split personality) and
 **inconsistent magic** (AI drafts here but not there, identity asked after
 it's needed). Fix R4-U1/U2/U3 and a first-timer can no longer get lost —
 everything else is comfort.
+
+---
+---
+
+# Round 5 — end-user pass (2026-07-02)
+
+*Post-R4 click-through. Shorter list — the app now mostly explains itself.
+What's left:*
+
+### CRITICAL
+
+**R5-U1. "My teammate hit a locked door."** Once a workspace is claimed,
+anyone else visiting gets the sign-in screen with no path forward: no "ask
+your admin for an account," no request-access button, no way to even see
+what the product is. For a tool whose funnel is submitter-driven, the
+second user's first experience is a wall.
+
+**R5-U2. "The radar still publishes instantly."** (Carried from R4-U8.) It
+remains the only click in the app that creates public content — a live
+challenge on the submission page — with no preview, confirm, or undo. Every
+other risky action got an undo window; this one still fires blind.
+
+### HIGH IMPACT
+
+- **R5-U3.** Wizard still allows jumping to step 3 with an empty title, and
+  Next still disables without explaining (carried R2-H4 — third sighting).
+- **R5-U4.** On a phone, the first viewport stacks orientation banner +
+  search box + profile icon + headline before content; the banner should
+  collapse to a single line under 760px.
+- **R5-U5.** ⌘K — fourth round reaching for it. At this point its absence
+  is itself a finding about who this product thinks its users are.
+
+### NICE TO HAVE
+
+- **R5-N1.** "Frozen baseline" jargon still unexplained at first contact.
+- **R5-N2.** Red-team memos still run long unclamped.
+- **R5-N3.** Accordion/scroll state resets on data refresh (carried).
+
+## Round 5 verdict
+
+One genuine hole (the second user's locked door), one carried risk (radar),
+and polish. The single-player journey is now clean end to end; the
+multi-player journey needs its first five minutes designed.
