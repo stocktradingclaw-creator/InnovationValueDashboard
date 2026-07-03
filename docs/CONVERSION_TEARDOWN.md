@@ -472,3 +472,69 @@ other risky action got an undo window; this one still fires blind.
 One genuine hole (the second user's locked door), one carried risk (radar),
 and polish. The single-player journey is now clean end to end; the
 multi-player journey needs its first five minutes designed.
+
+---
+---
+
+# Round 6 — end-user pass: the senior enterprise leader (2026-07-02)
+
+*Persona: SVP with a 90-second attention budget, board-level accountability,
+and a healthy distrust of dashboards. Clicked through on a laptop, then an
+iPad before a steering meeting.*
+
+### CRITICAL
+
+**R6-U1. "Where is my strategy?"** I set strategic objectives — the thing I
+personally own — and the only place to see how they're performing is buried
+in Hub Settings next to the demo studio. Ideas and value roll up per
+objective in the API, but there is no first-class "How is my strategy
+performing?" view on the main path. For my level, that view *is* the
+product; everything else is operations.
+
+**R6-U2. "You say 'verified' — prove it where you say it."** The verified
+number is the pitch, but next to it there's no 'how is this computed?'
+affordance. The methodology exists (docs, ledger), yet at the moment of
+skepticism — my finger on the number — there's no one-click path from claim
+to method. An ⓘ that opens the ledger entry trail would close the loop.
+
+**R6-U3. "Every number is a snapshot. I manage deltas."** Nothing shows
+movement: no verified-value trend vs last month, no pipeline
+week-over-week, no 'since your last visit.' A leader decides on
+trajectories; the trajectory chart exists on Overview but the P&L, ledger,
+and board pack are all timeless. The board pack especially needs 'vs prior
+period' columns or it can't survive a CFO meeting.
+
+### HIGH IMPACT
+
+- **R6-U4.** "The Innovation P&L — the one thing I came for — is folded
+  into a one-line bar I almost scrolled past." Progressive disclosure
+  optimized for contributors traded away the executive's landing moment.
+  Fold it for contributors, open it for executives (role-aware default).
+- **R6-U5.** "Who approved this?" Case cards don't show accountability —
+  approver name and date live in a history feed, not on the artifact. In an
+  enterprise, decisions wear name tags.
+- **R6-U6.** "I can approve or reject — I can't *delegate*." Half my job is
+  routing decisions to the right owner; there's no 'assign to' anywhere.
+- **R6-U7.** "No fiscal framing." Annualized numbers with no FY/quarter
+  boundaries, one hardcoded currency. Global enterprises will ask in the
+  first demo.
+- **R6-U8.** "I'd present this at steering — but there's no presentation
+  mode." Sidebar, banners, and profile chrome all visible; one 'clean
+  screen' toggle would make the Overview boardroom-safe.
+
+### NICE TO HAVE
+
+- **R6-N1.** Data freshness ('observed 3d ago') should sit beside the
+  verified hero, not only inside the ledger.
+- **R6-N2.** Board pack lacks the workspace/brand name in its header.
+- **R6-N3.** Praise where due: calibration discounts, low-sample flags on
+  the genome, and claimed-vs-verified separation all read as *designed for
+  my skepticism* — keep that voice everywhere.
+
+## Round 6 verdict
+
+The operational journey is solid; the *executive* journey stops one floor
+short. R6-U1 (strategy view on the main path) and R6-U3 (deltas, not
+snapshots) are the two that decide whether a senior leader opens this
+weekly or delegates it forever. R6-U2 is the cheapest trust win in the
+whole backlog.
