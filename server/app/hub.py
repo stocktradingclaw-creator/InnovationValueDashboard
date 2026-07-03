@@ -580,6 +580,135 @@ def assist_idea_description(title: str, description: str = "",
         return base
 
 
+def red_team_case(case: Dict[str, Any]) -> Dict[str, Any]:
+    """Adversarial pre-mortem for a business case. Template mode challenges the
+    plan's own assumptions; AI mode prosecutes properly."""
+    import os
+    plan = case.get("roi_plan") or {}
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        modes = [f"Assumption may not hold: {a}" for a in plan.get("assumptions", [])[:3]]
+        modes += [f"Measurement risk: {r}" for r in plan.get("measurement_risks", [])[:2]]
+        if plan.get("unmeasurable_claims"):
+            modes.append("Parts of the claimed value cannot be verified from any named data source")
+        return {
+            "killer_assumption": (plan.get("assumptions") or ["Benefits materialize as claimed"])[0],
+            "failure_modes": modes or ["Benefits assumed rather than measured"],
+            "hidden_costs": ["Change management and adoption effort",
+                             "Integration and data-quality remediation",
+                             "Ongoing run cost after go-live"],
+            "cannibalization": "Check whether this displaces value already counted by "
+                               "another initiative.",
+            "recommendation": "Fund a tranche gated on retiring the killer assumption "
+                              "before full commitment.",
+            "generated_by": "template",
+        }
+    import anthropic
+    from pydantic import BaseModel, Field
+    from typing import List as TList
+
+    class RedTeamMemo(BaseModel):
+        killer_assumption: str = Field(description="The single assumption most likely to sink this")
+        failure_modes: TList[str]
+        hidden_costs: TList[str]
+        cannibalization: str = Field(description="What existing value this might displace")
+        recommendation: str = Field(description="What the committee should demand before funding")
+
+    client = anthropic.Anthropic()
+    try:
+        r = client.messages.parse(
+            model="claude-opus-4-8", max_tokens=16000, thinking={"type": "adaptive"},
+            system=("You are the red team in an investment committee. Prosecute this "
+                    "business case: find the killer assumption, realistic failure modes, "
+                    "hidden costs, and cannibalization. Be specific and unsparing but fair."),
+            messages=[{"role": "user", "content":
+                       f"Title: {case['title']}\nDescription: {case['description']}\n"
+                       f"Plan summary: {plan.get('summary', '')}\n"
+                       f"Assumptions: {plan.get('assumptions', [])}\n"
+                       f"KPIs: {[k['name'] for k in plan.get('kpis', [])]}"}],
+            output_format=RedTeamMemo)
+        memo = r.parsed_output.model_dump()
+        memo["generated_by"] = "claude"
+        return memo
+    except Exception:
+        case2 = dict(case)
+        os_key = None
+        return red_team_case({**case2, "roi_plan": plan}) if False else {
+            "killer_assumption": (plan.get("assumptions") or ["Benefits materialize as claimed"])[0],
+            "failure_modes": ["AI red team unavailable; template challenge applied"] +
+                             [f"Assumption may not hold: {a}" for a in plan.get("assumptions", [])[:3]],
+            "hidden_costs": ["Change management", "Integration effort", "Run cost"],
+            "cannibalization": "Unassessed — verify against adjacent initiatives.",
+            "recommendation": "Gate funding on retiring the top assumption.",
+            "generated_by": "template",
+        }
+
+
+_RADAR_TEMPLATES = {
+    "default": [
+        "Industry majors are consolidating around AI-assisted operations",
+        "Cost-of-capital pressure is shifting budgets from growth to efficiency",
+        "Regulators are increasing scrutiny of automated decision-making",
+    ],
+}
+
+
+def radar_scan(topic: str) -> Dict[str, Any]:
+    """Research a competitor/trend and draft a response challenge with starter
+    ideas. Web-grounded with a key; honest template signals without."""
+    import os
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return {
+            "signals": [f"{sig} (template signal — no research key configured)"
+                        for sig in _RADAR_TEMPLATES["default"]],
+            "challenge_title": f"Respond to: {topic}",
+            "challenge_question": (f"'{topic}' is moving — where can we respond within one "
+                                   "quarter with measurable value? Ideas with a named "
+                                   "beneficiary and a number get fast-tracked."),
+            "theme": "competitive-response",
+            "starter_ideas": [
+                f"Map our capability gaps against {topic} and rank by time-to-close",
+                f"Identify which of our detected opportunities blunt {topic}'s advantage",
+                f"Run a one-week customer-impact probe on {topic}",
+            ],
+            "generated_by": "template",
+        }
+    import anthropic
+    from pydantic import BaseModel, Field
+    from typing import List as TList
+
+    class RadarDraft(BaseModel):
+        signals: TList[str] = Field(description="3 concrete, recent, sourced signals")
+        challenge_title: str
+        challenge_question: str
+        theme: str
+        starter_ideas: TList[str] = Field(description="3 starter ideas, each with a measurable angle")
+
+    client = anthropic.Anthropic()
+    try:
+        r = client.messages.parse(
+            model="claude-opus-4-8", max_tokens=16000, thinking={"type": "adaptive"},
+            tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}],
+            system=("You scan market signals for an innovation program. Research the topic "
+                    "with web search, extract three concrete recent signals, and draft a "
+                    "focused innovation challenge with three starter ideas."),
+            messages=[{"role": "user", "content": f"Topic to scan: {topic}"}],
+            output_format=RadarDraft)
+        draft = r.parsed_output.model_dump()
+        draft["generated_by"] = "claude"
+        return draft
+    except Exception:
+        out = radar_scan.__wrapped__(topic) if hasattr(radar_scan, "__wrapped__") else None
+        return {
+            "signals": [f"{sig} (AI research unavailable; template signal)"
+                        for sig in _RADAR_TEMPLATES["default"]],
+            "challenge_title": f"Respond to: {topic}",
+            "challenge_question": f"'{topic}' is moving — where can we respond within one quarter?",
+            "theme": "competitive-response",
+            "starter_ideas": [f"Map capability gaps against {topic}"],
+            "generated_by": "template",
+        }
+
+
 def ai_evaluate_idea(idea: Dict[str, Any],
                      opportunities: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Deeper AI validation of one idea: measurability check, categorization,

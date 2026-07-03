@@ -464,6 +464,16 @@ def _ingest_idea(body: IdeaRequest, source: str,
         pain_point=(body.pain_point or "").strip() or None,
         initiative_ids=tag_ids,
     )
+    idea_tokens = hub._tokens(f"{idea['title']} {idea['description']}")
+    for lesson in db.learnings(30):
+        if lesson["outcome"] != "kill":
+            continue
+        if len(idea_tokens & hub._tokens(f"{lesson['hypothesis']} {lesson['learnings']}")) >= 3:
+            db.cite_learning(idea["id"], lesson["case_id"])
+            owner = db.submitter_for_case(lesson["case_id"])
+            db.notify(owner, "case", lesson["case_id"],
+                      f"Learning dividend: your experiment on '{lesson['case_title']}' just "
+                      f"informed a new idea ('{idea['title']}'). Kills keep paying.")
     db.audit("idea.submit", idea.get("submitter"), idea["id"], idea["title"])
     db.log_automation(
         "idea_triage", assessment["recommendation"], idea["id"],
@@ -765,6 +775,8 @@ def command_queue() -> Dict[str, Any]:
         "history": db.workflow_events(30),
         "governance": hub.get_governance(),
         "automation_ran": automation,
+        "cost_of_delay": _cost_of_delay(
+            [i for i in ideas if i["status"] not in ("business_case", "declined", "backlog")]),
     }
 
 
@@ -2033,6 +2045,190 @@ def my_work(user: str = Query(...)) -> Dict[str, Any]:
                               "what": "Business case awaiting executive review"})
     items.sort(key=lambda x: -x["age_days"])
     return {"items": items[:15], "role": role}
+
+
+# --------------------------------- compelling capabilities: P&L, delay, red team,
+# --------------------------------- simulator, genome, dividends, signal radar
+
+@app.get("/api/reports/innovation-pnl")
+def innovation_pnl() -> Dict[str, Any]:
+    """The Innovation P&L: a CFO-signable statement. Capital deployed is real
+    (released tranches), returns are verified (computed from data), the
+    forecast book is calibration-adjusted, and kills are carried as tuition
+    with their learnings as the asset."""
+    cases = db.list_business_cases()
+    factors = calibration.factors()
+    deployed = sum((c.get("funding") or {}).get("released", 0) for c in cases)
+    verified = sum((b.get("annualized_delta") or 0)
+                   for c in cases for b in c.get("metric_bindings", []))
+    claimed = sum(e["amount"] for c in cases for e in c.get("savings_entries", []))
+    forecast_raw, forecast_calibrated = 0.0, 0.0
+    for c in cases:
+        if c["stage"] in ("proposed", "experiment", "approved", "in_delivery"):
+            est = c.get("estimated_annual_benefit") or 0
+            if not est and c.get("linked_opportunity"):
+                est = c["linked_opportunity"].get("estimated_annual_savings") or 0
+            forecast_raw += est
+            cat = (c.get("linked_opportunity") or {}).get("category", "")
+            forecast_calibrated += est * factors.get(cat, 0.7)
+    tuition = [{"case_id": c["id"], "title": c["title"],
+                "cost": sum(e.get("cost") or 0 for e in c.get("experiments", [])),
+                "learning": next((e["learnings"] for e in c.get("experiments", [])
+                                  if e.get("outcome") == "kill"), None)}
+               for c in cases
+               if any(e.get("outcome") == "kill" for e in c.get("experiments", []))]
+    return {
+        "capital_deployed": round(deployed, 2),
+        "verified_annual_return": round(verified, 2),
+        "claimed_savings_to_date": round(claimed, 2),
+        "forecast_book_raw": round(forecast_raw, 2),
+        "forecast_book_calibrated": round(forecast_calibrated, 2),
+        "tuition_paid": round(sum(t["cost"] for t in tuition), 2),
+        "tuition_lessons": tuition,
+        "note": "verified and claimed are never blended; the calibrated forecast "
+                "applies realization factors learned from actuals",
+    }
+
+
+def _cost_of_delay(ideas: List[Dict[str, Any]]) -> Dict[str, Any]:
+    from datetime import datetime, timezone
+    total, rows = 0.0, []
+    now = datetime.now(timezone.utc)
+    for i in ideas:
+        est = (i.get("estimated_annual_benefit")
+               or ((i.get("assessment") or {}).get("matched_opportunity") or {})
+               .get("estimated_annual_savings") or 0)
+        if not est:
+            continue
+        try:
+            then = datetime.fromisoformat(i["submitted_at"].replace("Z", "+00:00"))
+            if then.tzinfo is None:
+                then = then.replace(tzinfo=timezone.utc)
+            days = max((now - then).days, 0)
+        except (ValueError, KeyError):
+            days = 0
+        burned = est / 365.0 * days
+        total += burned
+        rows.append({"id": i["id"], "title": i["title"], "days_waiting": days,
+                     "burned": round(burned, 2)})
+    rows.sort(key=lambda r: -r["burned"])
+    return {"total_burned": round(total, 2), "items": rows[:10]}
+
+
+@app.post("/api/business-cases/{case_id}/redteam")
+def red_team(case_id: str) -> Dict[str, Any]:
+    """Adversarial pre-mortem: the case for why this will fail, generated
+    before executives see the advocate's plan."""
+    case = db.get_business_case(case_id)
+    if case is None:
+        raise HTTPException(404, f"Business case '{case_id}' not found")
+    memo = hub.red_team_case(case)
+    db.set_red_team(case_id, memo)
+    db.audit("case.redteam", _session_name(), case_id)
+    return {"red_team": memo}
+
+
+class SimulationRequest(BaseModel):
+    case_ids: Optional[List[str]] = None
+    trials: int = 2000
+
+
+@app.post("/api/simulator")
+def portfolio_simulator(body: SimulationRequest) -> Dict[str, Any]:
+    """Monte Carlo over the funding decision, sampling realization from the
+    calibration layer: probability-weighted outcomes, not point estimates."""
+    import random
+    factors = calibration.factors()
+    cases = [c for c in db.list_business_cases()
+             if c["stage"] in ("proposed", "experiment", "approved", "in_delivery")
+             and (not body.case_ids or c["id"] in body.case_ids)]
+    if not cases:
+        return {"cases": 0, "note": "no active cases to simulate"}
+    trials = max(200, min(body.trials, 10000))
+    totals = []
+    per_case = {c["id"]: [] for c in cases}
+    for _ in range(trials):
+        run = 0.0
+        for c in cases:
+            est = (c.get("estimated_annual_benefit")
+                   or (c.get("linked_opportunity") or {}).get("estimated_annual_savings") or 0)
+            cat = (c.get("linked_opportunity") or {}).get("category", "")
+            f = factors.get(cat, 0.7)
+            # triangular around the learned factor: pessimist half, optimist +20%
+            sampled = est * random.triangular(f * 0.5, min(f * 1.2, 1.0), f)
+            cost = (c.get("funding") or {}).get("planned", 0) or est * 0.3
+            run += sampled - cost * 0.2  # annualized cost share
+            per_case[c["id"]].append(sampled)
+        totals.append(run)
+    totals.sort()
+    pct = lambda p: round(totals[int(p / 100 * (trials - 1))], 2)
+    return {
+        "cases": len(cases), "trials": trials,
+        "annual_value_p10": pct(10), "annual_value_p50": pct(50), "annual_value_p90": pct(90),
+        "probability_positive": round(sum(1 for t in totals if t > 0) / trials, 3),
+        "per_case": [{"id": cid, "title": next(c["title"] for c in cases if c["id"] == cid),
+                      "p50": round(sorted(v)[len(v) // 2], 2)}
+                     for cid, v in per_case.items()],
+        "note": "realization sampled from calibration factors learned from actuals",
+    }
+
+
+@app.get("/api/genome")
+def innovation_genome() -> Dict[str, Any]:
+    """What predicts success at THIS company: promotion-rate multipliers per
+    intake trait, learned from our own history. Low samples are flagged, not
+    hidden."""
+    ideas = db.list_ideas()
+    if len(ideas) < 4:
+        return {"traits": [], "note": "not enough history yet — keep shipping"}
+    def promoted(i):
+        return i["status"] == "business_case"
+    base = sum(1 for i in ideas if promoted(i)) / len(ideas) or 0.0001
+    traits = [
+        ("Named beneficiary", lambda i: bool(i.get("beneficiary"))),
+        ("Quantified benefit at intake", lambda i: bool(i.get("estimated_annual_benefit"))),
+        ("Tagged to a strategic objective", lambda i: bool(i.get("initiative_ids"))),
+        ("Answers a challenge", lambda i: bool(i.get("challenge_id"))),
+        ("Peer votes", lambda i: (i.get("vote_count") or 0) > 0),
+        ("Named pain point", lambda i: bool(i.get("pain_point"))),
+    ]
+    out = []
+    for label, pred in traits:
+        cohort = [i for i in ideas if pred(i)]
+        if not cohort:
+            continue
+        rate = sum(1 for i in cohort if promoted(i)) / len(cohort)
+        out.append({"trait": label, "sample": len(cohort),
+                    "promotion_rate": round(rate, 3),
+                    "multiplier": round(rate / base, 2),
+                    "low_confidence": len(cohort) < 8})
+    out.sort(key=lambda t: -t["multiplier"])
+    return {"baseline_promotion_rate": round(base, 3), "ideas": len(ideas), "traits": out}
+
+
+@app.get("/api/learning-dividends")
+def get_learning_dividends() -> Dict[str, Any]:
+    return {"dividends": db.learning_dividends()}
+
+
+class RadarRequest(BaseModel):
+    topic: str
+
+
+@app.post("/api/radar/scan")
+def signal_radar(body: RadarRequest) -> Dict[str, Any]:
+    """Signal-to-sprint: research a topic/competitor and draft a targeted
+    challenge with starter ideas. AI+web when a key is set; template signals
+    otherwise."""
+    if not body.topic.strip():
+        raise HTTPException(400, "a topic (competitor, trend, or market) is required")
+    draft = hub.radar_scan(body.topic.strip())
+    challenge = create_challenge(ChallengeRequest(
+        title=draft["challenge_title"], question=draft["challenge_question"],
+        theme=draft.get("theme")))
+    db.audit("radar.scan", _session_name(), challenge["id"], body.topic)
+    return {"challenge": challenge, "signals": draft["signals"],
+            "starter_ideas": draft["starter_ideas"], "generated_by": draft["generated_by"]}
 
 
 # ------------------------------------------------- full-lifecycle sample data

@@ -396,6 +396,7 @@ export interface WorkflowStep {
 }
 
 export interface CommandQueue {
+  cost_of_delay?: { total_burned: number; items: { id: string; title: string; days_waiting: number; burned: number }[] }
   automation_ran: { observed: number; drafted: number; advanced: number } | null
   idea_steps: (WorkflowStep & { position: number; is_last: boolean; ideas: QueuedIdea[] })[]
   idea_backlog: Idea[]
@@ -519,6 +520,8 @@ export interface PortfolioReport {
 }
 
 export interface BusinessCase {
+  red_team?: { killer_assumption: string; failure_modes: string[]; hidden_costs: string[];
+    cannibalization: string; recommendation: string; generated_by: string } | null
   id: string
   title: string
   description: string

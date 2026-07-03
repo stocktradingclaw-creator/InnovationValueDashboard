@@ -1850,3 +1850,53 @@ def test_daily_ops_ux_endpoints(client):
                       json={"webhook": "http://insecure"}).status_code == 400
     assert client.put("/api/settings/notifications",
                       json={"webhook": "https://example.com/hook"}).json()["webhook"]
+
+
+def test_compelling_capabilities(client):
+    client.post("/api/demo/seed-lifecycle")
+
+    # Innovation P&L: deployed capital real, verified/claimed separate, tuition carried
+    pnl = client.get("/api/reports/innovation-pnl").json()
+    assert pnl["capital_deployed"] > 0
+    assert pnl["tuition_lessons"] and pnl["tuition_lessons"][0]["learning"]
+    assert pnl["forecast_book_calibrated"] <= pnl["forecast_book_raw"] + 0.01
+
+    # cost-of-delay ticker rides the queue
+    q = client.get("/api/command/queue").json()
+    cod = q["cost_of_delay"]
+    assert cod["total_burned"] > 0 and cod["items"][0]["days_waiting"] >= 0
+
+    # red team memo: adversarial, stored on the case
+    case = next(c for c in client.get("/api/business-cases").json()["business_cases"]
+                if c["stage"] == "proposed")
+    memo = client.post(f"/api/business-cases/{case['id']}/redteam").json()["red_team"]
+    assert memo["killer_assumption"] and memo["failure_modes"]
+    fresh = next(c for c in client.get("/api/business-cases").json()["business_cases"]
+                 if c["id"] == case["id"])
+    assert fresh["red_team"]["killer_assumption"] == memo["killer_assumption"]
+
+    # simulator: percentiles ordered, probability sane
+    sim = client.post("/api/simulator", json={"trials": 500}).json()
+    assert sim["annual_value_p10"] <= sim["annual_value_p50"] <= sim["annual_value_p90"]
+    assert 0 <= sim["probability_positive"] <= 1
+
+    # genome: learned multipliers with honest sample flags
+    g = client.get("/api/genome").json()
+    assert g["traits"] and all("multiplier" in t and "sample" in t for t in g["traits"])
+
+    # learning dividends: citing a kill notifies the owner and scores the kill
+    idea = client.post("/api/ideas", json={
+        "title": "HR chatbot for narrow FAQ topics only",
+        "description": "Employees will not discuss leave, pay, or grievances with a bot; "
+                       "trust was the barrier — so scope the chatbot to narrow FAQ "
+                       "automation and route sensitive topics to a human.",
+        "submitter": "maria"}).json()
+    divs = client.get("/api/learning-dividends").json()["dividends"]
+    assert divs and divs[0]["citations"] >= 1
+    notes = client.get("/api/notifications", params={"recipient": "sam"}).json()["notifications"]
+    assert any("Learning dividend" in n["message"] for n in notes)
+
+    # signal radar drafts a real challenge
+    r = client.post("/api/radar/scan", json={"topic": "competitor launches AI copilot"}).json()
+    assert r["challenge"]["id"].startswith("CH-") or r["challenge"]["id"]
+    assert len(r["signals"]) >= 3 and r["starter_ideas"]

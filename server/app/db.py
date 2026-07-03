@@ -109,6 +109,12 @@ CREATE TABLE IF NOT EXISTS users (
     created_at    TEXT NOT NULL,
     password_hash TEXT
 );
+CREATE TABLE IF NOT EXISTS learning_citations (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    idea_id  TEXT NOT NULL,
+    case_id  TEXT NOT NULL,
+    cited_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS attachments (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     subject_type TEXT NOT NULL,
@@ -262,6 +268,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE ideas SET status = 'business_case' WHERE status = 'promoted'")
     if "initiative_id" not in cols:
         conn.execute("ALTER TABLE business_cases ADD COLUMN initiative_id TEXT")
+    if cols and "red_team_json" not in cols:
+        conn.execute("ALTER TABLE business_cases ADD COLUMN red_team_json TEXT")
 
 
 @contextmanager
@@ -458,6 +466,7 @@ def _case_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict[str, Any]
         "stage": row["stage"],
         "horizon": row["horizon"],
         "initiative_id": row["initiative_id"],
+        "red_team": json.loads(row["red_team_json"]) if row["red_team_json"] else None,
         "go_live_date": row["go_live_date"],
         "experiments": experiments,
         "funding": {
@@ -1271,3 +1280,26 @@ def review_summary(idea_id: str) -> Dict[str, Any]:
         return {"count": 0, "average": None}
     means = [sum(r["scores"].values()) / max(len(r["scores"]), 1) for r in revs]
     return {"count": len(revs), "average": round(sum(means) / len(means), 1)}
+
+
+def set_red_team(case_id: str, memo: Dict[str, Any]) -> None:
+    with _conn() as conn:
+        conn.execute("UPDATE business_cases SET red_team_json = ? WHERE id = ?",
+                     (json.dumps(memo), case_id))
+
+
+def cite_learning(idea_id: str, case_id: str) -> None:
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO learning_citations (idea_id, case_id, cited_at) VALUES (?, ?, ?)",
+            (idea_id, case_id, _now()))
+
+
+def learning_dividends() -> List[Dict[str, Any]]:
+    """Most-cited kills: learnings that keep paying."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT lc.case_id, b.title AS case_title, COUNT(*) AS citations "
+            "FROM learning_citations lc JOIN business_cases b ON b.id = lc.case_id "
+            "GROUP BY lc.case_id ORDER BY citations DESC LIMIT 20").fetchall()
+    return [dict(r) for r in rows]

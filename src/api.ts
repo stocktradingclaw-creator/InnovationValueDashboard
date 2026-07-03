@@ -90,6 +90,42 @@ export function putNotificationSettings(webhook: string) {
     { ...json({ webhook }), method: 'PUT' })
 }
 
+export function getPnl() {
+  return request<Record<string, unknown> & { capital_deployed: number; verified_annual_return: number;
+    claimed_savings_to_date: number; forecast_book_raw: number; forecast_book_calibrated: number;
+    tuition_paid: number; tuition_lessons: { title: string; learning: string | null }[] }>(
+    '/api/reports/innovation-pnl')
+}
+
+export function redTeamCase(id: string) {
+  return request<{ red_team: { killer_assumption: string; failure_modes: string[];
+    hidden_costs: string[]; cannibalization: string; recommendation: string; generated_by: string } }>(
+    `/api/business-cases/${id}/redteam`, { method: 'POST' })
+}
+
+export function runSimulator(caseIds?: string[]) {
+  return request<{ cases: number; trials: number; annual_value_p10: number; annual_value_p50: number;
+    annual_value_p90: number; probability_positive: number;
+    per_case: { id: string; title: string; p50: number }[] }>(
+    '/api/simulator', json({ case_ids: caseIds }))
+}
+
+export function getGenome() {
+  return request<{ baseline_promotion_rate: number; ideas: number;
+    traits: { trait: string; sample: number; multiplier: number; low_confidence: boolean }[] }>(
+    '/api/genome')
+}
+
+export function getDividends() {
+  return request<{ dividends: { case_id: string; case_title: string; citations: number }[] }>(
+    '/api/learning-dividends')
+}
+
+export function radarScan(topic: string) {
+  return request<{ challenge: { id: string; title: string }; signals: string[];
+    starter_ideas: string[]; generated_by: string }>('/api/radar/scan', json({ topic }))
+}
+
 export function getDatasets() {
   return request<{ sources: SourceStatus[] }>('/api/datasets')
 }

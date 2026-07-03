@@ -9,6 +9,7 @@ import {
   seedLifecycle,
   getNotificationSettings,
   putNotificationSettings,
+  radarScan,
 } from '../api'
 import { getGovernance } from '../api'
 import type { Challenge, DemoStatus, Initiative, ScoringConfig, WorkflowStep } from '../types'
@@ -351,6 +352,41 @@ function Objectives() {
   )
 }
 
+function SignalRadar({ onChanged }: { onChanged: () => void }) {
+  const [topic, setTopic] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<Awaited<ReturnType<typeof radarScan>> | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <div className="card">
+      <h3>Signal radar → sprint</h3>
+      <p className="muted small">
+        Name a competitor move, trend, or market shift. The hub researches it and drafts a
+        targeted challenge with starter ideas, ready to launch.
+      </p>
+      <div className="row">
+        <input placeholder="e.g. Competitor X launched an AI copilot" value={topic}
+               onChange={(e) => setTopic(e.target.value)} />
+        <button disabled={busy || !topic.trim()} onClick={async () => {
+          setBusy(true); setError(null)
+          try { setResult(await radarScan(topic)); onChanged() }
+          catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+          finally { setBusy(false) }
+        }}>{busy ? 'Scanning…' : 'Scan & draft challenge'}</button>
+      </div>
+      {error && <p className="error">{error}</p>}
+      {result && (
+        <div className="plan">
+          <p className="small"><strong>Challenge created:</strong> {result.challenge.title}{' '}
+            <span className="muted small">({result.generated_by})</span></p>
+          <ul className="muted small">{result.signals.map((sg) => <li key={sg}>{sg}</li>)}</ul>
+          <p className="muted small"><strong>Starter ideas:</strong> {result.starter_ideas.join(' · ')}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Campaigns() {
   const [items, setItems] = useState<Challenge[]>([])
   const [title, setTitle] = useState('')
@@ -545,7 +581,8 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
       </div>
       <div className="dash-grid">
         <Objectives />
-        <Campaigns />
+        <SignalRadar onChanged={onChanged} />
+      <Campaigns />
       </div>
       <DemoStudio onDone={onChanged} />
     </section>

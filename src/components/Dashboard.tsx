@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getMyWork, loadSamples, money } from '../api'
+import { getGenome, getMyWork, getPnl, loadSamples, money } from '../api'
 import { useEffect } from 'react'
 import { getInitiatives } from '../api'
 import type { DashboardData, Decision, Initiative, Quadrant, TimelineMonth } from '../types'
@@ -238,6 +238,61 @@ function MyWork({ onNavigate }: { onNavigate: (t: NavTab) => void }) {
   )
 }
 
+function PnlCard() {
+  const [pnl, setPnl] = useState<Awaited<ReturnType<typeof getPnl>> | null>(null)
+  useEffect(() => { getPnl().then(setPnl).catch(() => {}) }, [])
+  if (!pnl || pnl.capital_deployed === 0) return null
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h3>Innovation P&amp;L</h3>
+        <span className="muted small">CFO-signable — verified and claimed never blended</span>
+      </div>
+      <div className="metrics-row">
+        <div className="metric"><span className="muted small">Capital deployed (released)</span>
+          <strong>{money(pnl.capital_deployed)}</strong></div>
+        <div className="metric"><span className="muted small">Verified return /yr</span>
+          <strong className="pos">{money(pnl.verified_annual_return)}</strong></div>
+        <div className="metric"><span className="muted small">Claimed to date (self-reported)</span>
+          <strong>{money(pnl.claimed_savings_to_date)}</strong></div>
+        <div className="metric"><span className="muted small">Forecast book (calibrated)</span>
+          <strong>{money(pnl.forecast_book_calibrated)}
+            <span className="muted small"> of {money(pnl.forecast_book_raw)} raw</span></strong></div>
+        <div className="metric"><span className="muted small">Tuition paid (kills)</span>
+          <strong>{money(pnl.tuition_paid)}</strong></div>
+      </div>
+      {pnl.tuition_lessons.length > 0 && (
+        <p className="muted small">
+          Tuition bought: {pnl.tuition_lessons.filter((t) => t.learning).map((t) => `"${t.learning}"`).join(' · ').slice(0, 220)}…
+        </p>
+      )}
+    </div>
+  )
+}
+
+function GenomeCard() {
+  const [g, setG] = useState<Awaited<ReturnType<typeof getGenome>> | null>(null)
+  useEffect(() => { getGenome().then(setG).catch(() => {}) }, [])
+  if (!g || g.traits.length === 0) return null
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h3>Innovation genome</h3>
+        <span className="muted small">what predicts success here, learned from {g.ideas} ideas</span>
+      </div>
+      {g.traits.slice(0, 4).map((t) => (
+        <div key={t.trait} className="decision-row">
+          <span className={`pill ${t.multiplier >= 1 ? 'act-approve' : 'act-verify'}`}>
+            {t.multiplier}×
+          </span>
+          <span>{t.trait}</span>
+          <span className="muted small">n={t.sample}{t.low_confidence ? ' · low confidence' : ''}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function DecisionQueue({ decisions, onNavigate }: { decisions: Decision[]; onNavigate: (t: NavTab) => void }) {
   if (decisions.length === 0) return null
   return (
@@ -338,6 +393,7 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
         }}>Export board pack</button>
       </div>
       <MyWork onNavigate={onNavigate} />
+      <PnlCard />
 
       <div className="hero-band">
         {ts && ts.verified_run_rate > 0 ? (
@@ -606,6 +662,7 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
         ))}
         <button className="linklike" onClick={() => onNavigate('sources')}>manage sources →</button>
       </div>
+      <GenomeCard />
     </section>
   )
 }

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { getPortfolioDiagnostic, money, uploadDataset } from '../api'
+import { getPortfolioDiagnostic, money, runSimulator, uploadDataset } from '../api'
 import type { PortfolioReport } from '../types'
 
 interface Props {
@@ -18,6 +18,44 @@ function scoreClass(score: number) {
   if (score >= 70) return 'score-good'
   if (score >= 40) return 'score-warn'
   return 'score-bad'
+}
+
+function Simulator() {
+  const [sim, setSim] = useState<Awaited<ReturnType<typeof runSimulator>> | null>(null)
+  const [busy, setBusy] = useState(false)
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h3>Portfolio simulator</h3>
+        <button className="secondary" disabled={busy} onClick={async () => {
+          setBusy(true)
+          try { setSim(await runSimulator()) } finally { setBusy(false) }
+        }}>{busy ? 'Simulating…' : 'Run 2,000 futures'}</button>
+      </div>
+      <p className="muted small">
+        Monte Carlo over the active pipeline, sampling realization from calibration factors
+        learned from actuals — probability-weighted outcomes, not point estimates.
+      </p>
+      {sim && sim.cases > 0 && (
+        <>
+          <div className="metrics-row">
+            <div className="metric"><span className="muted small">Pessimistic (p10) /yr</span>
+              <strong>{money(sim.annual_value_p10)}</strong></div>
+            <div className="metric"><span className="muted small">Expected (p50) /yr</span>
+              <strong className="pos">{money(sim.annual_value_p50)}</strong></div>
+            <div className="metric"><span className="muted small">Optimistic (p90) /yr</span>
+              <strong>{money(sim.annual_value_p90)}</strong></div>
+            <div className="metric"><span className="muted small">P(net positive)</span>
+              <strong>{Math.round(sim.probability_positive * 100)}%</strong></div>
+          </div>
+          <p className="muted small">
+            {sim.cases} active case(s), {sim.trials.toLocaleString()} trials · median per case:{' '}
+            {sim.per_case.slice(0, 4).map((c) => `${c.title} ${money(c.p50)}`).join(' · ')}
+          </p>
+        </>
+      )}
+    </div>
+  )
 }
 
 export default function Portfolio({ report, hasPortfolio, onChanged }: Props) {
@@ -65,6 +103,7 @@ export default function Portfolio({ report, hasPortfolio, onChanged }: Props) {
         </div>
       </div>
       {error && <p className="error">{error}</p>}
+      <Simulator />
 
       {!report ? (
         <p className="muted">

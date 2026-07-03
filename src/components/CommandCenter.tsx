@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  addExperiment, addTranche, concludeExperiment, decide, getCommandQueue, getLearnings, reviewIdea,
+  addExperiment, addTranche, concludeExperiment, decide, getCommandQueue, getDividends, getLearnings, redTeamCase, reviewIdea,
   getLifecycle, getPatterns, money, releaseTranche, replicatePattern, runAutomation,
 } from '../api'
 import type { BusinessCase, CommandQueue, Learning, Lifecycle, Pattern, QueuedIdea, Stage } from '../types'
@@ -436,8 +436,38 @@ function ExperimentPanel({ bc, onDone }: { bc: BusinessCase; onDone: () => void 
   )
 }
 
+function RedTeam({ bc, onDone }: { bc: BusinessCase; onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const memo = bc.red_team
+  return (
+    <div className="redteam">
+      {!memo && (
+        <button className="chip" disabled={busy} onClick={async () => {
+          setBusy(true)
+          try { await redTeamCase(bc.id); onDone() } finally { setBusy(false) }
+        }}>{busy ? 'Prosecuting…' : '⚔ Red-team this case'}</button>
+      )}
+      {memo && (
+        <div className="redteam-memo">
+          <p className="small"><strong>⚔ Red team ({memo.generated_by}):</strong>{' '}
+            killer assumption — {memo.killer_assumption}</p>
+          <ul className="muted small">
+            {memo.failure_modes.slice(0, 3).map((f) => <li key={f}>{f}</li>)}
+          </ul>
+          <p className="muted small"><strong>Demand before funding:</strong> {memo.recommendation}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function LearningLibrary() {
   const [lessons, setLessons] = useState<Learning[]>([])
+  const [dividends, setDividends] = useState<Record<string, number>>({})
+  useEffect(() => {
+    getDividends().then((r) => setDividends(
+      Object.fromEntries(r.dividends.map((d) => [d.case_id, d.citations])))).catch(() => {})
+  }, [])
   useEffect(() => {
     getLearnings().then((r) => setLessons(r.learnings)).catch(() => {})
   }, [])
@@ -452,6 +482,11 @@ function LearningLibrary() {
               {l.outcome}
             </span>{' '}
             <strong>{l.case_title}</strong> <span className="muted">— {l.learnings}</span>
+            {dividends[l.case_id] > 0 && (
+              <span className="pill act-approve" title="times this learning informed a new idea">
+                ↻ {dividends[l.case_id]} dividend{dividends[l.case_id] > 1 ? 's' : ''}
+              </span>
+            )}
           </div>
         ))}
       </div>
@@ -624,6 +659,15 @@ export default function CommandCenter({ onChanged }: Props) {
 
       <LifecycleStrip lifecycle={lifecycle} />
 
+      {queue.cost_of_delay && queue.cost_of_delay.total_burned > 0 && (
+        <div className="banner-warn delay-ticker">
+          <strong>{money(queue.cost_of_delay.total_burned)}</strong> of estimated value has burned
+          while {queue.cost_of_delay.items.length} item(s) waited at gates — worst:{' '}
+          {queue.cost_of_delay.items[0].title} ({queue.cost_of_delay.items[0].days_waiting}d,{' '}
+          {money(queue.cost_of_delay.items[0].burned)}).
+        </div>
+      )}
+
       {queue.automation_ran && (queue.automation_ran.drafted > 0 || queue.automation_ran.advanced > 0
         || queue.automation_ran.observed > 0) && (
         <p className="muted small">
@@ -689,6 +733,7 @@ export default function CommandCenter({ onChanged }: Props) {
             </div>
             <span className="badge">{STAGE_LABELS[c.stage]}</span>
           </div>
+          <RedTeam bc={c} onDone={refresh} />
           {c.funding.planned > 0 && (
             <p className="muted small">
               Funding: {money(c.funding.released)} released of {money(c.funding.planned)} planned

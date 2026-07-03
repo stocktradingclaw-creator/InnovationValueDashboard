@@ -1719,3 +1719,6 @@ main > section {
 .rubric-row input[type='range'] { width: 100%; padding: 0; accent-color: var(--accent); }
 
 .attach-box { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0.6rem 0; }
+
+.delay-ticker { border-color: var(--warn); }
+.redteam-memo { border-left: 3px solid var(--danger-soft); padding-left: 0.8rem; margin: 0.5rem 0; }
