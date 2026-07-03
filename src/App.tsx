@@ -126,12 +126,17 @@ function Toasts() {
 function StartScreen({ onDone, onCancel }: { onDone: (u: AuthUser) => void; onCancel: () => void }) {
   const [name, setName] = useState('')
   const [company, setCompany] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   return (
     <div className="login-screen">
       <div className="card login-card">
+        <svg viewBox="0 0 24 24" width="44" height="44" aria-hidden="true" className="login-mark">
+          <rect width="24" height="24" rx="6" fill="var(--surface-2)" />
+          <path d="M7 16l4-5 3 2 4-6" stroke="var(--accent)" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+        </svg>
         <h1>Start your <span className="accent">workspace</span></h1>
         <p className="muted small">
           Clears the sample data and makes you the admin — your ideas, your
@@ -139,14 +144,15 @@ function StartScreen({ onDone, onCancel }: { onDone: (u: AuthUser) => void; onCa
         </p>
         <input placeholder="Your name" value={name} autoFocus onChange={(e) => setName(e.target.value)} />
         <input placeholder="Company" value={company} onChange={(e) => setCompany(e.target.value)} />
+        <input type="email" placeholder="Work email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <input type="password" placeholder="Choose a password" value={password}
                onChange={(e) => setPassword(e.target.value)} />
-        <button disabled={busy || !name.trim() || !company.trim() || !password} onClick={async () => {
+        <button disabled={busy || !name.trim() || !company.trim() || !email.includes('@') || !password} onClick={async () => {
           setBusy(true); setError(null)
           try {
             const res = await fetch('/api/workspace/start', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name, company, password }),
+              body: JSON.stringify({ name, company, email, password }),
             })
             const d = await res.json()
             if (!res.ok) throw new Error(d.detail ?? 'could not start workspace')
@@ -272,6 +278,7 @@ export default function App() {
   const [demoStatus, setDemoStatus] = useState<DemoStatus | null>(null)
   const [seeded, setSeeded] = useState(false)
   const [needsMe, setNeedsMe] = useState(0)
+  const [workspace, setWorkspace] = useState<string | null>(null)
   const [sources, setSources] = useState<SourceStatus[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [total, setTotal] = useState(0)
@@ -307,7 +314,7 @@ export default function App() {
 
   useEffect(() => {
     getMe()
-      .then((r) => { setAuthRequired(r.auth_required); setMe(r.user) })
+      .then((r) => { setAuthRequired(r.auth_required); setMe(r.user); setWorkspace((r as { workspace?: string }).workspace ?? null) })
       .catch(() => {})
       .finally(() => setAuthChecked(true))
     const onAuthRequired = () => { setAuthRequired(true); setMe(null) }
@@ -377,7 +384,9 @@ export default function App() {
     <div className={`shell ${collapsed ? 'nav-collapsed' : ''}`}>
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="brand">
-          <h1>{collapsed ? <span className="accent">IH</span> : <>Innovation<span className="accent">Hub</span></>}</h1>
+          <h1>{collapsed ? <span className="accent">{workspace ? workspace.slice(0, 2).toUpperCase() : 'IH'}</span>
+            : workspace ? <>{workspace}<span className="accent"> Hub</span></>
+            : <>Innovation<span className="accent">Hub</span></>}</h1>
           <button
             className="collapse-toggle" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
             onClick={() => {
@@ -414,6 +423,12 @@ export default function App() {
             </div>
           ))}
         </nav>
+        {!authRequired && (
+          <button className="new-idea-cta start-cta" onClick={() => setWantStart(true)}>
+            <span className="nav-label">Start free</span>
+            <span className="nav-glyph" aria-hidden="true">→</span>
+          </button>
+        )}
       </aside>
       <div className="content">
       <Toasts />
@@ -426,14 +441,15 @@ export default function App() {
             every lifecycle phase so you can explore. Make it yours anytime.
           </span>
           <span className="row">
-            <button onClick={() => setWantStart(true)}>Start your own workspace — free</button>
-            <button className="secondary"
+            <button className="new-idea-cta" style={{ width: 'auto' }}
+                    onClick={() => setWantStart(true)}>Start free</button>
+            <button className="chip"
                     onClick={() => window.dispatchEvent(new CustomEvent('ivd-nav', { detail: 'settings' }))}>
-              Demo with MY company's data
+              or demo with my company's data
             </button>
-            <button className="secondary" onClick={() => {
+            <button className="secondary" aria-label="Dismiss" onClick={() => {
               localStorage.setItem('ivd_seed_ack', '1'); refresh()
-            }}>Got it</button>
+            }}>✕</button>
           </span>
         </div>
       )}
@@ -466,6 +482,23 @@ export default function App() {
       )}
 
       <main>
+        {tab === 'overview' && me && ideas.length === 0 && !hasData && (
+          <div className="card">
+            <h3>Welcome to {workspace ?? 'your workspace'} — first value in three steps</h3>
+            {([
+              ['Connect your data (or load samples) so the engine finds opportunities', 'sources', hasData],
+              ['Submit your first idea — the AI drafts the description with you', 'ideas', ideas.length > 0],
+              ['Add your team and their access levels', 'settings', false],
+            ] as [string, Tab, boolean][]).map(([label, target, done], i) => (
+              <div key={i} className="decision-row" role="button" tabIndex={0}
+                   onKeyDown={(e) => { if (e.key === 'Enter') setTab(target) }}
+                   onClick={() => setTab(target)}>
+                <span className={`pill ${done ? 'act-approve' : 'act-verify'}`}>{done ? '✓' : i + 1}</span>
+                <span>{label}</span>
+              </div>
+            ))}
+          </div>
+        )}
         {tab === 'overview' && <Dashboard data={dashboard} onNavigate={setTab} onChanged={refresh} />}
         {tab === 'ideas' && <Ideas ideas={ideas} onChanged={refresh} />}
         {tab === 'command' && <CommandCenter onChanged={refresh} />}

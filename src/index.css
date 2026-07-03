@@ -1821,3 +1821,5 @@ strong, .num, .metric strong, .hero-stat strong { font-variant-numeric: tabular-
 .login-mark { margin: 0 auto; display: block; }
 
 .flash { outline: 2px solid var(--info); outline-offset: 3px; transition: outline-color 1.8s ease; }
+
+.start-cta { margin-top: auto; }

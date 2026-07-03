@@ -51,6 +51,7 @@ async def _auth_middleware(request, call_next):
 class StartRequest(BaseModel):
     name: str
     company: str
+    email: str
     password: str
 
 
@@ -58,14 +59,16 @@ class StartRequest(BaseModel):
 def start_workspace(body: StartRequest) -> Dict[str, Any]:
     """The trial moment: wipe the sample data, name the workspace, and make
     the visitor its admin — one form between exploring and owning."""
-    if not (body.name.strip() and body.company.strip() and body.password):
-        raise HTTPException(400, "name, company, and password are required")
+    if not (body.name.strip() and body.company.strip() and body.password
+            and "@" in body.email):
+        raise HTTPException(400, "name, company, a valid email, and password are required")
     if db.list_users():
         raise HTTPException(403, "this workspace is already claimed — sign in instead")
     db.restore_state({"_format": 1, **{t: [] for t in (
         "ideas", "business_cases", "datasets", "strategic_initiatives",
         "challenges", "notifications", "events", "meta")}})
     db.meta_set("workspace_name", body.company.strip())
+    db.meta_set("workspace_owner_email", body.email.strip())
     user = db.create_user(body.name.strip().lower(), "admin", body.password)
     db.audit("workspace.start", user["name"], detail=body.company.strip())
     return {"token": db.create_session(user["name"]), "user": user,
@@ -96,7 +99,8 @@ def login(body: LoginRequest) -> Dict[str, Any]:
 
 @app.get("/api/auth/me")
 def me() -> Dict[str, Any]:
-    return {"auth_required": bool(db.list_users()), "user": _CURRENT_USER.get()}
+    return {"auth_required": bool(db.list_users()), "user": _CURRENT_USER.get(),
+            "workspace": db.meta_get("workspace_name")}
 
 
 @app.post("/api/auth/logout")

@@ -1513,7 +1513,7 @@ def test_description_assist(client):
 def test_login_sessions_and_identity(client):
     # open mode: no auth required
     r = client.get("/api/auth/me")
-    assert r.json() == {"auth_required": False, "user": None}
+    assert r.json() == {"auth_required": False, "user": None, "workspace": None}
 
     # first sign-in bootstraps the admin
     r = client.post("/api/auth/login", json={"name": "Ryan", "password": "hunter2"})
@@ -1906,7 +1906,7 @@ def test_compelling_capabilities(client):
 def test_workspace_start_flow(client):
     client.post("/api/demo/seed-lifecycle")
     r = client.post("/api/workspace/start", json={
-        "name": "Ryan", "company": "Acme", "password": "pw"})
+        "name": "Ryan", "company": "Acme", "email": "ryan@acme.com", "password": "pw"})
     assert r.status_code == 200
     tok = {"Authorization": f"Bearer {r.json()['token']}"}
     # sample data gone, visitor is admin, auth now enforced
@@ -1915,4 +1915,4 @@ def test_workspace_start_flow(client):
     assert client.get("/api/ideas").status_code == 401
     # claimed workspaces refuse a second start
     assert client.post("/api/workspace/start", json={
-        "name": "x", "company": "y", "password": "z"}).status_code == 403
+        "name": "x", "company": "y", "email": "x@y.z", "password": "z"}).status_code == 403
