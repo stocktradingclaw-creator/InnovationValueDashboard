@@ -292,3 +292,77 @@ finally proves its own pitch. The remaining conversion gap is structural,
 not cosmetic: **there is no trial to start and no self-serve "my data"
 moment on the main path.** R2-C1 and R2-C3 are the whole ballgame; R2-H2 is
 the one polish item users physically feel. Everything else is tuning.
+
+---
+---
+
+# Round 3 (2026-07-02)
+
+*Round 2's structural criticals are shipped: a real trial flow exists, Demo
+Studio is on the main path, the board stopped flickering. Round 3 judges the
+funnel that now exists.*
+
+## Pass 1 — The designer, round 3
+
+### CRITICAL
+
+**R3-C1. "Start free" lives only inside a dismissible banner.** Click "Got
+it" once and the trial CTA is gone forever (localStorage ack). The single
+most important button in the product must be permanent — sidebar footer and
+profile menu, always visible until a workspace is claimed.
+
+**R3-C2. The moment after conversion is empty.** Create a workspace → land
+on a blank dashboard. Highest commitment, zero choreography. Ship a 3-step
+first-run checklist on the empty Overview: 1) Connect data (or load
+samples), 2) Submit your first idea, 3) Add your team — with progress ticks.
+
+**R3-C3. No email capture.** Workspace creation takes name/company/password
+— no email. The growth loop dead-ends: no way to recover an abandoned
+trial, no way to follow up. One field.
+
+### HIGH IMPACT
+
+- **R3-H1.** The orientation banner now has three buttons — choice overload
+  at the one moment attention is guaranteed. One primary ("Start free"),
+  one quiet text link, dismiss as ✕.
+- **R3-H2.** Verified $10K vs claimed $131K (carried from R2-C2): seed a
+  second bound case on the ERP duplicate-invoice measure to verify six
+  figures honestly.
+- **R3-H3.** Still no ⌘K; still no wizard jump-validation; type scale still
+  flat (all carried).
+
+### NICE TO HAVE
+
+- **R3-N1.** The workspace name the user types never appears in the UI —
+  brand the sidebar with it after claiming.
+- **R3-N2.** Start screen lacks the brand mark the login screen got.
+- **R3-N3.** Radius roulette, orange hue collision, print-pack brand mark
+  (all carried).
+
+## Pass 2 — The first-time user, round 3
+
+### CRITICAL
+
+**R3-U1. "I made a workspace and landed on… nothing."** After the best
+click of my visit, an empty dashboard with no "do this first." I sat there
+for ten seconds, then went back to poking tabs.
+
+**R3-U2. "I dismissed the banner earlier — later I wanted to start a
+workspace and couldn't find the button anywhere."**
+
+### HIGH IMPACT
+
+- **R3-U3.** "Nobody asked for my email. As a buyer that read as 'this
+  isn't actually a product yet.'"
+- **R3-U4.** "Three buttons in the banner — I read it twice before picking."
+
+### NICE TO HAVE
+
+- **R3-U5.** "I named my company Acme and never saw the word Acme again."
+
+## Round 3 verdict
+
+The funnel exists; now it leaks at its two ends — a CTA that can be
+dismissed out of existence (R3-C1) and a post-conversion void (R3-C2).
+Those plus email capture are a half-day of work and complete the story:
+land → orient → try with your data → claim → be led to first value.
