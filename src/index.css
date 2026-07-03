@@ -1792,7 +1792,6 @@ strong, .num, .metric strong, .hero-stat strong { font-variant-numeric: tabular-
 /* -------- polish tranche: motion, scrollbars, wizard progress, ambient badge ------ */
 
 @media (prefers-reduced-motion: no-preference) {
-  .card { animation: rise 0.18s ease both; }
   .toast { animation: slide-in 0.2s ease both; }
   @keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   @keyframes slide-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }

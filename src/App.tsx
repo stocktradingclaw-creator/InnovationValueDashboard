@@ -123,6 +123,46 @@ function Toasts() {
   )
 }
 
+function StartScreen({ onDone, onCancel }: { onDone: (u: AuthUser) => void; onCancel: () => void }) {
+  const [name, setName] = useState('')
+  const [company, setCompany] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <div className="login-screen">
+      <div className="card login-card">
+        <h1>Start your <span className="accent">workspace</span></h1>
+        <p className="muted small">
+          Clears the sample data and makes you the admin — your ideas, your
+          numbers, verified from your data.
+        </p>
+        <input placeholder="Your name" value={name} autoFocus onChange={(e) => setName(e.target.value)} />
+        <input placeholder="Company" value={company} onChange={(e) => setCompany(e.target.value)} />
+        <input type="password" placeholder="Choose a password" value={password}
+               onChange={(e) => setPassword(e.target.value)} />
+        <button disabled={busy || !name.trim() || !company.trim() || !password} onClick={async () => {
+          setBusy(true); setError(null)
+          try {
+            const res = await fetch('/api/workspace/start', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, company, password }),
+            })
+            const d = await res.json()
+            if (!res.ok) throw new Error(d.detail ?? 'could not start workspace')
+            localStorage.setItem('ivd_token', d.token)
+            localStorage.setItem('ivd_user', d.user.name)
+            onDone(d.user)
+          } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+          finally { setBusy(false) }
+        }}>{busy ? 'Creating…' : 'Create workspace — free'}</button>
+        <button className="secondary" onClick={onCancel}>Keep exploring the demo</button>
+        {error && <p className="error">{error}</p>}
+      </div>
+    </div>
+  )
+}
+
 function ProfileMenu({ me, onChangeUser }: { me: AuthUser | null; onChangeUser: () => void }) {
   const [open, setOpen] = useState(false)
   useEffect(() => {
@@ -172,6 +212,7 @@ export default function App() {
   const [authRequired, setAuthRequired] = useState(false)
   const [authChecked, setAuthChecked] = useState(false)
   const [wantLogin, setWantLogin] = useState(false)
+  const [wantStart, setWantStart] = useState(false)
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<{ type: string; tab: string; id: string; title: string; hint: string }[]>([])
   const searchTimer = (window as unknown as { __ivdT?: number })
@@ -296,6 +337,11 @@ export default function App() {
   }
 
   if (!authChecked) return null
+  if (wantStart) {
+    return <StartScreen onCancel={() => setWantStart(false)} onDone={(u) => {
+      setMe(u); setAuthRequired(true); setWantStart(false); refresh()
+    }} />
+  }
   if (wantLogin || (authRequired && !me)) {
     return (
       <LoginScreen onDone={(u) => {
@@ -379,9 +425,16 @@ export default function App() {
             <strong>You're looking at sample data</strong> — a full portfolio seeded across
             every lifecycle phase so you can explore. Make it yours anytime.
           </span>
-          <button className="secondary" onClick={() => {
-            localStorage.setItem('ivd_seed_ack', '1'); refresh()
-          }}>Got it</button>
+          <span className="row">
+            <button onClick={() => setWantStart(true)}>Start your own workspace — free</button>
+            <button className="secondary"
+                    onClick={() => window.dispatchEvent(new CustomEvent('ivd-nav', { detail: 'settings' }))}>
+              Demo with MY company's data
+            </button>
+            <button className="secondary" onClick={() => {
+              localStorage.setItem('ivd_seed_ack', '1'); refresh()
+            }}>Got it</button>
+          </span>
         </div>
       )}
       {demoStatus && (

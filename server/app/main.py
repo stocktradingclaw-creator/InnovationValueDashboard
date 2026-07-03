@@ -42,9 +42,34 @@ async def _auth_middleware(request, call_next):
         user = db.session_user(token[7:])
     _CURRENT_USER.set(user)
     if (path.startswith("/api") and not path.startswith("/api/auth")
+            and path != "/api/workspace/start"
             and user is None and db.list_users()):
         return JSONResponse({"detail": "Sign in required"}, status_code=401)
     return await call_next(request)
+
+
+class StartRequest(BaseModel):
+    name: str
+    company: str
+    password: str
+
+
+@app.post("/api/workspace/start")
+def start_workspace(body: StartRequest) -> Dict[str, Any]:
+    """The trial moment: wipe the sample data, name the workspace, and make
+    the visitor its admin — one form between exploring and owning."""
+    if not (body.name.strip() and body.company.strip() and body.password):
+        raise HTTPException(400, "name, company, and password are required")
+    if db.list_users():
+        raise HTTPException(403, "this workspace is already claimed — sign in instead")
+    db.restore_state({"_format": 1, **{t: [] for t in (
+        "ideas", "business_cases", "datasets", "strategic_initiatives",
+        "challenges", "notifications", "events", "meta")}})
+    db.meta_set("workspace_name", body.company.strip())
+    user = db.create_user(body.name.strip().lower(), "admin", body.password)
+    db.audit("workspace.start", user["name"], detail=body.company.strip())
+    return {"token": db.create_session(user["name"]), "user": user,
+            "workspace": body.company.strip()}
 
 
 class LoginRequest(BaseModel):
@@ -2437,7 +2462,7 @@ def seed_lifecycle() -> Dict[str, Any]:
             except (TypeError, ValueError):
                 return 100.0
         idle_rows = [r for r in rows if _cpu(r) < 5.0]
-        gone = {id(r) for r in idle_rows[: max(2, len(idle_rows) * 2 // 3)]}
+        gone = {id(r) for r in idle_rows[: max(2, len(idle_rows) - 1)]}
         db.save_dataset("cloud", [r for r in rows if id(r) not in gone],
                         origin="sample (post-implementation)")
     for c in db.list_business_cases():

@@ -1901,3 +1901,18 @@ def test_compelling_capabilities(client):
     r = client.post("/api/radar/scan", json={"topic": "competitor launches AI copilot"}).json()
     assert r["challenge"]["id"].startswith("CH-") or r["challenge"]["id"]
     assert len(r["signals"]) >= 3 and r["starter_ideas"]
+
+
+def test_workspace_start_flow(client):
+    client.post("/api/demo/seed-lifecycle")
+    r = client.post("/api/workspace/start", json={
+        "name": "Ryan", "company": "Acme", "password": "pw"})
+    assert r.status_code == 200
+    tok = {"Authorization": f"Bearer {r.json()['token']}"}
+    # sample data gone, visitor is admin, auth now enforced
+    assert client.get("/api/ideas", headers=tok).json()["ideas"] == []
+    assert client.get("/api/auth/me", headers=tok).json()["user"]["role"] == "admin"
+    assert client.get("/api/ideas").status_code == 401
+    # claimed workspaces refuse a second start
+    assert client.post("/api/workspace/start", json={
+        "name": "x", "company": "y", "password": "z"}).status_code == 403
