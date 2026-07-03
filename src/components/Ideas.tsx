@@ -163,7 +163,7 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
       />
       <div className="row">
         <button
-          type="button" className="secondary"
+          type="button" className={description.trim() ? 'secondary' : ''}
           disabled={assisting || !title.trim()}
           title={title.trim() ? '' : 'Give the idea a title first'}
           onClick={async () => {
@@ -269,8 +269,11 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
       {submitted && (
         <p className="success">
           ✓ Submitted — triage says <strong>{REC_LABELS[submitted.assessment?.recommendation ?? ''] ?? submitted.assessment?.recommendation}</strong>
-          {submitted.assessment ? ` (score ${submitted.assessment.score})` : ''}. Track its
-          progress on the My Submissions tab.
+          {submitted.assessment ? ` (score ${submitted.assessment.score})` : ''}.{' '}
+          <button type="button" className="chip"
+                  onClick={() => window.dispatchEvent(new CustomEvent('ivd-nav', { detail: 'mine' }))}>
+            View its approval chain →
+          </button>
         </p>
       )}
     </div>

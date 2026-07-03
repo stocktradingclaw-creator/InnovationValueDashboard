@@ -652,7 +652,13 @@ export default function CommandCenter({ onChanged }: Props) {
           </p>
         </div>
         <div className="row">
-          <input placeholder="Acting as… (your name)" value={actor} onChange={(e) => setActor(e.target.value)} style={{ maxWidth: 200 }} />
+          {localStorage.getItem('ivd_user') ? (
+            <span className="badge" title="Change who you are from the profile menu, top right">
+              Deciding as <strong>{actor}</strong>
+            </span>
+          ) : (
+            <input placeholder="Acting as… (your name)" value={actor} onChange={(e) => setActor(e.target.value)} style={{ maxWidth: 200 }} />
+          )}
           <button
             className="secondary"
             disabled={autoBusy}
@@ -689,12 +695,12 @@ export default function CommandCenter({ onChanged }: Props) {
       <LifecycleStrip lifecycle={lifecycle} />
 
       {queue.cost_of_delay && queue.cost_of_delay.total_burned > 0 && (
-        <div className="banner-warn delay-ticker">
-          <strong>{money(queue.cost_of_delay.total_burned)}</strong> of estimated value has burned
-          while {queue.cost_of_delay.items.length} item(s) waited at gates — worst:{' '}
-          {queue.cost_of_delay.items[0].title} ({queue.cost_of_delay.items[0].days_waiting}d,{' '}
-          {money(queue.cost_of_delay.items[0].burned)}).
-        </div>
+        <p className="muted small delay-line">
+          ⏱ Deciding faster is worth money: an estimated{' '}
+          <strong>{money(queue.cost_of_delay.total_burned)}</strong> has gone unrealized while{' '}
+          {queue.cost_of_delay.items.length} item(s) waited — longest:{' '}
+          {queue.cost_of_delay.items[0].title} ({queue.cost_of_delay.items[0].days_waiting}d).
+        </p>
       )}
 
       {queue.automation_ran && (queue.automation_ran.drafted > 0 || queue.automation_ran.advanced > 0

@@ -48,6 +48,15 @@ function Simulator() {
             <div className="metric"><span className="muted small">P(net positive)</span>
               <strong>{Math.round(sim.probability_positive * 100)}%</strong></div>
           </div>
+          <p className="small">
+            <strong>
+              {sim.annual_value_p10 > 0
+                ? 'Even the pessimistic run pays for itself — this portfolio is robust, not lucky.'
+                : sim.probability_positive >= 0.7
+                  ? `${Math.round(sim.probability_positive * 100)}% of futures end net positive — fund it, but stage the tranches.`
+                  : 'Too many futures end underwater — de-risk with experiments before committing capital.'}
+            </strong>
+          </p>
           <p className="muted small">
             {sim.cases} active case(s), {sim.trials.toLocaleString()} trials · median per case:{' '}
             {sim.per_case.slice(0, 4).map((c) => `${c.title} ${money(c.p50)}`).join(' · ')}

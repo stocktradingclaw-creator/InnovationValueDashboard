@@ -1023,7 +1023,8 @@ def demo_generate(body: DemoRequest) -> Dict[str, Any]:
 
 @app.get("/api/demo/status")
 def demo_status() -> Dict[str, Any]:
-    return {"demo": demo.status(), "industries": demo.INDUSTRIES}
+    return {"demo": demo.status(), "industries": demo.INDUSTRIES,
+            "seeded": bool(db.meta_get("seeded_lifecycle"))}
 
 
 @app.post("/api/demo/revert")
@@ -2367,9 +2368,10 @@ def seed_lifecycle() -> Dict[str, Any]:
                                "priya", 260000, 60, inits[2])
     db.set_stage(delivering["id"], "in_delivery")
 
-    live = approved_case("Consolidate duplicate CRM licenses",
-                         "Three overlapping CRM tools; consolidating to one saves "
-                         "licenses and integration upkeep.",
+    live = approved_case("Decommission idle cloud instances — wave 1",
+                         "Instances idle below 5% CPU around the clock; wave 1 "
+                         "decommissions the worst idle cloud resources with owner "
+                         "sign-off.",
                          "alex", 170000, 90, inits[0])
     implement_case(live["id"], ImplementRequest(go_live_date=days(75)[:10]))  # pydantic coerces ISO strings
     for n, amt in ((70, 12000), (40, 14500), (10, 15200)):
@@ -2399,17 +2401,27 @@ def seed_lifecycle() -> Dict[str, Any]:
                                                 note="First-quarter measured run-rate"))
     db.set_stage(scaled["id"], "scale")
 
-    # a real measured reduction: the customer's data changed, then we re-observe
-    lv = db.get_business_case(live["id"])
-    if lv.get("metric_bindings"):
-        rows = _loaded_datasets().get("cloud", [])
-        if rows:
-            db.save_dataset("cloud", rows[: max(1, len(rows) - 6)], origin="sample (post-fix)")
-        for b in lv["metric_bindings"]:
+    # a real measured reduction: the fix was "implemented" (idle instances
+    # actually removed from the customer's data), then we re-observe every
+    # frozen baseline — verified value is computed, never typed
+    rows = _loaded_datasets().get("cloud", [])
+    if rows:
+        def _cpu(r):
             try:
-                observe_binding(live["id"], b["id"])
+                return float(r.get("avg_cpu_pct") or 100)
+            except (TypeError, ValueError):
+                return 100.0
+        idle_rows = [r for r in rows if _cpu(r) < 5.0]
+        gone = {id(r) for r in idle_rows[: max(2, len(idle_rows) * 2 // 3)]}
+        db.save_dataset("cloud", [r for r in rows if id(r) not in gone],
+                        origin="sample (post-implementation)")
+    for c in db.list_business_cases():
+        for b in c.get("metric_bindings", []):
+            try:
+                observe_binding(c["id"], b["id"])
             except Exception:
                 pass
+    db.meta_set("seeded_lifecycle", days(0))
 
     return {
         "seeded": True,

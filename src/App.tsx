@@ -29,6 +29,30 @@ type Tab =
 
 const DEFAULT_WEIGHTS: Weights = { value: 35, efficiency: 30, speed: 15, simplicity: 20 }
 
+const ICONS: Record<string, string> = {
+  overview: 'M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10',
+  mine: 'M12 3l2.6 5.6 6.4.8-4.7 4.3 1.2 6.3-5.5-3.2-5.5 3.2 1.2-6.3L3 9.4l6.4-.8z',
+  command: 'M4 4h16v16H4zM8 12l3 3 5-6',
+  pipeline: 'M4 6h10M4 12h16M4 18h7M18 4l3 3-3 3',
+  opportunities: 'M12 3a9 9 0 109 9M12 8a4 4 0 104 4M12 12h.01',
+  cases: 'M4 5h16v14H4zM4 10h16M9 5v14',
+  tracking: 'M4 17l5-5 4 3 7-8M16 7h4v4',
+  portfolio: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
+  sources: 'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6',
+  settings: 'M12 8a4 4 0 100 8 4 4 0 000-8zM19 12l2 1-1 3-2.3-.3a7 7 0 01-1.6 1.6L16 20h-3l-.3-2.3a7 7 0 01-1.6-1.6L8 17l-1-3 2-1-2-1 1-3 2.3.3a7 7 0 011.6-1.6L13 4h3l.3 2.3a7 7 0 011.6 1.6L20 8l1 3z',
+  plus: 'M12 5v14M5 12h14',
+}
+
+function Icon({ name }: { name: string }) {
+  return (
+    <svg className="nav-glyph" viewBox="0 0 24 24" width="16" height="16" fill="none"
+         stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+         aria-hidden="true">
+      <path d={ICONS[name] ?? ICONS.overview} />
+    </svg>
+  )
+}
+
 interface AuthUser { name: string; role: string }
 
 function LoginScreen({ onDone }: { onDone: (u: AuthUser) => void }) {
@@ -191,6 +215,7 @@ export default function App() {
   const [portfolioReport, setPortfolioReport] = useState<PortfolioReport | null>(null)
   const [ideas, setIdeas] = useState<Idea[]>([])
   const [demoStatus, setDemoStatus] = useState<DemoStatus | null>(null)
+  const [seeded, setSeeded] = useState(false)
   const [sources, setSources] = useState<SourceStatus[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [total, setTotal] = useState(0)
@@ -214,7 +239,9 @@ export default function App() {
       setSummary(opps.prioritization.summary)
       setCases(bcs.business_cases)
       setIdeas((await getIdeas().catch(() => ({ ideas: [] }))).ideas)
-      setDemoStatus((await getDemoStatus().catch(() => ({ demo: null, industries: [] }))).demo)
+      const demoState = await getDemoStatus().catch(() => ({ demo: null, industries: [], seeded: false }))
+      setDemoStatus(demoState.demo)
+      setSeeded(Boolean((demoState as { seeded?: boolean }).seeded))
       setPortfolioReport(await getPortfolioDiagnostic().catch(() => null))
       setOffline(false)
     } catch {
@@ -228,8 +255,13 @@ export default function App() {
       .catch(() => {})
       .finally(() => setAuthChecked(true))
     const onAuthRequired = () => { setAuthRequired(true); setMe(null) }
+    const onNav = (e: Event) => setTab((e as CustomEvent).detail as Tab)
     window.addEventListener('ivd-auth-required', onAuthRequired)
-    return () => window.removeEventListener('ivd-auth-required', onAuthRequired)
+    window.addEventListener('ivd-nav', onNav)
+    return () => {
+      window.removeEventListener('ivd-auth-required', onAuthRequired)
+      window.removeEventListener('ivd-nav', onNav)
+    }
   }, [])
 
   useEffect(() => {
@@ -293,17 +325,17 @@ export default function App() {
         {!collapsed && searchBlock}
         <button className="new-idea-cta" onClick={() => setTab('ideas')}
                 title="Submit a new idea">
-          <span className="nav-glyph" aria-hidden="true">＋</span>
+          <Icon name="plus" />
           <span className="nav-label">New idea</span>
         </button>
         <nav>
           {NAV_GROUPS.map(([group, items]) => (
             <div key={group} className="nav-group">
               <span className="nav-group-label nav-label">{group}</span>
-              {items.map(([id, glyph, label]) => (
+              {items.map(([id, , label]) => (
                 <button key={id} className={tab === id ? 'active' : ''} title={label}
                         onClick={() => setTab(id)}>
-                  <span className="nav-glyph" aria-hidden="true">{glyph}</span>
+                  <Icon name={id} />
                   <span className="nav-label">{label}</span>
                 </button>
               ))}
@@ -315,6 +347,17 @@ export default function App() {
       <Toasts />
       <div className="mobile-search">{searchBlock}</div>
       <ProfileMenu me={me} onChangeUser={changeUser} />
+      {!demoStatus && seeded && !localStorage.getItem('ivd_seed_ack') && (
+        <div className="banner-demo">
+          <span>
+            <strong>You're looking at sample data</strong> — a full portfolio seeded across
+            every lifecycle phase so you can explore. Make it yours anytime.
+          </span>
+          <button className="secondary" onClick={() => {
+            localStorage.setItem('ivd_seed_ack', '1'); refresh()
+          }}>Got it</button>
+        </div>
+      )}
       {demoStatus && (
         <div className="banner-demo">
           <span>

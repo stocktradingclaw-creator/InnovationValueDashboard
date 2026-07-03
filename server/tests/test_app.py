@@ -1795,7 +1795,8 @@ def test_enterprise_admin_and_reporting_endpoints(client):
     pack = client.get("/api/reports/board-pack").text
     assert "Verified annual value" in pack and "Claimed savings" in pack
     ledger = client.get("/api/value-ledger").json()
-    assert "total_verified_annual_value" in ledger
+    # the flagship metric must never be zero in the demo
+    assert ledger["total_verified_annual_value"] > 0
     for e in ledger["entries"]:
         assert e["baseline_frozen_at"]  # every entry traceable to a frozen baseline
     assert client.get("/api/value-ledger", params={"format": "csv"}
