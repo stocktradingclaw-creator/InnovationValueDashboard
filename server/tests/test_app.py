@@ -2120,7 +2120,7 @@ def test_context_populates_all_tabs(client):
 def test_maturity_module_e2e(client):
     client.post("/api/demo/seed-lifecycle")
     fw = client.get("/api/maturity/framework").json()
-    assert len(fw["dimensions"]) == 8 and all(len(d["rubric"]) == 5 for d in fw["dimensions"])
+    assert len(fw["dimensions"]) >= 8 and all(len(d["rubric"]) == 5 for d in fw["dimensions"])
     ws = client.get("/api/maturity/waves").json()["waves"]
     assert len(ws) == 2
     s = client.get(f"/api/maturity/waves/{ws[1]['id']}/summary").json()
@@ -2135,3 +2135,31 @@ def test_maturity_module_e2e(client):
                                             "score": 9}]}).status_code == 400
     assert client.post(f"/api/maturity/waves/{ws[0]['id']}/responses", json={
         "csv": "respondent,dimension,score,evidence\nlee,culture,3,ran retro"}).json()["added"] == 1
+
+
+def test_portfolio_telemetry_features_a_to_g(client):
+    client.post("/api/demo/seed-lifecycle")
+    t = client.get("/api/portfolio/telemetry").json()
+    # A: balance sums to ~100% with configurable target
+    assert abs(sum(b["share"] for b in t["balance"]["rows"]) - 1.0) < 0.02
+    # B: funnel stages + purgatory flags aged pilots from the seed
+    assert t["funnel"]["stages"]["idea"] > 0 and t["funnel"]["purgatory"]
+    # C: one value roll-up, no false precision
+    v = t["value"]
+    assert v["trapped_high"] > v["trapped_low"] > 0 and "achievement_gap" in v
+    assert any(p["gaps_value_high"] > 0 for p in v["pools"])  # gaps reconcile into pools
+    # D: strategy context editable and drives targets
+    r = client.put("/api/strategy-context", json={
+        "ambition": "x", "disruption_current": 4, "susceptibility": 5, "notes": "",
+        "target_onn": {"old": 0.2, "now": 0.5, "new": 0.3}})
+    assert r.status_code == 200
+    assert client.put("/api/strategy-context", json={"target_onn": {"old": 0.9, "now": 0.9, "new": 0.9}}).status_code == 400
+    # E: digital-core dims exist in framework, sub-score computed
+    fw = client.get("/api/maturity/framework").json()
+    assert any(d["key"] == "aiml" for d in fw["dimensions"])
+    assert t["digital_core"]["score"] is not None
+    # F: funding queue + kill framing
+    assert "gate_queue" in t["funding"] and t["funding"]["kill_note"]
+    # G: board pack carries the additions
+    pack = client.get("/api/reports/board-pack").text
+    assert "Portfolio balance" in pack and "Trapped value" in pack

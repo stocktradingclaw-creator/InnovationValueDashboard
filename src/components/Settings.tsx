@@ -257,6 +257,48 @@ function UserProfiles() {
   )
 }
 
+function StrategyContext() {
+  const [c, setC] = useState<{ ambition: string; disruption_current: number; susceptibility: number; notes: string; target_onn: Record<string, number> } | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+  useEffect(() => { fetch('/api/strategy-context').then((r) => r.json()).then(setC).catch(() => {}) }, [])
+  if (!c) return null
+  return (
+    <div className="card">
+      <h3>Strategy context</h3>
+      <p className="muted small">Rarely edited context — not an assessment: disruption posture,
+        ambition, and the old/now/new target allocation that drives the portfolio balance view.</p>
+      <textarea rows={2} value={c.ambition} aria-label="Strategic ambition"
+                onChange={(e) => setC({ ...c, ambition: e.target.value })} />
+      <div className="row">
+        {(['disruption_current', 'susceptibility'] as const).map((k) => (
+          <label key={k} className="small" style={{ flex: 1 }}>
+            {k === 'disruption_current' ? 'Current disruption level' : 'Susceptibility to future disruption'}: {c[k]}/5
+            <input type="range" min={1} max={5} value={c[k]}
+                   onChange={(e) => setC({ ...c, [k]: Number(e.target.value) })} />
+          </label>
+        ))}
+      </div>
+      <div className="row">
+        {(['old', 'now', 'new'] as const).map((k) => (
+          <label key={k} className="small" style={{ flex: 1 }}>
+            {k} target: {Math.round((c.target_onn[k] ?? 0) * 100)}%
+            <input type="range" min={0} max={100} value={Math.round((c.target_onn[k] ?? 0) * 100)}
+                   onChange={(e) => setC({ ...c, target_onn: { ...c.target_onn, [k]: Number(e.target.value) / 100 } })} />
+          </label>
+        ))}
+      </div>
+      <div className="row">
+        <button onClick={async () => {
+          const r = await fetch('/api/strategy-context', { method: 'PUT',
+            headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) })
+          setMsg(r.ok ? 'Saved.' : (await r.json()).detail ?? 'Save failed.')
+        }}>Save context</button>
+        {msg && <span className="muted small">{msg}</span>}
+      </div>
+    </div>
+  )
+}
+
 function AiSettings() {
   const [masked, setMasked] = useState('')
   const [source, setSource] = useState('none')
@@ -564,6 +606,7 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
       <div className="dash-grid">
         <ScoringSettings />
         <ContextPicker />
+      <StrategyContext />
       <AiSettings />
       <UserProfiles />
       <NotificationSettings />

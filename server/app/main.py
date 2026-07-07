@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import maturity as maturity_mod
+from . import telemetry
 from . import (
     calibration, connectors, db, demo, hub, metrics, opportunities,
     portfolio, prioritization, roi, timeline,
@@ -1936,6 +1937,16 @@ def board_pack(format: str = Query("md")) -> Any:
     for i in q_ideas[:5]:
         a = i.get("assessment") or {}
         lines.append(f"- {i['title']} (score {a.get('score', '—')}, {i['status']})")
+    t = telemetry.snapshot()
+    lines += ["", "## Portfolio balance (old/now/new vs target)"] + [
+        f"- {b['horizon']}: {b['share']:.0%} vs {b['target']:.0%} target"
+        for b in t["balance"]["rows"]] + [
+        "", "## Funnel & value",
+        f"- PoC purgatory: {len(t['funnel']['purgatory'])} pilot(s) aging",
+        f"- Pending gate decisions: {len(t['funding']['gate_queue'])}",
+        f"- Trapped value: ${t['value']['trapped_low']:,.0f}–${t['value']['trapped_high']:,.0f}",
+        f"- Achievement gap (invested minus realized): ${t['value']['achievement_gap']:,.0f}",
+    ]
     lines += ["", "## Kills & learnings",
               f"- Experiments concluded with learnings captured: "
               f"{sum(1 for c in cases for e in c.get('experiments', []) if e.get('outcome'))}"]
@@ -2368,6 +2379,28 @@ def tentypes_concepts(body: StudioRequest) -> Dict[str, Any]:
 
 
 # ---------------------------------------------- maturity assessment module
+
+@app.get("/api/portfolio/telemetry")
+def portfolio_telemetry() -> Dict[str, Any]:
+    telemetry.ensure_digital_dims()
+    return telemetry.snapshot()
+
+
+@app.get("/api/strategy-context")
+def get_strategy_context() -> Dict[str, Any]:
+    return telemetry.strategy_context()
+
+
+@app.put("/api/strategy-context")
+def put_strategy_context(body: Dict[str, Any], authorization: Optional[str] = Header(None),
+                         actor: Optional[str] = Query(None)) -> Dict[str, Any]:
+    _require_admin(authorization, actor)
+    t = body.get("target_onn") or {}
+    if t and abs(sum(t.values()) - 1.0) > 0.05:
+        raise HTTPException(400, "target allocation must sum to ~100%")
+    db.audit("settings.strategy_context", _session_name() or actor)
+    return telemetry.save_strategy_context(body)
+
 
 @app.get("/api/maturity/framework")
 def maturity_framework() -> Dict[str, Any]:
@@ -3206,6 +3239,12 @@ def seed_lifecycle(force: bool = Query(False)) -> Dict[str, Any]:
                                "consumes four FTEs and introduces errors.",
                                "priya", 260000, 60, inits[2])
     db.set_stage(delivering["id"], "in_delivery")
+    # backdate two pilots so PoC purgatory has real examples on first load
+    with db._conn() as conn:
+        conn.execute("UPDATE business_cases SET submitted_at = ? WHERE id = ?",
+                     (days(60), delivering["id"]))
+        conn.execute("UPDATE business_cases SET submitted_at = ? WHERE id = ?",
+                     (days(50), approved["id"]))
 
     live = approved_case("Decommission idle cloud instances — wave 1",
                          "Instances idle below 5% CPU around the clock; wave 1 "
@@ -3276,7 +3315,12 @@ def seed_lifecycle(force: bool = Query(False)) -> Dict[str, Any]:
              "One-tap warranty claims for technicians\n"
              "Customer-visible repair progress tracker",
         session_name="Q3 design sprint", facilitator="maria"))
+    telemetry.ensure_digital_dims()
     maturity_mod.seed_demo()
+    ws2 = maturity_mod.waves()
+    if ws2:
+        for k, sc in [("cloud", 3), ("data", 2), ("aiml", 2), ("engineering", 3), ("archdebt", 2)]:
+            maturity_mod.calibrate(ws2[-1]["id"], k, sc, "digital-core baseline")
     db.meta_set("seeded_lifecycle", days(0))
 
     return {

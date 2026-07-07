@@ -336,6 +336,27 @@ function StrategyCard({ onNavigate }: { onNavigate: (t: NavTab) => void }) {
   )
 }
 
+function TelemetryCard({ onNavigate }: { onNavigate: (t: NavTab) => void }) {
+  const [t, setT] = useState<{ balance: { drift_alert: boolean }; funnel: { purgatory: unknown[] };
+    funding: { gate_queue: unknown[] }; value: { trapped_low: number; trapped_high: number; achievement_gap: number };
+    digital_core: { score: number | null }; strategy_context: { ambition: string; disruption_current: number; susceptibility: number } } | null>(null)
+  useEffect(() => { fetch('/api/portfolio/telemetry').then((r) => r.json()).then(setT).catch(() => {}) }, [])
+  if (!t) return null
+  return (
+    <div className="card card-header clickable" role="button" tabIndex={0}
+         onKeyDown={(e) => { if (e.key === 'Enter') onNavigate('portfolio') }}
+         onClick={() => onNavigate('portfolio')}>
+      <h3>Portfolio pulse</h3>
+      <span className="muted small">
+        trapped {money(t.value.trapped_low)}–{money(t.value.trapped_high)} ·
+        gap {money(t.value.achievement_gap)} · {t.funnel.purgatory.length} in purgatory ·{' '}
+        {t.funding.gate_queue.length} gate decision(s) · digital core {t.digital_core.score ?? '—'}/5
+        {t.balance.drift_alert ? ' · ⚠ allocation drift' : ''}
+      </span>
+    </div>
+  )
+}
+
 function PnlCard() {
   const [pnl, setPnl] = useState<Awaited<ReturnType<typeof getPnl>> | null>(null)
   const [open, setOpen] = useState(['executive', 'admin'].includes(localStorage.getItem('ivd_role') ?? ''))
@@ -517,6 +538,7 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
         </button>
       </div>
       <MyWork onNavigate={onNavigate} />
+      <TelemetryCard onNavigate={onNavigate} />
       <StrategyCard onNavigate={onNavigate} />
       <PnlCard />
 

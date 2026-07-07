@@ -31,6 +31,121 @@ interface Advisory {
 
 const H_LABELS: Record<string, string> = { h1: 'H1 · Core', h2: 'H2 · Adjacent', h3: 'H3 · Transformational' }
 
+interface Telemetry {
+  strategy_context: { ambition: string; disruption_current: number; susceptibility: number; target_onn: Record<string, number> }
+  balance: { rows: { horizon: string; share: number; target: number; spend: number; count: number; variance: number }[]; drift_alert: boolean; total_spend: number }
+  funnel: { stages: Record<string, number>; killed: number; conversions: { from: string; to: string; rate: number | null }[]; purgatory: { id: string; title: string; days: number }[]; purgatory_threshold_days: number }
+  funding: { committed: number; released: number; gate_queue: { case_id: string; title: string; tranche: string; amount: number; milestone: string; overdue: boolean }[]; kills_by_stage: Record<string, number>; kill_note: string }
+  value: { pools: { name: string; low: number; high: number; assumptions: string; gaps_value_low: number; gaps_value_high: number; gap_names: string[] }[]; trapped_low: number; trapped_high: number; invested: number; realized_claimed: number; realized_verified: number; achievement_gap: number }
+  digital_core: { score: number | null; weak_dimensions: string[]; scaling_at_risk: { id: string; title: string }[] }
+}
+
+export function TelemetryPanels() {
+  const [t, setT] = useState<Telemetry | null>(null)
+  useEffect(() => { fetch('/api/portfolio/telemetry').then((r) => r.json()).then(setT).catch(() => {}) }, [])
+  if (!t) return null
+  const ONN_LABEL: Record<string, string> = { old: 'Old — transform the core', now: 'Now — grow current business', new: 'New — scale future bets' }
+  const FUNNEL_ORDER = ['idea', 'validated', 'pilot', 'scaling', 'scaled']
+  const maxStage = Math.max(...FUNNEL_ORDER.map((f) => t.funnel.stages[f] ?? 0), 1)
+  return (
+    <>
+      <div className="card">
+        <div className="card-header">
+          <h3>Portfolio balance — old / now / new</h3>
+          {t.balance.drift_alert && <span className="pill act-verify">drift vs target</span>}
+        </div>
+        {t.balance.rows.map((b) => (
+          <div key={b.horizon} className="initiative-row">
+            <div className="initiative-head">
+              <strong>{ONN_LABEL[b.horizon]}</strong>
+              <span className="muted small">{b.count} initiative(s) · {money(b.spend)} released ·{' '}
+                {Math.round(b.share * 100)}% vs {Math.round(b.target * 100)}% target
+                {Math.abs(b.variance) > 0.15 ? ' ⚠' : ''}</span>
+            </div>
+            <div className="funnel-track"><div className="funnel-bar stage-committed" style={{ width: `${b.share * 100}%` }} /></div>
+            <div className="funnel-track thin"><div className="funnel-bar stage-verified" style={{ width: `${b.target * 100}%` }} /></div>
+          </div>
+        ))}
+        <p className="muted small">Classified by horizon and benefit heuristics; target set in
+          Hub Settings → Strategy context.</p>
+      </div>
+
+      <div className="card">
+        <h3>Funnel &amp; scaling</h3>
+        <div className="row" style={{ alignItems: 'flex-end', gap: '0.4rem' }}>
+          {FUNNEL_ORDER.map((f, i) => (
+            <div key={f} style={{ flex: 1, textAlign: 'center' }}>
+              <div className="funnel-bar stage-committed" style={{
+                height: 8 + ((t.funnel.stages[f] ?? 0) / maxStage) * 60, borderRadius: 6 }} />
+              <span className="small"><strong>{t.funnel.stages[f] ?? 0}</strong> {f}</span>
+              {i < 4 && <div className="muted small">→ {t.funnel.conversions[i]?.rate != null
+                ? `${Math.round((t.funnel.conversions[i].rate ?? 0) * 100)}%` : '—'}</div>}
+            </div>
+          ))}
+          <div style={{ textAlign: 'center' }}>
+            <span className="pill act-intervene">{t.funnel.killed} killed</span>
+            <div className="muted small">{t.funding.kill_note}</div>
+          </div>
+        </div>
+        {t.funnel.purgatory.length > 0 && (
+          <p className="small pending-action">PoC purgatory ({'>'}{t.funnel.purgatory_threshold_days}d in pilot):{' '}
+            {t.funnel.purgatory.map((p0) => `${p0.title} (${p0.days}d)`).join(' · ')}</p>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <h3>Gate reviews &amp; funding</h3>
+          <span className="muted small">{money(t.funding.released)} released of {money(t.funding.committed)} committed</span>
+        </div>
+        {t.funding.gate_queue.length === 0 && <p className="muted small">No pending gate decisions.</p>}
+        {t.funding.gate_queue.map((g) => (
+          <div key={`${g.case_id}-${g.tranche}`} className="decision-row">
+            <span className={`pill ${g.overdue ? 'act-intervene' : 'act-verify'}`}>{g.overdue ? 'overdue' : 'upcoming'}</span>
+            <span><strong>{g.title}</strong> <span className="muted small">{g.tranche} · {money(g.amount)} · gate: {g.milestone}</span></span>
+          </div>
+        ))}
+        {Object.keys(t.funding.kills_by_stage).length > 0 && (
+          <p className="muted small">Kills by stage: {Object.entries(t.funding.kills_by_stage)
+            .map(([k, v]) => `${k}: ${v}`).join(' · ')}</p>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <h3>Trapped value → realization</h3>
+          <span className="muted small">one roll-up: pool → gap → initiative → realized</span>
+        </div>
+        <div className="metrics-row">
+          <div className="metric"><span className="muted small">Trapped value (range)</span>
+            <strong>{money(t.value.trapped_low)} – {money(t.value.trapped_high)}</strong></div>
+          <div className="metric"><span className="muted small">Invested (released)</span>
+            <strong>{money(t.value.invested)}</strong></div>
+          <div className="metric"><span className="muted small">Realized (claimed + verified)</span>
+            <strong className="pos">{money(t.value.realized_claimed + t.value.realized_verified)}</strong></div>
+          <div className="metric"><span className="muted small">Achievement gap</span>
+            <strong className={t.value.achievement_gap > 0 ? 'neg' : 'pos'}>{money(t.value.achievement_gap)}</strong></div>
+        </div>
+        {t.value.pools.map((p0) => (
+          <div key={p0.name} className="decision-row">
+            <span className="pill act-approve">{money(p0.low)}–{money(p0.high)}</span>
+            <span><strong>{p0.name}</strong>{' '}
+              <span className="muted small">{p0.assumptions} · linked gaps: {p0.gap_names.join(', ') || 'none sized yet'}
+                {p0.gaps_value_high > 0 ? ` (${money(p0.gaps_value_low)}–${money(p0.gaps_value_high)})` : ''}</span></span>
+          </div>
+        ))}
+        {t.digital_core.score != null && (
+          <p className="small pending-action">Digital-core readiness: <strong>{t.digital_core.score}/5</strong>
+            {t.digital_core.weak_dimensions.length > 0 &&
+              <> — scaling gated by: {t.digital_core.weak_dimensions.join(', ')}
+                {t.digital_core.scaling_at_risk.length > 0 && ` (${t.digital_core.scaling_at_risk.length} initiative(s) at risk)`}</>}
+          </p>
+        )}
+      </div>
+    </>
+  )
+}
+
 function AdvisoryPanel() {
   const [a, setA] = useState<Advisory | null>(null)
   const [execBusy, setExecBusy] = useState<string | null>(null)
@@ -216,6 +331,7 @@ export default function Portfolio({ report, hasPortfolio, onChanged }: Props) {
         </div>
       </div>
       {error && <p className="error">{error}</p>}
+      <TelemetryPanels />
       <AdvisoryPanel />
       <Simulator />
       <h3 className="spaced">Diagnose an external portfolio (PMO export)</h3>
