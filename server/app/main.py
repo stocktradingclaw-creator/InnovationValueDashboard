@@ -2288,6 +2288,118 @@ def demo_clear(authorization: Optional[str] = Header(None),
     return {"cleared": True}
 
 
+_TYPE_KEYWORDS = {
+    "Profit Model": ["pricing", "subscription", "revenue model", "monetiz", "license", "contract"],
+    "Network": ["partner", "ecosystem", "alliance", "vendor", "supplier network"],
+    "Structure": ["org", "team structure", "talent", "reorganiz", "roles"],
+    "Process": ["automat", "process", "workflow", "rpa", "provisioning", "matching", "routing"],
+    "Product Performance": ["feature", "faster", "quality", "performance", "upgrade"],
+    "Product System": ["platform", "integration", "suite", "bundle", "api"],
+    "Service": ["support", "service desk", "onboarding", "self-service", "helpdesk", "resets"],
+    "Channel": ["portal", "mobile app", "channel", "storefront", "distribution"],
+    "Brand": ["brand", "reputation", "trust mark", "positioning"],
+    "Customer Engagement": ["customer experience", "engagement", "personaliz", "tracker", "notification"],
+}
+
+
+@app.get("/api/ideate/tentypes-mirror")
+def tentypes_mirror() -> Dict[str, Any]:
+    """The mirror: your own pipeline classified across Keeley's ten types —
+    empty cells are the strategic headline."""
+    items = [(i["id"], f"{i['title']} {i['description']}", i["title"])
+             for i in db.list_ideas() if i["status"] != "declined"]
+    grid = {name: [] for name, _ in hub.TEN_TYPES}
+    for iid, text, title in items:
+        low = text.lower()
+        placed = None
+        for t, kws in _TYPE_KEYWORDS.items():
+            if any(k in low for k in kws):
+                placed = t
+                break
+        grid[placed or "Product Performance"].append(title[:60])
+    out = [{"type": name, "about": desc, "count": len(grid[name]),
+            "examples": grid[name][:3]} for name, desc in hub.TEN_TYPES]
+    empties = [o["type"] for o in out if o["count"] == 0]
+    return {"grid": out, "total": len(items), "empty_types": empties,
+            "headline": (f"{len(items)} pipeline items concentrate in "
+                         f"{10 - len(empties)} of the ten types — the empty ones "
+                         f"({', '.join(empties[:4]) or 'none'}) are where defensibility lives."
+                         if items else "No pipeline to mirror yet — seed or submit ideas first.")}
+
+
+@app.get("/api/ideate/watchlist")
+def competitive_watchlist() -> Dict[str, Any]:
+    """Competitors as persistent watchlist: latest scan per topic plus what
+    changed since the previous scan."""
+    with_runs: Dict[str, List[Dict[str, Any]]] = {}
+    from collections import defaultdict
+    runs = defaultdict(list)
+    # all competitive runs, oldest first
+    with db._conn() as conn:
+        rows = conn.execute("SELECT topic, output, created_at FROM studio_runs "
+                            "WHERE kind='competitive' ORDER BY id").fetchall()
+    import json as _json
+    for r in rows:
+        runs[r["topic"]].append({"created_at": r["created_at"],
+                                 "output": _json.loads(r["output"])})
+    cards = []
+    for topic, rs in runs.items():
+        latest, prev = rs[-1], (rs[-2] if len(rs) > 1 else None)
+        new_items = []
+        if prev:
+            old_titles = {i["title"] for i in prev["output"].get("items", [])}
+            new_items = [i["title"] for i in latest["output"].get("items", [])
+                         if i["title"] not in old_titles]
+        cards.append({"topic": topic, "last_scanned": latest["created_at"],
+                      "scans": len(rs), "latest": latest["output"],
+                      "changed_since_last": new_items})
+    cards.sort(key=lambda c: c["last_scanned"], reverse=True)
+    return {"watchlist": cards}
+
+
+@app.get("/api/ideate/maturity-history")
+def maturity_history(topic: str = Query(...)) -> Dict[str, Any]:
+    with db._conn() as conn:
+        rows = conn.execute("SELECT output, created_at FROM studio_runs "
+                            "WHERE kind='maturity' AND topic=? ORDER BY id", (topic,)).fetchall()
+    import json as _json, re as _re
+    def levels(out):
+        d = {}
+        for it in out.get("items", []):
+            m = _re.match(r"(.+?) — level (\d)/5", it["title"])
+            if m:
+                d[m.group(1)] = int(m.group(2))
+        return d
+    hist = [{"created_at": r["created_at"], "levels": levels(_json.loads(r["output"]))}
+            for r in rows]
+    deltas = {}
+    if len(hist) > 1:
+        prev, cur = hist[-2]["levels"], hist[-1]["levels"]
+        deltas = {k: cur[k] - prev.get(k, cur[k]) for k in cur}
+    return {"assessments": hist, "deltas": deltas}
+
+
+@app.get("/api/ideate/sessions")
+def workshop_sessions() -> Dict[str, Any]:
+    """Past design-thinking sessions with their harvest results."""
+    from collections import defaultdict
+    import re as _re
+    groups = defaultdict(list)
+    for i in db.list_ideas():
+        if i.get("source") != "mural":
+            continue
+        m = _re.search(r"session '([^']+)'", i.get("description") or "")
+        groups[m.group(1) if m else "unnamed session"].append(i)
+    out = []
+    for name, ideas in groups.items():
+        out.append({"session": name, "ideas": len(ideas),
+                    "qualified": sum(1 for i in ideas if i["status"] not in ("proposed", "declined")),
+                    "est_value": round(sum(i.get("estimated_annual_benefit")
+                                           or (i.get("assessment") or {}).get("estimated_annual_benefit") or 0
+                                           for i in ideas), 2)})
+    return {"sessions": out}
+
+
 @app.get("/api/ideate/studio/latest")
 def latest_studio(kind: str = Query(...)) -> Dict[str, Any]:
     return {"run": db.latest_studio_run(kind)}

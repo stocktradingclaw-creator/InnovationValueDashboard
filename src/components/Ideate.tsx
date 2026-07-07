@@ -248,6 +248,21 @@ function FuturesMap() {
   )
 }
 
+function MaturityStudioWithDeltas() {
+  const [lastTopic, setLastTopic] = useState('')
+  useEffect(() => {
+    fetch('/api/ideate/studio/latest?kind=maturity').then((r) => r.json())
+      .then((d) => { if (d.run) setLastTopic(d.run.topic) }).catch(() => {})
+  }, [])
+  return (
+    <>
+      <Studio kind="maturity" heading="Assess a topic"
+              blurb="Five-dimension read with level ratings; re-assess the same topic later and the deltas appear below." />
+      {lastTopic && <MaturityDeltas topic={lastTopic} />}
+    </>
+  )
+}
+
 export type IdeateView = 'futures' | 'competitive' | 'maturity' | 'workshops' | 'tentypes'
 
 const PAGES: Record<IdeateView, { title: string; intro: string }> = {
@@ -280,6 +295,111 @@ const PAGES: Record<IdeateView, { title: string; intro: string }> = {
   },
 }
 
+function TenTypesMirror() {
+  const [m, setM] = useState<{ grid: { type: string; about: string; count: number; examples: string[] }[]; headline: string; empty_types: string[] } | null>(null)
+  useEffect(() => { fetch('/api/ideate/tentypes-mirror').then((r) => r.json()).then(setM).catch(() => {}) }, [])
+  if (!m) return null
+  return (
+    <div className="card">
+      <h3>Your portfolio in the mirror</h3>
+      <p className="small"><strong>{m.headline}</strong></p>
+      <div className="tentype-grid">
+        {m.grid.map((g) => (
+          <div key={g.type} className={`card tentype-card ${g.count === 0 ? 'tentype-empty' : ''}`}>
+            <p className="small"><strong>{g.type}</strong>{' '}
+              {g.count > 0
+                ? <span className="pill act-approve">{g.count}</span>
+                : <span className="pill act-verify">empty</span>}</p>
+            <p className="muted small">{g.count > 0 ? g.examples.join(' · ') : g.about}</p>
+            {g.count === 0 && (
+              <button className="chip" onClick={() =>
+                seedIdea(`Explore a ${g.type} play: change ${g.about} instead of the product`, 'ideate-tentypes')}>
+                + seed a {g.type} idea
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function Watchlist() {
+  const [w, setW] = useState<{ topic: string; last_scanned: string; scans: number; changed_since_last: string[]; latest: StudioOut }[]>([])
+  const [busy, setBusy] = useState<string | null>(null)
+  const load = () => fetch('/api/ideate/watchlist').then((r) => r.json()).then((d) => setW(d.watchlist)).catch(() => {})
+  useEffect(() => { load() }, [])
+  if (w.length === 0) return null
+  return (
+    <div className="card">
+      <h3>Watchlist</h3>
+      <p className="muted small">Competitors and markets you track — re-scan any time; changes since your last scan are called out.</p>
+      {w.map((c) => (
+        <div key={c.topic} className="card" style={{ marginBottom: '0.6rem' }}>
+          <div className="card-header">
+            <div>
+              <strong>{c.topic}</strong>
+              <p className="muted small">last scanned {c.last_scanned.slice(0, 10)} · {c.scans} scan(s)</p>
+            </div>
+            <button className="secondary" disabled={busy === c.topic} onClick={async () => {
+              setBusy(c.topic)
+              try {
+                await fetch('/api/ideate/studio', { method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ kind: 'competitive', topic: c.topic }) })
+                await load(); toast(`Re-scanned ${c.topic}.`)
+              } finally { setBusy(null) }
+            }}>{busy === c.topic ? 'Scanning…' : 'Re-scan'}</button>
+          </div>
+          {c.changed_since_last.length > 0 && (
+            <p className="small pending-action">Changed since last scan: {c.changed_since_last.join(' · ')}</p>
+          )}
+          <div className="row">
+            {c.latest.idea_seeds.slice(0, 2).map((seed) => (
+              <button key={seed} className="chip" onClick={() => seedIdea(seed, 'ideate-competitive')}>+ {seed.slice(0, 55)}</button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function MaturityDeltas({ topic }: { topic: string }) {
+  const [h, setH] = useState<{ deltas: Record<string, number>; assessments: unknown[] } | null>(null)
+  useEffect(() => {
+    if (!topic) return
+    fetch(`/api/ideate/maturity-history?topic=${encodeURIComponent(topic)}`)
+      .then((r) => r.json()).then(setH).catch(() => {})
+  }, [topic])
+  if (!h || h.assessments.length < 2) return null
+  return (
+    <p className="small pending-action">
+      Movement since your previous assessment:{' '}
+      {Object.entries(h.deltas).map(([d, v]) =>
+        `${d} ${v > 0 ? `▲ +${v}` : v < 0 ? `▼ ${v}` : '—'}`).join(' · ')}
+    </p>
+  )
+}
+
+function SessionHistory() {
+  const [ss, setSs] = useState<{ session: string; ideas: number; qualified: number; est_value: number }[]>([])
+  useEffect(() => { fetch('/api/ideate/sessions').then((r) => r.json()).then((d) => setSs(d.sessions)).catch(() => {}) }, [])
+  if (ss.length === 0) return null
+  return (
+    <div className="card">
+      <h3>Past sessions</h3>
+      {ss.map((x) => (
+        <div key={x.session} className="decision-row">
+          <span className="pill act-approve">{x.ideas} ideas</span>
+          <span><strong>{x.session}</strong>{' '}
+            <span className="muted small">{x.qualified} qualified · est. value captured</span></span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function Ideate({ view, onChanged }: { view: IdeateView; onChanged: () => void }) {
   const page = PAGES[view]
   return (
@@ -295,15 +415,19 @@ export default function Ideate({ view, onChanged }: { view: IdeateView; onChange
         <Studio kind="futures" withHorizon heading="Run a futures scan"
                 blurb="Signals → implications → a reimagined future state, with idea seeds to rehearse it now." />
       )}
+      {view === 'competitive' && <Watchlist />}
       {view === 'competitive' && (
         <Studio kind="competitive" heading="Analyze a competitor or market"
                 blurb="Name a competitor, market, or move. Gaps become capture-ready idea seeds." />
       )}
-      {view === 'maturity' && (
+      {view === 'maturity' && <MaturityStudioWithDeltas />}
+      {view === 'maturity' && false && (
         <Studio kind="maturity" heading="Assess a topic"
                 blurb="Five-dimension read with level ratings and the next-level requirement per dimension." />
       )}
       {view === 'workshops' && <MuralStudio onChanged={onChanged} />}
+      {view === 'workshops' && <SessionHistory />}
+      {view === 'tentypes' && <TenTypesMirror />}
       {view === 'tentypes' && (
         <Studio kind="ten_types" heading="Scan all ten types"
                 blurb="One opportunity prompt per type, profit model through customer engagement." />

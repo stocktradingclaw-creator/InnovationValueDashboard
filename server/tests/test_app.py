@@ -2059,3 +2059,20 @@ def test_demo_populates_ideate_and_clear(client):
     assert client.post("/api/demo/clear").json()["cleared"]
     assert client.get("/api/ideas").json()["ideas"] == []
     assert client.get("/api/ideate/studio/latest", params={"kind": "futures"}).json()["run"] is None
+
+
+def test_ideate_redesign_artifacts(client):
+    client.post("/api/demo/seed-lifecycle")
+    m = client.get("/api/ideate/tentypes-mirror").json()
+    assert m["total"] > 0 and len(m["grid"]) == 10 and m["headline"]
+    w = client.get("/api/ideate/watchlist").json()["watchlist"]
+    assert w and w[0]["topic"] and w[0]["latest"]["items"]
+    client.post("/api/ideate/studio", json={"kind": "competitive", "topic": w[0]["topic"]})
+    w2 = client.get("/api/ideate/watchlist").json()["watchlist"]
+    assert any(c["scans"] >= 2 for c in w2)
+    client.post("/api/ideate/studio", json={"kind": "maturity", "topic": "AI-driven operations"})
+    h = client.get("/api/ideate/maturity-history",
+                   params={"topic": "AI-driven operations"}).json()
+    assert len(h["assessments"]) >= 2 and h["deltas"]
+    ss = client.get("/api/ideate/sessions").json()["sessions"]
+    assert ss and ss[0]["ideas"] > 0

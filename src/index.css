@@ -1910,3 +1910,5 @@ body.present .content { max-width: 1400px; padding: 2rem 3rem; }
 }
 
 .fmap-warm { border-color: var(--info); opacity: 0.85; }
+
+.tentype-empty { border-style: dashed; border-color: var(--warn); }
