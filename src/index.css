@@ -1874,3 +1874,15 @@ body.present .content { max-width: 1400px; padding: 2rem 3rem; }
 .cfo-inputs input { width: 100%; }
 
 .prioritization-panel.single { grid-template-columns: 1fr; }
+
+/* top-3 focus picks: identical marker in matrix and list */
+.focus-dot {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent-dim); border: 2px solid var(--accent);
+  border-radius: 50%; color: var(--text); font-size: 0.72rem; font-weight: 700;
+  box-shadow: 0 0 10px rgba(76, 195, 138, 0.45); z-index: 3;
+}
+.matrix .focus-dot { position: absolute; transform: translate(-50%, -50%); }
+.focus-dot-inline { width: 22px; height: 22px; position: static; transform: none; }
+.opp-focus td { background: rgba(76, 195, 138, 0.05); }
+.opp-focus td:first-child { border-left: 3px solid var(--accent); }

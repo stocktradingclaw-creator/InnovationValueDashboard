@@ -59,14 +59,25 @@ function QuadrantMatrix({ opportunities }: { opportunities: Opportunity[] }) {
         <span className="matrix-corner bl">Fill-ins</span>
         <span className="matrix-corner br">Deprioritize</span>
         {dots.map(({ o, x, y, size }) => (
-          <span
-            key={o.id}
-            className={`dot dot-${o.priority.quadrant}`}
-            style={{ left: `${x}%`, top: `${y}%`, width: size, height: size }}
-            title={`${o.title}\nscore ${o.priority.score} · ${money(
-              o.priority.risk_adjusted_annual_savings,
-            )}/yr risk-adj · ~${money(o.priority.est_implementation_cost)} to implement`}
-          />
+          o.priority.rank <= 3 ? (
+            <span
+              key={o.id}
+              className="dot focus-dot"
+              style={{ left: `${x}%`, top: `${y}%`, width: Math.max(size, 22), height: Math.max(size, 22) }}
+              title={`FOCUS #${o.priority.rank}: ${o.title}\nscore ${o.priority.score} · ${money(
+                o.priority.risk_adjusted_annual_savings,
+              )}/yr risk-adj · ~${money(o.priority.est_implementation_cost)} to implement`}
+            >{o.priority.rank}</span>
+          ) : (
+            <span
+              key={o.id}
+              className={`dot dot-${o.priority.quadrant}`}
+              style={{ left: `${x}%`, top: `${y}%`, width: size, height: size }}
+              title={`${o.title}\nscore ${o.priority.score} · ${money(
+                o.priority.risk_adjusted_annual_savings,
+              )}/yr risk-adj · ~${money(o.priority.est_implementation_cost)} to implement`}
+            />
+          )
         ))}
       </div>
       <div className="matrix-axes muted small">
@@ -78,6 +89,10 @@ function QuadrantMatrix({ opportunities }: { opportunities: Opportunity[] }) {
           <span key={q}><i className={`legend-dot dot-${q}`} /> {QUADRANT_LABELS[q]}</span>
         ))}
       </div>
+      <p className="matrix-note muted small">
+        <span className="focus-dot focus-dot-inline">1</span> Numbered rings = your top-3
+        focus picks by weighted score — the same markers flag them in the list below.
+      </p>
       <p className="matrix-note muted small">
         Higher = more risk-adjusted value per year · dot size = size of the prize ·
         hover any dot for details
@@ -172,11 +187,15 @@ export default function Opportunities({
               <tr
                 key={o.id}
                 data-eid={o.id}
-                className="opp-row"
+                className={`opp-row${o.priority.rank <= 3 ? ' opp-focus' : ''}`}
                 tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(expanded === o.id ? null : o.id) } }}
                 onClick={() => setExpanded(expanded === o.id ? null : o.id)}
               >
-                <td className="num muted">{o.priority.rank}</td>
+                <td className="num">
+                  {o.priority.rank <= 3
+                    ? <span className="focus-dot focus-dot-inline" title={`Focus pick #${o.priority.rank}`}>{o.priority.rank}</span>
+                    : <span className="muted">{o.priority.rank}</span>}
+                </td>
                 <td className="num">
                   <strong>{o.priority.score}</strong>
                 </td>
