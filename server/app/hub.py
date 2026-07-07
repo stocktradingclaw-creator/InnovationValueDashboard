@@ -737,6 +737,112 @@ def radar_scan(topic: str) -> Dict[str, Any]:
         }
 
 
+TEN_TYPES = [
+    ("Profit Model", "how you make money"), ("Network", "connections with others"),
+    ("Structure", "alignment of talent and assets"), ("Process", "signature methods of work"),
+    ("Product Performance", "distinguishing features and functionality"),
+    ("Product System", "complementary products and services"),
+    ("Service", "support and enhancements around offerings"),
+    ("Channel", "how offerings reach users"), ("Brand", "representation of offerings"),
+    ("Customer Engagement", "distinctive interactions fostered"),
+]
+
+_FUTURES_FRAMES = {
+    "1-3y": ("Near horizon — extrapolate current signals",
+             ["AI agents absorb routine knowledge work", "Cost scrutiny reshapes vendor stacks",
+              "Regulation catches up to automated decisions"]),
+    "3-7y": ("Mid horizon — second-order effects compound",
+             ["Workflows reorganize around human-AI teams", "Data ecosystems consolidate across firms",
+              "Sustainability constraints become pricing inputs"]),
+    "7-15y": ("Far horizon — reimagine the future (Diana-style rethinking)",
+              ["Industry boundaries dissolve into capability networks",
+               "Autonomous operations become the default, humans govern by exception",
+               "Value migrates from products to verified outcomes"]),
+}
+
+
+def ideate_studio(kind: str, topic: str, horizon: str = "3-7y") -> Dict[str, Any]:
+    """Futures / competitive / maturity / ten-types studios. AI-driven with a
+    key; labeled template frames otherwise."""
+    import os
+    has_ai = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    if has_ai:
+        try:
+            import anthropic
+            from pydantic import BaseModel
+            from typing import List as TList
+
+            class Studio(BaseModel):
+                narrative: str
+                items: TList[Dict[str, str]]
+                idea_seeds: TList[str]
+
+            prompts = {
+                "futures": f"Act as futurist Frank Diana: for horizon {horizon}, scan signals on "
+                           f"'{topic}', derive implications, and reimagine the future state. items: "
+                           "[{title, detail}] as signals->implications; 3 idea_seeds.",
+                "competitive": f"Competitive analysis of '{topic}': items [{{title, detail}}] covering "
+                               "their strengths, recent moves, and our exploitable gaps; 3 idea_seeds.",
+                "maturity": f"High-level maturity assessment of our industry position on '{topic}': "
+                            "items [{title, detail}] where title='Dimension — level N/5'; 3 idea_seeds.",
+                "ten_types": f"Apply Larry Keeley's Ten Types of Innovation to '{topic}': one item per "
+                             "type [{title: type name, detail: the specific opportunity}]; 3 idea_seeds.",
+            }
+            r = anthropic.Anthropic().messages.parse(
+                model="claude-opus-4-8", max_tokens=16000, thinking={"type": "adaptive"},
+                tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 4}],
+                messages=[{"role": "user", "content": prompts[kind]}], output_format=Studio)
+            out = r.parsed_output.model_dump()
+            out["generated_by"] = "claude"
+            return out
+        except Exception:
+            pass
+    if kind == "futures":
+        frame, signals = _FUTURES_FRAMES.get(horizon, _FUTURES_FRAMES["3-7y"])
+        return {"generated_by": "template", "narrative":
+                f"{frame}. Reimagined: '{topic}' stops being a process someone runs and becomes an "
+                "outcome the enterprise guarantees — measured, autonomous where safe, human-governed "
+                "where it matters.",
+                "items": [{"title": sig, "detail": f"Implication for {topic}: rehearse this future "
+                           "now with a low-cost experiment rather than reacting to it later."}
+                          for sig in signals],
+                "idea_seeds": [f"Run a pre-mortem: our {topic} strategy failed in {horizon} — why?",
+                               f"Prototype the {horizon} version of {topic} as a one-week probe",
+                               f"Name the capability we'd need if {topic} became fully autonomous"]}
+    if kind == "competitive":
+        return {"generated_by": "template", "narrative":
+                f"Template competitive frame for '{topic}' (add an API key for researched analysis).",
+                "items": [{"title": "Their likely strength", "detail": f"Scale and installed base around {topic}."},
+                          {"title": "Their likely blind spot", "detail": "Verified outcomes — incumbents report activity, not evidence."},
+                          {"title": "Our exploitable gap", "detail": f"Move faster from detection to funded experiment on {topic}."}],
+                "idea_seeds": [f"Win-back play targeting {topic} customers stuck in legacy contracts",
+                               f"Publish verified-outcome benchmarks where {topic} competitors publish claims",
+                               f"Partner where {topic} leaders are weakest instead of building"]}
+    if kind == "maturity":
+        dims = ["Strategy & ambition", "Data & measurement", "Process & governance",
+                "Talent & culture", "Technology & automation"]
+        return {"generated_by": "template", "narrative":
+                f"Directional maturity read on '{topic}' — validate in a workshop.",
+                "items": [{"title": f"{d} — level {2 + (i % 3)}/5",
+                           "detail": f"Typical enterprise sits at level {2 + (i % 3)} on {d.lower()} "
+                                     f"for {topic}; next level requires making it measurable and owned."}
+                          for i, d in enumerate(dims)],
+                "idea_seeds": [f"90-day plan to move one {topic} dimension up a level",
+                               f"Baseline {topic} metrics before investing further",
+                               f"Assign a single owner for {topic} maturity"]}
+    if kind == "ten_types":
+        return {"generated_by": "template", "narrative":
+                f"Keeley Ten Types scan of '{topic}': innovation compounds when you combine 3+ types "
+                "beyond product performance.",
+                "items": [{"title": name, "detail": f"{desc.capitalize()}: where could '{topic}' "
+                           f"change the {name.lower()} rather than the product?"}
+                          for name, desc in TEN_TYPES],
+                "idea_seeds": [f"Pick two non-product types and prototype a {topic} play combining them",
+                               f"Score competitors on the ten types to find the empty spaces around {topic}",
+                               f"Reframe the top detected opportunity through a profit-model lens"]}
+    raise ValueError(f"unknown studio kind '{kind}'")
+
+
 def ai_evaluate_idea(idea: Dict[str, Any],
                      opportunities: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Deeper AI validation of one idea: measurability check, categorization,

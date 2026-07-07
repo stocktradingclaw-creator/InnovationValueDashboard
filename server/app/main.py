@@ -2254,6 +2254,68 @@ def execute_recommendation(body: ExecuteRecRequest) -> Dict[str, Any]:
     raise HTTPException(400, f"unknown recommendation key '{body.key}'")
 
 
+class StudioRequest(BaseModel):
+    kind: str
+    topic: str
+    horizon: str = "3-7y"
+
+
+@app.post("/api/ideate/studio")
+def ideate_studio(body: StudioRequest) -> Dict[str, Any]:
+    if body.kind not in ("futures", "competitive", "maturity", "ten_types"):
+        raise HTTPException(400, "kind must be futures|competitive|maturity|ten_types")
+    if not body.topic.strip():
+        raise HTTPException(400, "a topic is required")
+    out = hub.ideate_studio(body.kind, body.topic.strip(), body.horizon)
+    db.audit(f"ideate.{body.kind}", _session_name(), None, body.topic[:80])
+    return out
+
+
+_MURAL_TEMPLATES = [
+    ("Brainstorm & prioritize", "https://www.mural.co/templates/brainstorm-and-prioritize"),
+    ("Empathy map", "https://www.mural.co/templates/empathy-map"),
+    ("Customer journey map", "https://www.mural.co/templates/customer-journey-map"),
+    ("How Might We", "https://www.mural.co/templates/how-might-we"),
+    ("SCAMPER ideation", "https://www.mural.co/templates/scamper"),
+    ("Lightning decision jam", "https://www.mural.co/templates/lightning-decision-jam"),
+]
+
+
+@app.get("/api/ideate/mural-templates")
+def mural_templates() -> Dict[str, Any]:
+    return {"templates": [{"name": n, "url": u} for n, u in _MURAL_TEMPLATES],
+            "how": "Run the session in Mural, export sticky notes as text/CSV, then paste "
+                   "them below — each line becomes a triaged idea."}
+
+
+class MuralIngestRequest(BaseModel):
+    text: str
+    facilitator: Optional[str] = None
+    session_name: Optional[str] = None
+
+
+@app.post("/api/ideate/mural-ingest")
+def mural_ingest(body: MuralIngestRequest) -> Dict[str, Any]:
+    """Ingest a design-thinking session export: each non-trivial line becomes
+    a real idea, triaged like any other."""
+    lines = [ln.strip().strip('-•"') .strip() for ln in body.text.splitlines()]
+    lines = [ln for ln in lines if len(ln) >= 12][:30]
+    if not lines:
+        raise HTTPException(400, "no usable lines — paste the sticky-note export text")
+    created = []
+    for ln in lines:
+        idea = _ingest_idea(IdeaRequest(
+            title=ln[:120],
+            description=f"{ln} (from design-thinking session"
+                        + (f" '{body.session_name}'" if body.session_name else "") + ")",
+            submitter=body.facilitator), source="mural")
+        created.append({"id": idea["id"], "title": idea["title"],
+                        "recommendation": (idea.get("assessment") or {}).get("recommendation")})
+    db.audit("ideate.mural_ingest", body.facilitator, None,
+             f"{len(created)} ideas from '{body.session_name or 'session'}'")
+    return {"created": created}
+
+
 @app.get("/api/value-ledger")
 def value_ledger(format: str = Query("json")) -> Any:
     """The Verified Value Ledger: every verified dollar traceable to a frozen

@@ -2020,3 +2020,25 @@ def test_advisory_execute(client):
 
     assert client.post("/api/portfolio/advisory/execute",
                        json={"key": "nope"}).status_code == 400
+
+
+def test_ideate_studios(client):
+    client.post("/api/datasets/load-samples")
+    for kind in ("futures", "competitive", "maturity", "ten_types"):
+        r = client.post("/api/ideate/studio", json={"kind": kind, "topic": "field service", "horizon": "7-15y"})
+        assert r.status_code == 200
+        out = r.json()
+        assert out["narrative"] and out["items"] and out["idea_seeds"]
+    ten = client.post("/api/ideate/studio", json={"kind": "ten_types", "topic": "x"}).json()
+    assert len(ten["items"]) == 10  # all of Keeley's types
+    assert client.post("/api/ideate/studio", json={"kind": "nope", "topic": "x"}).status_code == 400
+
+    # Mural round-trip: sticky notes become triaged ideas
+    assert client.get("/api/ideate/mural-templates").json()["templates"]
+    r = client.post("/api/ideate/mural-ingest", json={
+        "text": "Automate meter-reading validation\nSelf-serve returns portal for dealers\nok",
+        "session_name": "Q3 workshop", "facilitator": "maria"})
+    created = r.json()["created"]
+    assert len(created) == 2 and all(c["recommendation"] for c in created)
+    ideas = client.get("/api/ideas").json()["ideas"]
+    assert any(i["source"] == "mural" for i in ideas)
