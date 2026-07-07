@@ -148,7 +148,7 @@ function GateActions({
             className={cls}
             disabled={!!busy && busy !== `confirm-${decision}`}
             onClick={async () => {
-              const fire = async () => {
+              const fire = async (): Promise<boolean> => {
                 try {
                   await decide({
                     subject_type: 'idea', subject_id: ideaId,
@@ -157,6 +157,7 @@ function GateActions({
                   })
                   setComment('')
                   onDone()
+                  return true
                 } catch (e) {
                   const msg = e instanceof Error ? e.message : String(e)
                   if (msg.includes('not found')) {
@@ -171,14 +172,18 @@ function GateActions({
                 } finally {
                   setBusy(null)
                 }
+                return false
               }
               setError(null)
               if (decision === 'reject') {
-                // destructive: explicit two-tap confirmation
-                if (busy !== 'confirm-reject') { setBusy('confirm-reject'); return }
+                // destructive: explicit two-tap confirmation with an exit
+                if (busy !== 'confirm-reject') {
+                  setBusy('confirm-reject')
+                  window.setTimeout(() => setBusy((b) => b === 'confirm-reject' ? null : b), 8000)
+                  return
+                }
                 setBusy(decision)
-                await fire()
-                toast('Declined.')
+                if (await fire()) toast('Declined.')
                 return
               }
               if (decision === 'hold' && !comment.trim()) {
@@ -189,7 +194,7 @@ function GateActions({
               if (decision === 'advance' || decision === 'develop' || decision === 'hold') {
                 // commit immediately; offer a server-backed undo
                 setBusy(decision)
-                await fire()
+                if (!(await fire())) return
                 if (decision !== 'develop') {
                   toast(`${label} — done.`, async () => {
                     await decide({ subject_type: 'idea', subject_id: ideaId,
@@ -203,14 +208,17 @@ function GateActions({
                 return
               }
               setBusy(decision)
-              await fire()
-              toast('Feedback sent to the submitter.')
+              if (await fire()) toast('Feedback sent to the submitter.')
             }}
           >
             {busy === `confirm-${decision}` ? 'Decline — are you sure?'
               : busy === decision ? 'Applying…' : label}
           </button>
         ))}
+      {busy === 'confirm-reject' && (
+        <button type="button" className="chip" onClick={() => setBusy(null)}>
+          Cancel — keep it</button>
+      )}
       </div>
       {error && <p className="error">{error}</p>}
     </>
@@ -804,9 +812,13 @@ export default function CommandCenter({ onChanged }: Props) {
                   </p>
                 </div>
                 <button onClick={async () => {
-                  await decide({ subject_type: 'idea', subject_id: i.id, decision: 'resume',
-                                 actor: actor || undefined }).catch(() => {})
-                  toast('Back in review.')
+                  try {
+                    await decide({ subject_type: 'idea', subject_id: i.id, decision: 'resume',
+                                   actor: actor || undefined })
+                    toast('Back in review.')
+                  } catch (e) {
+                    toast(`Could not resume: ${e instanceof Error ? e.message : e}`)
+                  }
                   refresh()
                 }}>Resume review</button>
               </div>

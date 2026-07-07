@@ -2261,3 +2261,18 @@ def test_p0_journey_fixes(client):
     assert client.post("/api/command/decide", headers=auth, json={
         "subject_type": "idea", "subject_id": idea["id"], "decision": "revert_last",
     }).status_code == 400
+
+
+def test_revert_hold_restores_true_gate(client):
+    client.post("/api/datasets/load-samples")
+    idea = client.post("/api/ideas", json={
+        "title": "Hold-undo fidelity", "description": "Undo must restore the exact gate."}).json()
+    for d in ("qualify", "prioritize"):
+        client.post("/api/command/decide", json={
+            "subject_type": "idea", "subject_id": idea["id"], "decision": d, "actor": "rio"})
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "hold",
+        "actor": "rio", "comment": "pause"})
+    r = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "revert_last", "actor": "rio"})
+    assert r.json()["result"]["idea"]["status"] == "prioritized"  # not the hardcoded 2nd gate

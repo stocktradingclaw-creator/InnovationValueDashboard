@@ -952,7 +952,15 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
                 raise HTTPException(400, "nothing revertible — only the immediately "
                                          "preceding advance/hold can be undone")
             if last["action"] == "hold":
-                target = keys[1] if len(keys) > 1 else keys[0]
+                pos_h = 0
+                for e in events[:-1]:
+                    if e["action"] == "advance":
+                        pos_h = min(pos_h + 1, len(keys) - 1)
+                    elif e["action"] == "revert":
+                        pos_h = max(pos_h - 1, 0)
+                    elif e["action"] == "resume":
+                        pos_h = 1 if len(keys) > 1 else 0
+                target = keys[pos_h]
             else:
                 pos_r = _workflow_position(idea["status"])
                 if pos_r <= 0:

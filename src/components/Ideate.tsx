@@ -10,15 +10,33 @@ interface StudioOut {
 
 // The one promotion path shared by every Ideate studio: output -> candidate
 // opportunity in the Ideation Funnel -> endorsement -> formal stage gates.
-function seedIdea(title: string, source: string, detail?: string) {
-  return fetch('/api/integrations/capture', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, description: detail || title, source,
-      submitter: localStorage.getItem('ivd_user') || undefined }),
-  }).then((r) => {
-    if (!r.ok) throw new Error('promotion failed')
-    toast('Promoted to the Ideation Funnel — endorse it there to enter the stage gates.')
-  })
+const _promoting = new Set<string>()
+
+async function seedIdea(title: string, source: string, detail?: string) {
+  if (_promoting.has(title)) {
+    toast('Already promoting that one — one funnel entry per idea.')
+    return
+  }
+  _promoting.add(title)
+  try {
+    const r = await fetch('/api/integrations/capture', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, description: detail || title, source,
+        submitter: localStorage.getItem('ivd_user') || undefined }),
+    })
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      toast(`Promotion failed: ${d.detail ?? r.statusText}`)
+      return
+    }
+    toast('Promoted — opening the Ideation Funnel.')
+    window.setTimeout(() => window.dispatchEvent(
+      new CustomEvent('ivd-nav', { detail: 'ideate-funnel' })), 900)
+  } catch (e) {
+    toast(`Promotion failed: ${e instanceof Error ? e.message : e}`)
+  } finally {
+    _promoting.delete(title)
+  }
 }
 
 function Studio({ kind, heading, blurb, withHorizon }: {
@@ -59,6 +77,10 @@ function Studio({ kind, heading, blurb, withHorizon }: {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ kind, topic, horizon }),
             })
+            if (!r.ok) {
+              toast(`Studio run failed: ${(await r.json().catch(() => ({}))).detail ?? r.statusText}`)
+              return
+            }
             setOut(await r.json()); setFromSample(false)
           } finally { setBusy(false) }
         }}>{busy ? 'Working…' : '✦ Run'}</button>
@@ -343,6 +365,10 @@ function BreakthroughConcepts() {
             const r = await fetch('/api/ideate/tentypes-concepts', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ kind: 'ten_types', topic, types: picked.length >= 3 ? picked : undefined }) })
+            if (!r.ok) {
+              toast(`Concept generation failed: ${(await r.json().catch(() => ({}))).detail ?? r.statusText}`)
+              return
+            }
             setOut(await r.json())
           } finally { setBusy(false) }
         }}>{busy ? 'Fusing types…' : picked.length >= 3 ? `✦ Fuse types ${picked.join('+')}` : '✦ Generate concepts'}</button>

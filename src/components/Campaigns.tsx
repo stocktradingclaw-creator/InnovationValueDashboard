@@ -112,8 +112,12 @@ export default function Campaigns({ ideas, onChanged }: { ideas: Idea[]; onChang
             {c.status === 'active' && (
               <button className="secondary" onClick={async () => {
                 if (!window.confirm(`Close "${c.title}"? Results: ${mine.length} ideas, ${converted} case(s), ${money(value)}/yr surfaced.`)) return
-                await closeChallenge(c.id).catch(() => {})
-                toast(`Campaign closed — ${converted} case(s) and ${money(value)}/yr surfaced.`)
+                try {
+                  await closeChallenge(c.id)
+                  toast(`Campaign closed — ${converted} case(s) and ${money(value)}/yr surfaced.`)
+                } catch (e) {
+                  toast(`Could not close: ${e instanceof Error ? e.message : e}`)
+                }
                 load(); onChanged()
               }}>Close campaign</button>
             )}

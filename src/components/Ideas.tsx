@@ -510,7 +510,7 @@ function IdeaCard({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
 }
 
 function Social({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
-  const [name, setName] = useState('')
+  const [name, setName] = useState(localStorage.getItem('ivd_user') ?? '')
   const [text, setText] = useState('')
   const [buildOn, setBuildOn] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
