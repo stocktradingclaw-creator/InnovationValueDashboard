@@ -1,13 +1,11 @@
 import { useMemo, useState } from 'react'
 import { money } from '../api'
-import type { Opportunity, PrioritizationSummary, Quadrant, Weights } from '../types'
+import type { Opportunity, PrioritizationSummary, Quadrant } from '../types'
 
 interface Props {
   opportunities: Opportunity[]
   total: number
   summary: PrioritizationSummary | null
-  weights: Weights
-  onWeightsChange: (w: Weights) => void
   hasData: boolean
 }
 
@@ -30,37 +28,6 @@ const COMPLEXITY_LABELS: Record<string, string> = {
   medium: 'medium',
   high: 'high',
   very_high: 'very high',
-}
-
-function WeightSliders({ weights, onChange }: { weights: Weights; onChange: (w: Weights) => void }) {
-  const total = weights.value + weights.efficiency + weights.speed + weights.simplicity || 1
-  const rows: { key: keyof Weights; label: string; hint: string }[] = [
-    { key: 'value', label: 'Value', hint: 'size of prize (risk-adjusted savings)' },
-    { key: 'efficiency', label: 'Efficiency', hint: 'payback ratio (savings vs. cost)' },
-    { key: 'speed', label: 'Speed', hint: 'time to value' },
-    { key: 'simplicity', label: 'Simplicity', hint: 'penalize coordination-heavy, risky change' },
-  ]
-  return (
-    <div className="card weights-card">
-      <h3>Scoring weights</h3>
-      {rows.map(({ key, label, hint }) => (
-        <div key={key} className="weight-row">
-          <span className="weight-label">
-            {label} <span className="muted small">{hint}</span>
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            aria-label={`Weight for ${label}`}
-            value={weights[key]}
-            onChange={(e) => onChange({ ...weights, [key]: Number(e.target.value) })}
-          />
-          <span className="weight-pct">{Math.round((weights[key] / total) * 100)}%</span>
-        </div>
-      ))}
-    </div>
-  )
 }
 
 function QuadrantMatrix({ opportunities }: { opportunities: Opportunity[] }) {
@@ -123,8 +90,6 @@ export default function Opportunities({
   opportunities,
   total,
   summary,
-  weights,
-  onWeightsChange,
   hasData,
 }: Props) {
   const [sourceFilter, setSourceFilter] = useState<string>('all')
@@ -170,10 +135,12 @@ export default function Opportunities({
         </div>
       </div>
 
-      <div className="prioritization-panel">
-        <WeightSliders weights={weights} onChange={onWeightsChange} />
+      <div className="prioritization-panel single">
         <QuadrantMatrix opportunities={opportunities} />
       </div>
+      <p className="muted small">
+        Ranked with the scoring weights configured in <strong>Hub Settings → Scoring framework</strong>.
+      </p>
 
       <div className="row filter-row">
         {['all', 'cmdb', 'erp', 'cloud', 'itsm'].map((s) => (

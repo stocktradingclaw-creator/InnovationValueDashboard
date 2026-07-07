@@ -131,11 +131,22 @@ function ScoringSettings() {
         Tune the built-in weights, declare priority themes and guardrails, and add your own
         criteria — custom criteria match idea text against keywords and carry their own weight.
       </p>
+      <h4>Idea triage weights</h4>
       {Object.entries(config.idea_weights).map(([key, value]) => (
         <div key={key} className="weight-row">
           <span className="weight-label">{key.replace('_', ' ')}</span>
           <input type="range" min={0} max={100} value={Math.round(value * 100)}
                  onChange={(e) => setConfig({ ...config, idea_weights: { ...config.idea_weights, [key]: Number(e.target.value) / 100 } })} />
+          <span className="weight-pct">{Math.round((value / total) * 100)}%</span>
+        </div>
+      ))}
+      <h4>Opportunity ranking weights</h4>
+      <p className="muted small">Drive the ranking on the Opportunities tab for everyone.</p>
+{Object.entries(config.opportunity_weights).map(([key, value]) => (
+        <div key={key} className="weight-row">
+          <span className="weight-label">{key.replace('_', ' ')}</span>
+          <input type="range" min={0} max={100} value={Math.round(value * 100)}
+                 onChange={(e) => setConfig({ ...config, opportunity_weights: { ...config.opportunity_weights, [key]: Number(e.target.value) / 100 } })} />
           <span className="weight-pct">{Math.round((value / total) * 100)}%</span>
         </div>
       ))}

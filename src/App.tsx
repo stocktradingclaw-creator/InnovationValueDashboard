@@ -20,14 +20,11 @@ import type {
   PortfolioReport,
   PrioritizationSummary,
   SourceStatus,
-  Weights,
 } from './types'
 
 type Tab =
   | 'overview' | 'ideas' | 'command' | 'pipeline' | 'sources'
   | 'opportunities' | 'cases' | 'tracking' | 'portfolio' | 'settings' | 'mine'
-
-const DEFAULT_WEIGHTS: Weights = { value: 35, efficiency: 30, speed: 15, simplicity: 20 }
 
 const ICONS: Record<string, string> = {
   overview: 'M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10',
@@ -290,7 +287,6 @@ export default function App() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState<PrioritizationSummary | null>(null)
-  const [weights, setWeights] = useState<Weights>(DEFAULT_WEIGHTS)
   const [cases, setCases] = useState<BusinessCase[]>([])
   const [offline, setOffline] = useState(false)
 
@@ -298,7 +294,7 @@ export default function App() {
     try {
       const [ds, opps, bcs, dash] = await Promise.all([
         getDatasets(),
-        getOpportunities(weights),
+        getOpportunities(),
         getBusinessCases(),
         getDashboard(),
       ])
@@ -317,7 +313,7 @@ export default function App() {
     } catch {
       setOffline(true)
     }
-  }, [weights])
+  }, [])
 
   useEffect(() => {
     getMe()
@@ -531,8 +527,6 @@ export default function App() {
             opportunities={opportunities}
             total={total}
             summary={summary}
-            weights={weights}
-            onWeightsChange={setWeights}
             hasData={hasData}
           />
         )}

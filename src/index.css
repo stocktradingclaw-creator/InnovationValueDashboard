@@ -1872,3 +1872,5 @@ body.present .content { max-width: 1400px; padding: 2rem 3rem; }
 
 .cfo-inputs label { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; min-width: 110px; }
 .cfo-inputs input { width: 100%; }
+
+.prioritization-panel.single { grid-template-columns: 1fr; }
