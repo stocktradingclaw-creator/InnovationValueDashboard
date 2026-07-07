@@ -435,16 +435,16 @@ function CompetitiveReport() {
   const rateClass = (r: string) => r === 'strong' ? 'act-approve' : r === 'weak' ? 'act-intervene' : 'act-verify'
   return (
     <div className="card">
-      <h3>Full competitive report</h3>
-      <p className="muted small">Describe your product and the decision this informs — get a
-        structured, confidence-labeled report: matrix, positioning map, SWOT, and prioritized moves.</p>
+      <h3>Company vs peers — full competitive report</h3>
+      <p className="muted small">Compare your company against peer companies — strategy, innovation posture, and
+        position — in a structured, confidence-labeled report: matrix, positioning map, SWOT, and prioritized moves.</p>
       <div className="row">
-        <input placeholder="Product name *" value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} />
-        <input placeholder="One-line description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-        <input placeholder="Target segment" value={form.segment} onChange={(e) => setForm({ ...form, segment: e.target.value })} />
+        <input placeholder="Your company *" value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} />
+        <input placeholder="What the company does (one line)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        <input placeholder="Industry / market" value={form.segment} onChange={(e) => setForm({ ...form, segment: e.target.value })} />
       </div>
       <div className="row">
-        <input placeholder="Competitors, comma-separated (blank = AI picks)" value={form.competitors} onChange={(e) => setForm({ ...form, competitors: e.target.value })} />
+        <input placeholder="Peer companies, comma-separated (blank = AI identifies peers)" value={form.competitors} onChange={(e) => setForm({ ...form, competitors: e.target.value })} />
         <input placeholder="Decision this informs" value={form.decision} onChange={(e) => setForm({ ...form, decision: e.target.value })} />
         <button disabled={busy || !form.product.trim()} onClick={generate}>
           {busy ? stage || 'Working…' : '✦ Generate report'}

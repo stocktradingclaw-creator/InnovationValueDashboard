@@ -767,7 +767,7 @@ def competitive_report(intake: Dict[str, Any]) -> Dict[str, Any]:
     threats, prioritized recommendations — every claim confidence-labeled.
     AI+web when keyed; a complete, realistic demo report otherwise."""
     import os
-    product = intake.get("product") or "Our product"
+    product = intake.get("product") or "Our company"
     competitors = [c for c in (intake.get("competitors") or []) if c.strip()][:6]
     if os.environ.get("ANTHROPIC_API_KEY"):
         try:
@@ -833,12 +833,12 @@ def competitive_report(intake: Dict[str, Any]) -> Dict[str, Any]:
             r = anthropic.Anthropic().messages.parse(
                 model="claude-opus-4-8", max_tokens=16000, thinking={"type": "adaptive"},
                 tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 8}],
-                system=(f"You are a senior competitive intelligence analyst. Analyze {product} "
-                        f"({intake.get('description', '')}) against "
-                        f"{', '.join(competitors) or 'the 5 most relevant competitors, which you must identify and justify'} "
+                system=(f"You are a senior competitive intelligence analyst. Analyze the company {product} "
+                        f"({intake.get('description', '')}) against peer COMPANIES: "
+                        f"{', '.join(competitors) or 'the 5 closest peer companies, which you must identify and justify'} "
                         f"for an audience of {intake.get('audience', 'leadership')}, to inform: "
                         f"{intake.get('decision', 'strategy')}. Target segment: {intake.get('segment', 'unspecified')}. "
-                        "Research each competitor with web search before writing. Score the matrix "
+                        "This is company-vs-company analysis (strategy, operations, innovation posture), not product feature comparison. Research each peer company with web search. Score the matrix "
                         "strong/adequate/weak on the 6-10 criteria buyers actually weigh. Positioning "
                         "x,y in [-1,1] on the two most differentiating axes. Label every claim's "
                         "confidence as fact, inference, or assumption — never present a guess as fact. "
@@ -852,18 +852,16 @@ def competitive_report(intake: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             pass
     # demo mode: complete, realistic, clearly labeled
-    comps = competitors or ["Qmarkets", "Brightidea", "ITONICS"]
-    criteria = ["Verified ROI measurement", "AI-native workflow", "Time to value",
-                "Enterprise readiness", "Configurability", "Ecosystem & integrations"]
+    comps = competitors or ["Peer Company A", "Peer Company B", "Peer Company C"]
+    criteria = ["Innovation velocity", "Digital & AI maturity", "Customer experience",
+                "Cost position", "Talent & culture", "Partner ecosystem"]
     strengths = {comps[0]: [0, 3], comps[1] if len(comps) > 1 else comps[0]: [3, 5],
                  comps[2] if len(comps) > 2 else comps[0]: [4]}
     def rate(comp, i):
         if comp == product:
-            return ("strong" if i in (0, 1, 2) else "adequate" if i == 4 else "weak",
-                    "Differentiated by computed verified value and AI-drafted cases" if i < 3
-                    else "Four-role model shipped; SSO/SCIM pending" if i == 3
-                    else "Capture webhook and handoffs exist; marketplace depth pending",
-                    "inference")
+            return ("strong" if i in (0, 2) else "adequate" if i in (1, 4) else "weak",
+                    f"Directional self-assessment on '{criteria[i]}' — replace with your own "
+                    "evidence from the maturity assessment tab", "assumption")
         good = strengths.get(comp, [3])
         return ("strong" if i in good else "adequate" if (i + len(comp)) % 3 else "weak",
                 f"Directional read on {comp} for '{criteria[i]}' — validate with primary research",
@@ -879,11 +877,11 @@ def competitive_report(intake: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "generated_by": "template",
         "executive_summary": [
-            f"{product} wins on evidence: verified, data-computed ROI that incumbents structurally cannot match",
-            f"{comps[0]} and {comps[1] if len(comps) > 1 else 'peers'} lead on enterprise breadth and references — the procurement moat",
-            "The buying criterion shifting fastest is proof-of-impact; activity dashboards are losing renewals"],
-        "top_recommendation": "Lead every deal with the verified-value ledger demo; close the "
-                              "SSO/Postgres gap before enterprise pilots stall in procurement.",
+            f"{product} can out-innovate on speed of evidence: measurable experiments beat peer announcements",
+            f"{comps[0]} and {comps[1] if len(comps) > 1 else 'peers'} likely lead on scale and brand — hard to match head-on, flankable on velocity",
+            "Across the industry, advantage is shifting from asset scale to innovation velocity and verified outcomes"],
+        "top_recommendation": f"Compete on innovation velocity: run more verified experiments per quarter "
+                              f"than {comps[0]} announces initiatives — and publish the evidence.",
         "market_overview": "Innovation management platforms (~$1-2B, growing low double digits) are "
                            "consolidating from idea collection toward measurable portfolio outcomes.",
         "trends": ["Buyers demand verified outcomes over engagement metrics",
