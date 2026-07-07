@@ -16,7 +16,56 @@ interface Financials {
   data_grounding: string[]; assumptions: string[]; benefit_basis: string
 }
 
-function CfoView({ caseId }: { caseId: string }) {
+function PnlChart({ fin }: { fin: Financials }) {
+  // ROI P&L model: yearly net cash-flow bars with the cumulative position
+  // line crossing zero at payback
+  const W = 560, H = 150, PAD = 30
+  const flows = [{ year: 0, net: -fin.implementation_cost }, ...fin.cash_flows.map((c) => ({ year: c.year, net: c.net }))]
+  const cum: number[] = []
+  flows.reduce((acc, f) => { const v = acc + f.net; cum.push(v); return v }, 0)
+  const maxAbs = Math.max(...flows.map((f) => Math.abs(f.net)), ...cum.map(Math.abs), 1)
+  const zeroY = H / 2
+  const scaleY = (v: number) => zeroY - (v / maxAbs) * (H / 2 - PAD / 2)
+  const bw = (W - PAD * 2) / flows.length
+  return (
+    <div className="pnl-chart">
+      <svg viewBox={`0 0 ${W} ${H + 22}`} role="img"
+           aria-label="Yearly net cash flow bars with cumulative position line">
+        <line x1={PAD} y1={zeroY} x2={W - 6} y2={zeroY} className="pnl-zero" />
+        {flows.map((f, i) => {
+          const x = PAD + i * bw + bw * 0.18
+          const y = Math.min(scaleY(f.net), zeroY)
+          const h = Math.abs(scaleY(f.net) - zeroY)
+          return (
+            <g key={f.year}>
+              <rect x={x} y={y} width={bw * 0.5} height={Math.max(h, 1.5)}
+                    className={f.net >= 0 ? 'pnl-bar-pos' : 'pnl-bar-neg'} rx={3}>
+                <title>{`Year ${f.year}: net ${money(f.net)}`}</title>
+              </rect>
+              <text x={x + bw * 0.25} y={H + 14} textAnchor="middle" className="pnl-label">
+                Y{f.year}
+              </text>
+            </g>
+          )
+        })}
+        <polyline className="pnl-cumline" fill="none"
+          points={flows.map((_, i) => `${PAD + i * bw + bw * 0.43},${scaleY(cum[i])}`).join(' ')} />
+        {flows.map((f, i) => (
+          <circle key={i} cx={PAD + i * bw + bw * 0.43} cy={scaleY(cum[i])} r={3}
+                  className={cum[i] >= 0 ? 'pnl-dot-pos' : 'pnl-dot-neg'}>
+            <title>{`Cumulative after year ${f.year}: ${money(cum[i])}`}</title>
+          </circle>
+        ))}
+      </svg>
+      <p className="muted small">
+        Bars: yearly net cash flow (Y0 is the investment). Line: cumulative position —
+        it crosses zero at payback{fin.payback_months != null ? ` (~${fin.payback_months} mo)` : ''}.
+      </p>
+    </div>
+  )
+}
+
+export function CfoView({ caseId }: { caseId: string }) {
   const [fin, setFin] = useState<Financials | null>(null)
   const [horizon, setHorizon] = useState(3)
   const [rate, setRate] = useState(0.10)
@@ -54,6 +103,7 @@ function CfoView({ caseId }: { caseId: string }) {
         <div className="metric"><span className="muted small">Total cost ({horizon}yr)</span>
           <strong>{money(fin.total_cost)}</strong></div>
       </div>
+      <PnlChart fin={fin} />
       <table className="kpi-table">
         <thead><tr><th>Year</th><th className="num">Benefit</th><th className="num">Cost</th><th className="num">Net</th></tr></thead>
         <tbody>
@@ -75,7 +125,7 @@ function CfoView({ caseId }: { caseId: string }) {
   )
 }
 
-function PlanView({ plan }: { plan: ROIPlan }) {
+export function PlanView({ plan }: { plan: ROIPlan }) {
   return (
     <div className="plan">
       <p>{plan.summary}</p>

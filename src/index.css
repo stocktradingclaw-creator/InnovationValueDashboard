@@ -1860,3 +1860,12 @@ body.present .content { max-width: 1400px; padding: 2rem 3rem; }
 .chain-pending { opacity: 0.55; }
 .chain-ended .chain-marker { color: var(--danger-soft); }
 .pending-action { border-left: 3px solid var(--info); padding-left: 0.7rem; margin: 0.4rem 0 0.7rem; }
+
+.pnl-chart { margin: 0.6rem 0; }
+.pnl-zero { stroke: var(--border); stroke-width: 1; }
+.pnl-bar-pos { fill: var(--accent-dim); }
+.pnl-bar-neg { fill: rgba(229, 83, 75, 0.55); }
+.pnl-cumline { stroke: var(--info); stroke-width: 2; }
+.pnl-dot-pos { fill: var(--info); }
+.pnl-dot-neg { fill: var(--danger-soft); }
+.pnl-label { fill: var(--muted); font-size: 10px; }

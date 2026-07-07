@@ -3,6 +3,7 @@ import {
   addExperiment, addTranche, concludeExperiment, decide, getCommandQueue, getDividends, getLearnings, redTeamCase, reviewIdea,
   getLifecycle, getPatterns, money, toast, releaseTranche, replicatePattern, runAutomation,
 } from '../api'
+import { CfoView, PlanView } from './BusinessCases'
 import type { BusinessCase, CommandQueue, Learning, Lifecycle, Pattern, QueuedIdea, Stage } from '../types'
 
 interface Props {
@@ -615,6 +616,7 @@ export default function CommandCenter({ onChanged }: Props) {
   const [lifecycle, setLifecycle] = useState<Lifecycle | null>(null)
   const [actor, setActor] = useState(localStorage.getItem('ivd_user') ?? '')
   const [openGates, setOpenGates] = useState<Record<string, boolean>>({})
+  const [openCase, setOpenCase] = useState<string | null>(null)
   const [autoBusy, setAutoBusy] = useState(false)
 
   const refresh = async () => {
@@ -800,6 +802,14 @@ export default function CommandCenter({ onChanged }: Props) {
             </div>
             <span className="badge">{STAGE_LABELS[c.stage]}</span>
           </div>
+          <button className="chip" aria-expanded={openCase === c.id}
+                  onClick={() => setOpenCase(openCase === c.id ? null : c.id)}>
+            {openCase === c.id ? 'Hide business case' : '▤ Review business case & ROI model'}
+          </button>
+          {openCase === c.id && (<>
+            <CfoView caseId={c.id} />
+            <PlanView plan={c.roi_plan} />
+          </>)}
           <RedTeam bc={c} onDone={refresh} />
           {c.funding.planned > 0 && (
             <p className="muted small">
