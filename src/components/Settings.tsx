@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react'
 import type { UserProfile } from '../api'
 import {
-  createChallenge, createInitiative, demoGenerate, demoRevert, getChallenges,
+   createInitiative, demoGenerate, demoRevert, 
   getDemoStatus, getInitiatives, getScoringConfig, getWorkflow, putGovernance,
-  putScoringConfig, putWorkflow, reorderInitiatives, updateChallenge, updateInitiative,
+  putScoringConfig, putWorkflow, reorderInitiatives,  updateInitiative,
   getUsers,
   putUsers,
   seedLifecycle,
   getNotificationSettings,
   putNotificationSettings,
-  radarScan,
+  
 } from '../api'
 import { getGovernance } from '../api'
-import type { Challenge, DemoStatus, Initiative, ScoringConfig, WorkflowStep } from '../types'
+import type { DemoStatus, Initiative, ScoringConfig, WorkflowStep } from '../types'
 
 const AREA_LABELS: Record<string, string> = {
   idea_screening: 'Idea screening',
@@ -363,88 +363,6 @@ function Objectives() {
   )
 }
 
-function SignalRadar({ onChanged }: { onChanged: () => void }) {
-  const [topic, setTopic] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<Awaited<ReturnType<typeof radarScan>> | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  return (
-    <div className="card">
-      <h3>Signal radar → sprint</h3>
-      <p className="muted small">
-        Name a competitor move, trend, or market shift. The hub researches it and drafts a
-        targeted challenge with starter ideas, ready to launch.
-      </p>
-      <div className="row">
-        <input placeholder="e.g. Competitor X launched an AI copilot" value={topic}
-               onChange={(e) => setTopic(e.target.value)} />
-        <button disabled={busy || !topic.trim()} onClick={async () => {
-          setBusy(true); setError(null)
-          try { setResult(await radarScan(topic, false)) }
-          catch (e) { setError(e instanceof Error ? e.message : String(e)) }
-          finally { setBusy(false) }
-        }}>{busy ? 'Scanning…' : 'Scan & draft challenge'}</button>
-      </div>
-      {error && <p className="error">{error}</p>}
-      {result && (
-        <div className="plan">
-          <p className="small">
-            <strong>{result.challenge ? 'Challenge launched:' : 'Draft (not published yet):'}</strong>{' '}
-            {result.challenge?.title ?? result.draft.challenge_title}{' '}
-            <span className="muted small">({result.generated_by})</span>
-          </p>
-          {!result.challenge && (
-            <button onClick={async () => { setResult(await radarScan(topic, true)); onChanged() }}>
-              Launch this challenge
-            </button>
-          )}
-          <ul className="muted small">{result.signals.map((sg) => <li key={sg}>{sg}</li>)}</ul>
-          <p className="muted small"><strong>Starter ideas:</strong> {result.starter_ideas.join(' · ')}</p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function Campaigns() {
-  const [items, setItems] = useState<Challenge[]>([])
-  const [title, setTitle] = useState('')
-  const [question, setQuestion] = useState('')
-  const load = () => getChallenges().then((r) => setItems(r.challenges))
-  useEffect(() => { load() }, [])
-  return (
-    <div className="card">
-      <h3>Innovation campaigns</h3>
-      <p className="muted small">
-        Time-boxed "how might we" challenges — ideas submitted against an active campaign score
-        as strategically aligned automatically.
-      </p>
-      {items.map((c) => (
-        <div key={c.id} className="row objective-row">
-          <span className={c.status === 'active' ? 'badge badge-ok' : 'badge'}>{c.status}</span>
-          <input defaultValue={c.title} aria-label="Campaign title"
-                 onBlur={(e) => e.target.value !== c.title && updateChallenge(c.id, { title: e.target.value }).then(load)} />
-          <input defaultValue={c.question} aria-label="Campaign question"
-                 onBlur={(e) => e.target.value !== c.question && updateChallenge(c.id, { question: e.target.value }).then(load)} />
-          <span className="muted small">{c.ideas_count} ideas</span>
-          {c.status === 'active' && (
-            <button className="secondary" onClick={async () => {
-              await fetch(`/api/challenges/${c.id}/close`, { method: 'POST' }); load()
-            }}>Close</button>
-          )}
-        </div>
-      ))}
-      <div className="row">
-        <input placeholder="Campaign title" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <input placeholder='The "how might we…" question' value={question} onChange={(e) => setQuestion(e.target.value)} />
-        <button disabled={!title.trim() || !question.trim()} onClick={async () => {
-          await createChallenge({ title, question }); setTitle(''); setQuestion(''); load()
-        }}>Launch</button>
-      </div>
-    </div>
-  )
-}
-
 function DemoStudio({ onDone }: { onDone: () => void }) {
   const [seeding, setSeeding] = useState(false)
   const [seedMsg, setSeedMsg] = useState<string | null>(null)
@@ -600,8 +518,6 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
       </div>
       <div className="dash-grid">
         <Objectives />
-        <SignalRadar onChanged={onChanged} />
-      <Campaigns />
       </div>
       <DemoStudio onDone={onChanged} />
     </section>

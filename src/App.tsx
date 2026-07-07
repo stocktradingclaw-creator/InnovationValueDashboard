@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { searchAll, getMe, login, logout, demoRevert, getBusinessCases, getDashboard, getDatasets, getDemoStatus, getIdeas, getOpportunities, getPortfolioDiagnostic } from './api'
 import BusinessCases from './components/BusinessCases'
+import Campaigns from './components/Campaigns'
 import CommandCenter from './components/CommandCenter'
 import Dashboard from './components/Dashboard'
 import DataSources from './components/DataSources'
@@ -24,12 +25,13 @@ import type {
 
 type Tab =
   | 'overview' | 'ideas' | 'command' | 'pipeline' | 'sources'
-  | 'opportunities' | 'cases' | 'tracking' | 'portfolio' | 'settings' | 'mine'
+  | 'opportunities' | 'cases' | 'tracking' | 'portfolio' | 'settings' | 'mine' | 'campaigns'
 
 const ICONS: Record<string, string> = {
   overview: 'M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10',
   mine: 'M12 3l2.6 5.6 6.4.8-4.7 4.3 1.2 6.3-5.5-3.2-5.5 3.2 1.2-6.3L3 9.4l6.4-.8z',
   command: 'M4 4h16v16H4zM8 12l3 3 5-6',
+  campaigns: 'M3 11l14-5v12L3 13v-2zM17 8a3 3 0 010 8M7 13v6h3v-5',
   pipeline: 'M4 6h10M4 12h16M4 18h7M18 4l3 3-3 3',
   opportunities: 'M12 3a9 9 0 109 9M12 8a4 4 0 104 4M12 12h.01',
   cases: 'M4 5h16v14H4zM4 10h16M9 5v14',
@@ -380,6 +382,7 @@ export default function App() {
     ]],
     ['Decide', [
       ['command', '☑', 'Approvals'],
+      ['campaigns', '📣', 'Campaigns'],
       ['pipeline', '≫', 'Pipeline'],
     ]],
     ['Value', [
@@ -518,6 +521,7 @@ export default function App() {
         {tab === 'overview' && <Dashboard data={dashboard} onNavigate={setTab} onChanged={refresh} />}
         {tab === 'ideas' && <Ideas ideas={ideas} onChanged={refresh} />}
         {tab === 'command' && <CommandCenter onChanged={refresh} />}
+        {tab === 'campaigns' && <Campaigns ideas={ideas} onChanged={refresh} />}
         {tab === 'pipeline' && <PipelineView />}
         {tab === 'settings' && <Settings onChanged={refresh} />}
         {tab === 'mine' && <MySubmissions me={me} />}

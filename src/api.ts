@@ -364,6 +364,10 @@ export function runAutomation() {
 export const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 
+export function closeChallenge(id: string) {
+  return request<import('./types').Challenge>(`/api/challenges/${id}/close`, { method: 'POST' })
+}
+
 export function getChallenges() {
   return request<{ challenges: import('./types').Challenge[] }>('/api/challenges')
 }
