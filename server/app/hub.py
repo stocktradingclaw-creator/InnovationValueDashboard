@@ -167,6 +167,17 @@ ROLE_CAPABILITIES = {
 }
 
 
+def _ai_key() -> str:
+    """The key powering every AI call: workspace-configured (Hub Settings)
+    first, environment fallback."""
+    try:
+        stored = db.meta_get("anthropic_api_key")
+    except Exception:
+        stored = None
+    import os
+    return (stored or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+
+
 def check_role(minimum: str, actor: Optional[str]) -> Optional[str]:
     """Profile-based access: open until user profiles exist; once they do,
     every decision-making actor must be registered with sufficient privilege."""
@@ -548,7 +559,7 @@ def assist_idea_description(title: str, description: str = "",
                        "(e.g. 'cut resolution time by half').")
         return out
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not _ai_key():
         if mode == "generate":
             return {"mode": mode, "draft": _template_draft(title, opportunities),
                     "fields": _assist_fields(title, opportunities),
@@ -572,7 +583,7 @@ def assist_idea_description(title: str, description: str = "",
         suggestions: TList[str] = Field(description="Specific things the submitter should add, "
                                                     "verify, or quantify; empty if none")
 
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(api_key=_ai_key())
     try:
         if mode == "generate":
             task = (f"Idea title: {title}\n\nDraft a submission description for this idea. "
@@ -613,7 +624,7 @@ def red_team_case(case: Dict[str, Any]) -> Dict[str, Any]:
     plan's own assumptions; AI mode prosecutes properly."""
     import os
     plan = case.get("roi_plan") or {}
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not _ai_key():
         modes = [f"Assumption may not hold: {a}" for a in plan.get("assumptions", [])[:3]]
         modes += [f"Measurement risk: {r}" for r in plan.get("measurement_risks", [])[:2]]
         if plan.get("unmeasurable_claims"):
@@ -641,7 +652,7 @@ def red_team_case(case: Dict[str, Any]) -> Dict[str, Any]:
         cannibalization: str = Field(description="What existing value this might displace")
         recommendation: str = Field(description="What the committee should demand before funding")
 
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(api_key=_ai_key())
     try:
         r = client.messages.parse(
             model="claude-opus-4-8", max_tokens=16000, thinking={"type": "adaptive"},
@@ -684,7 +695,7 @@ def radar_scan(topic: str) -> Dict[str, Any]:
     """Research a competitor/trend and draft a response challenge with starter
     ideas. Web-grounded with a key; honest template signals without."""
     import os
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not _ai_key():
         return {
             "signals": [f"{sig} (template signal — no research key configured)"
                         for sig in _RADAR_TEMPLATES["default"]],
@@ -711,7 +722,7 @@ def radar_scan(topic: str) -> Dict[str, Any]:
         theme: str
         starter_ideas: TList[str] = Field(description="3 starter ideas, each with a measurable angle")
 
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(api_key=_ai_key())
     try:
         r = client.messages.parse(
             model="claude-opus-4-8", max_tokens=16000, thinking={"type": "adaptive"},
@@ -806,7 +817,7 @@ def competitive_report(intake: Dict[str, Any], force_template: bool = False) -> 
     import os
     product = intake.get("product") or intake.get("segment") or "Our company"
     competitors = [c for c in (intake.get("competitors") or []) if c.strip()][:6]
-    if os.environ.get("ANTHROPIC_API_KEY") and not force_template:
+    if _ai_key() and not force_template:
         try:
             import anthropic
             from pydantic import BaseModel
@@ -867,7 +878,7 @@ def competitive_report(intake: Dict[str, Any], force_template: bool = False) -> 
                 thin_areas: TList[str]
                 suggested_research: TList[str]
 
-            r = anthropic.Anthropic().messages.parse(
+            r = anthropic.Anthropic(api_key=_ai_key()).messages.parse(
                 model="claude-opus-4-8", max_tokens=16000, thinking={"type": "adaptive"},
                 tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 8}],
                 system=(f"You are a senior competitive intelligence analyst. Analyze the company {product} "
@@ -975,7 +986,7 @@ def tentypes_concepts(topic: str, force_template: bool = False) -> Dict[str, Any
     types, scored 1-5 discriminatingly, with a riskiest-assumption experiment
     and kill metric."""
     import os
-    if os.environ.get("ANTHROPIC_API_KEY") and not force_template:
+    if _ai_key() and not force_template:
         try:
             import anthropic
             from pydantic import BaseModel
@@ -999,7 +1010,7 @@ def tentypes_concepts(topic: str, force_template: bool = False) -> Dict[str, Any
                 recommendation_reasoning: str
                 experiments: TList[Dict[str, str]]
 
-            r = anthropic.Anthropic().messages.parse(
+            r = anthropic.Anthropic(api_key=_ai_key()).messages.parse(
                 model="claude-opus-4-8", max_tokens=16000, thinking={"type": "adaptive"},
                 system=("Senior innovation strategist, expert in Keeley's Ten Types. Every "
                         "breakthrough concept must combine at least three types (numbered 1-10). "
@@ -1051,7 +1062,7 @@ def ideate_studio(kind: str, topic: str, horizon: str = "3-7y",
     """Futures / competitive / maturity / ten-types studios. AI-driven with a
     key; labeled template frames otherwise."""
     import os
-    has_ai = bool(os.environ.get("ANTHROPIC_API_KEY")) and not force_template
+    has_ai = bool(_ai_key()) and not force_template
     if has_ai:
         try:
             import anthropic
@@ -1074,7 +1085,7 @@ def ideate_studio(kind: str, topic: str, horizon: str = "3-7y",
                 "ten_types": f"Apply Larry Keeley's Ten Types of Innovation to '{topic}': one item per "
                              "type [{title: type name, detail: the specific opportunity}]; 3 idea_seeds.",
             }
-            r = anthropic.Anthropic().messages.parse(
+            r = anthropic.Anthropic(api_key=_ai_key()).messages.parse(
                 model="claude-opus-4-8", max_tokens=16000, thinking={"type": "adaptive"},
                 tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 4}],
                 messages=[{"role": "user", "content": prompts[kind]}], output_format=Studio)
@@ -1139,7 +1150,7 @@ def ai_evaluate_idea(idea: Dict[str, Any],
     import os
 
     heuristic = (idea.get("assessment") or {})
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not _ai_key():
         return {
             "validated": bool(heuristic.get("matched_opportunity")),
             "validation_notes": (
@@ -1169,7 +1180,7 @@ def ai_evaluate_idea(idea: Dict[str, Any],
         f"- {o['id']}: {o['title']} (${o['estimated_annual_savings']:,.0f}/yr, {o['category']})"
         for o in opportunities[:15]
     )
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(api_key=_ai_key())
     try:
         response = client.messages.parse(
             model="claude-opus-4-8",

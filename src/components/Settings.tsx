@@ -257,6 +257,46 @@ function UserProfiles() {
   )
 }
 
+function AiSettings() {
+  const [masked, setMasked] = useState('')
+  const [source, setSource] = useState('none')
+  const [key, setKey] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const load = () => fetch('/api/settings/ai').then((r) => r.json())
+    .then((d) => { setMasked(d.masked); setSource(d.source) }).catch(() => {})
+  useEffect(() => { load() }, [])
+  return (
+    <div className="card">
+      <h3>AI engine key</h3>
+      <p className="muted small">
+        Powers every AI call on the platform — drafting, triage, red team, research, studios.
+        {source === 'environment' && ' Currently using the deployment environment key.'}
+        {source === 'workspace' && ' Currently using the workspace key set here.'}
+        {source === 'none' && ' No key configured — AI features run in labeled template mode.'}
+      </p>
+      <div className="row">
+        <input type="password" autoComplete="off"
+               placeholder={masked ? `configured: ${masked} — paste to replace` : 'sk-ant-…'}
+               value={key} onChange={(e) => setKey(e.target.value)} />
+        <button disabled={busy || !key.trim()} onClick={async () => {
+          setBusy(true); setMsg(null)
+          try {
+            const r = await fetch('/api/settings/ai', { method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ api_key: key.trim() }) })
+            const d = await r.json()
+            if (!r.ok) throw new Error(d.detail ?? 'save failed')
+            setKey(''); setMsg('Saved — all AI calls now use this key.'); load()
+          } catch (e) { setMsg(e instanceof Error ? e.message : String(e)) }
+          finally { setBusy(false) }
+        }}>{busy ? 'Saving…' : 'Save key'}</button>
+        {msg && <span className="muted small">{msg}</span>}
+      </div>
+    </div>
+  )
+}
+
 function NotificationSettings() {
   const [webhook, setWebhook] = useState('')
   const [busy, setBusy] = useState(false)
@@ -520,6 +560,7 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
       <div className="dash-grid">
         <ScoringSettings />
         <ContextPicker />
+      <AiSettings />
       <UserProfiles />
       <NotificationSettings />
       <RolesAccess />

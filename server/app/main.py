@@ -2637,6 +2637,28 @@ def review_idea(idea_id: str, body: ReviewRequest) -> Dict[str, Any]:
             "reviews": db.reviews_for(idea_id)}
 
 
+@app.get("/api/settings/ai")
+def get_ai_settings() -> Dict[str, Any]:
+    key = hub._ai_key()
+    stored = bool(db.meta_get("anthropic_api_key"))
+    return {"configured": bool(key),
+            "masked": f"{key[:10]}…{key[-4:]}" if key else "",
+            "source": "workspace" if stored else ("environment" if key else "none")}
+
+
+@app.put("/api/settings/ai")
+def put_ai_settings(body: Dict[str, str], authorization: Optional[str] = Header(None),
+                    actor: Optional[str] = Query(None)) -> Dict[str, Any]:
+    _require_admin(authorization, actor)
+    key = (body.get("api_key") or "").strip()
+    if key and not key.startswith("sk-ant-"):
+        raise HTTPException(400, "that doesn't look like an Anthropic API key (sk-ant-…)")
+    db.meta_set("anthropic_api_key", key)
+    db.audit("settings.ai_key", _session_name() or actor,
+             detail="key set" if key else "key cleared")
+    return get_ai_settings()
+
+
 @app.get("/api/settings/context")
 def get_context() -> Dict[str, Any]:
     return {"company": db.meta_get("context_company") or "",

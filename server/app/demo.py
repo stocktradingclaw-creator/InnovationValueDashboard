@@ -13,6 +13,8 @@ time.
 """
 import json
 import os
+
+from .hub import _ai_key
 import shutil
 from typing import Any, Dict, List, Optional
 
@@ -233,7 +235,7 @@ def build_portfolio(industry: Optional[str], client: Optional[str],
     search when available); industry-only requests ground in the latest major
     trends in that industry."""
     label = (client or "").strip() or f"{(industry or 'cross-industry').strip().title()} prospect"
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not _ai_key():
         return _template_portfolio(industry, label)
 
     import anthropic
@@ -292,7 +294,7 @@ def build_portfolio(industry: Optional[str], client: Optional[str],
         "messages": [{"role": "user", "content": subject_line + notes_line}],
         "output_format": DemoPortfolio,
     }
-    anthropic_client = anthropic.Anthropic()
+    anthropic_client = anthropic.Anthropic(api_key=_ai_key())
     try:
         # first attempt: with web search so public strategy/trends are current
         response = anthropic_client.messages.parse(
