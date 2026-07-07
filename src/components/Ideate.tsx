@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { money, toast } from '../api'
-import type { Opportunity } from '../types'
+import { toast } from '../api'
 
 interface StudioOut {
   narrative: string
@@ -52,10 +51,23 @@ function Studio({ kind, heading, blurb, withHorizon }: {
         <div className="plan">
           <p className="small"><strong>{out.narrative}</strong>{' '}
             <span className="muted small">({out.generated_by})</span></p>
-          {out.items.map((it) => (
-            <p key={it.title} className="small"><strong>{it.title}</strong>{' '}
-              <span className="muted">{it.detail}</span></p>
-          ))}
+          <div className={kind === 'ten_types' ? 'tentype-grid' : undefined}>
+          {out.items.map((it) => {
+            const lvl = it.title.match(/level (\d)\/5/)
+            return (
+              <div key={it.title} className={kind === 'ten_types' ? 'card tentype-card' : 'studio-item'}>
+                <p className="small"><strong>{it.title}</strong>{' '}
+                  <span className="muted">{it.detail}</span></p>
+                {lvl && (
+                  <div className="funnel-track thin">
+                    <div className="funnel-bar stage-committed"
+                         style={{ width: `${(Number(lvl[1]) / 5) * 100}%` }} />
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          </div>
           <div className="row">
             {out.idea_seeds.map((seed) => (
               <button key={seed} className="chip" onClick={() => seedIdea(seed, `ideate-${kind}`)}>
@@ -122,46 +134,65 @@ function MuralStudio({ onChanged }: { onChanged: () => void }) {
   )
 }
 
-export default function Ideate({ opportunities, onChanged }: {
-  opportunities: Opportunity[]; onChanged: () => void
-}) {
-  const top = opportunities.slice(0, 5)
+export type IdeateView = 'futures' | 'competitive' | 'maturity' | 'workshops' | 'tentypes'
+
+const PAGES: Record<IdeateView, { title: string; intro: string }> = {
+  futures: {
+    title: 'Futures studio',
+    intro: "Reimagine, don't extrapolate — Frank Diana's discipline across three timeframes: " +
+           'extrapolate signals (1–3y), trace second-order effects (3–7y), and reimagine the ' +
+           'future state (7–15y). Run the same topic at multiple horizons and compare.',
+  },
+  competitive: {
+    title: 'Competitive analysis',
+    intro: 'Strengths, recent moves, and the gaps you can exploit — researched live with web ' +
+           'search when AI is configured. Every gap becomes an idea seed you can capture.',
+  },
+  maturity: {
+    title: 'Maturity assessment',
+    intro: 'A high-level, directional read of where you stand on a key industry topic across ' +
+           'five dimensions — strategy, data, governance, talent, technology — and what moving ' +
+           'up a level would take. Validate in a workshop; capture the moves as ideas.',
+  },
+  workshops: {
+    title: 'Design-thinking workshops',
+    intro: 'Run team ideation in Mural with the preset templates below, then ingest the session ' +
+           'export — every sticky note becomes a real, triaged idea attributed to the session.',
+  },
+  tentypes: {
+    title: 'Ten Types of Innovation',
+    intro: "Larry Keeley's lens: most companies over-invest in product performance while the " +
+           'defensible plays combine three or more types. Scan any topic across all ten.',
+  },
+}
+
+export default function Ideate({ view, onChanged }: { view: IdeateView; onChanged: () => void }) {
+  const page = PAGES[view]
   return (
     <section>
       <div className="section-header">
         <div>
-          <h2>Ideate</h2>
-          <p className="muted">
-            Where ideas come from: opportunities detected in your own data, futures thinking,
-            competitive gaps, maturity honesty, team sessions, and the Ten Types lens — every
-            output one click from becoming a triaged idea.
-          </p>
+          <h2>{page.title}</h2>
+          <p className="muted">{page.intro}</p>
         </div>
       </div>
-
-      {top.length > 0 && (
-        <div className="card">
-          <h3>Detected in your data — start here</h3>
-          <p className="muted small">The engine already found these in your integrated sources.</p>
-          {top.map((o) => (
-            <div key={o.id} className="decision-row">
-              <span className="savings small">{money(o.estimated_annual_savings)}/yr</span>
-              <span><strong>{o.title}</strong> <span className="muted small">{o.category}</span></span>
-              <button className="chip" onClick={() => seedIdea(o.title, 'ideate-detected')}>+ idea</button>
-            </div>
-          ))}
-        </div>
+      {view === 'futures' && (
+        <Studio kind="futures" withHorizon heading="Run a futures scan"
+                blurb="Signals → implications → a reimagined future state, with idea seeds to rehearse it now." />
       )}
-
-      <Studio kind="futures" withHorizon heading="Futures studio — reimagine, don't extrapolate"
-              blurb="Frank Diana-style rethinking across timeframes: signals, implications, and a reimagined future state, with idea seeds to rehearse it now." />
-      <Studio kind="competitive" heading="Competitive analysis"
-              blurb="Strengths, recent moves, and the gaps you can exploit — researched live when AI is configured." />
-      <Studio kind="maturity" heading="Maturity assessment"
-              blurb="A high-level, directional read of where you stand on a key industry topic — and what moving up a level would take." />
-      <MuralStudio onChanged={onChanged} />
-      <Studio kind="ten_types" heading="Ten Types of Innovation (Keeley)"
-              blurb="AI scans all ten types — profit model to customer engagement — because innovation compounds when you combine types beyond the product." />
+      {view === 'competitive' && (
+        <Studio kind="competitive" heading="Analyze a competitor or market"
+                blurb="Name a competitor, market, or move. Gaps become capture-ready idea seeds." />
+      )}
+      {view === 'maturity' && (
+        <Studio kind="maturity" heading="Assess a topic"
+                blurb="Five-dimension read with level ratings and the next-level requirement per dimension." />
+      )}
+      {view === 'workshops' && <MuralStudio onChanged={onChanged} />}
+      {view === 'tentypes' && (
+        <Studio kind="ten_types" heading="Scan all ten types"
+                blurb="One opportunity prompt per type, profit model through customer engagement." />
+      )}
     </section>
   )
 }
