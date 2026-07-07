@@ -2302,6 +2302,53 @@ _TYPE_KEYWORDS = {
 }
 
 
+class CompetitiveIntake(BaseModel):
+    product: str
+    description: Optional[str] = None
+    segment: Optional[str] = None
+    competitors: Optional[List[str]] = None
+    audience: Optional[str] = None
+    decision: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@app.post("/api/ideate/competitive-report")
+def competitive_report(body: CompetitiveIntake) -> Dict[str, Any]:
+    if not body.product.strip():
+        raise HTTPException(400, "product name is required")
+    report = hub.competitive_report(body.model_dump())
+    db.save_studio_run("competitive_report", body.product.strip(), None, report)
+    db.audit("ideate.competitive_report", _session_name(), None, body.product[:80])
+    return report
+
+
+@app.get("/api/ideate/competitive-reports")
+def list_competitive_reports() -> Dict[str, Any]:
+    with db._conn() as conn:
+        rows = conn.execute("SELECT id, topic, created_at FROM studio_runs "
+                            "WHERE kind='competitive_report' ORDER BY id DESC LIMIT 20").fetchall()
+    return {"reports": [dict(r) for r in rows]}
+
+
+@app.get("/api/ideate/competitive-reports/{run_id}")
+def get_competitive_report(run_id: int) -> Dict[str, Any]:
+    import json as _json
+    with db._conn() as conn:
+        row = conn.execute("SELECT topic, output, created_at FROM studio_runs "
+                           "WHERE id=? AND kind='competitive_report'", (run_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "report not found")
+    return {"topic": row["topic"], "created_at": row["created_at"],
+            **_json.loads(row["output"])}
+
+
+@app.post("/api/ideate/tentypes-concepts")
+def tentypes_concepts(body: StudioRequest) -> Dict[str, Any]:
+    out = hub.tentypes_concepts(body.topic.strip() or "our business")
+    db.save_studio_run("tentypes_concepts", body.topic.strip(), None, out)
+    return out
+
+
 @app.get("/api/ideate/tentypes-mirror")
 def tentypes_mirror() -> Dict[str, Any]:
     """The mirror: your own pipeline classified across Keeley's ten types —

@@ -2076,3 +2076,23 @@ def test_ideate_redesign_artifacts(client):
     assert len(h["assessments"]) >= 2 and h["deltas"]
     ss = client.get("/api/ideate/sessions").json()["sessions"]
     assert ss and ss[0]["ideas"] > 0
+
+
+def test_competitive_report_and_tentypes_concepts(client):
+    r = client.post("/api/ideate/competitive-report", json={
+        "product": "Innovation Hub", "decision": "GTM focus"}).json()
+    assert r["executive_summary"] and r["comparison_matrix_criteria"]
+    for c in r["comparison_matrix"]:
+        assert len(c["scores"]) == len(r["comparison_matrix_criteria"])
+        for sc in c["scores"]:
+            assert sc["confidence"] in ("fact", "inference", "assumption")
+    for pp in r["positioning"]:
+        assert -1 <= pp["x"] <= 1 and -1 <= pp["y"] <= 1
+    saved = client.get("/api/ideate/competitive-reports").json()["reports"]
+    assert saved and client.get(
+        f"/api/ideate/competitive-reports/{saved[0]['id']}").json()["executive_summary"]
+
+    c = client.post("/api/ideate/tentypes-concepts",
+                    json={"kind": "ten_types", "topic": "field service"}).json()
+    assert all(len(x["types_combined"]) >= 3 for x in c["concepts"])
+    assert c["recommended"] and c["experiments"][0]["kill_metric"]

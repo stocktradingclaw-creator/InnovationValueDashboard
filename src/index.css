@@ -1912,3 +1912,15 @@ body.present .content { max-width: 1400px; padding: 2rem 3rem; }
 .fmap-warm { border-color: var(--info); opacity: 0.85; }
 
 .tentype-empty { border-style: dashed; border-color: var(--warn); }
+
+.tt-config { border-left: 3px solid var(--info); }
+.tt-offer { border-left: 3px solid var(--warn); }
+.tt-exp { border-left: 3px solid var(--accent); }
+.tt-key.tt-config { color: var(--info); border: none; }
+.tt-key.tt-offer { color: var(--warn); border: none; }
+.tt-key.tt-exp { color: var(--accent); border: none; }
+.tt-num { display: inline-flex; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--surface-2); border: 1px solid var(--border); font-size: 0.68rem;
+  align-items: center; justify-content: center; }
+.tt-chip { border-radius: 50%; width: 22px; height: 22px; display: inline-flex;
+  align-items: center; justify-content: center; padding: 0; background: var(--surface-2); }

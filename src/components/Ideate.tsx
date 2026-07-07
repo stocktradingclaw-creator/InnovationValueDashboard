@@ -295,6 +295,72 @@ const PAGES: Record<IdeateView, { title: string; intro: string }> = {
   },
 }
 
+function BreakthroughConcepts() {
+  const [topic, setTopic] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [out, setOut] = useState<{ concepts: { name: string; narrative: string; types_combined: number[]; target_customer: string; revenue_logic: string; orthodoxy_broken: string; impact: number; differentiation: number; feasibility: number; fit: number }[]; recommended: string[]; recommendation_reasoning: string; experiments: Record<string, string>[]; generated_by: string } | null>(null)
+  return (
+    <div className="card">
+      <h3>Breakthrough concepts</h3>
+      <p className="muted small">Concepts that combine three or more types — scored 1–5 on impact,
+        differentiation, feasibility, and fit, each with the experiment that could kill it.</p>
+      <div className="row">
+        <input placeholder="Business context — what are we building concepts for?"
+               value={topic} onChange={(e) => setTopic(e.target.value)} />
+        <button disabled={busy || !topic.trim()} onClick={async () => {
+          setBusy(true)
+          try {
+            const r = await fetch('/api/ideate/tentypes-concepts', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ kind: 'ten_types', topic }) })
+            setOut(await r.json())
+          } finally { setBusy(false) }
+        }}>{busy ? 'Combining types…' : '✦ Generate concepts'}</button>
+      </div>
+      {out && (
+        <div className="plan">
+          {out.concepts.map((c) => {
+            const total = c.impact + c.differentiation + c.feasibility + c.fit
+            const rec = out.recommended.includes(c.name)
+            return (
+              <div key={c.name} className={`card ${rec ? 'attention-card' : ''}`} style={{ marginBottom: '0.6rem' }}>
+                <div className="card-header">
+                  <h3>{rec ? '★ ' : ''}{c.name}</h3>
+                  <span className="row">{c.types_combined.map((t) => (
+                    <span key={t} title={Object.keys(TYPE_NUM).find((k) => TYPE_NUM[k] === t)}
+                          className={`pill tt-chip tt-${t <= 4 ? 'config' : t <= 6 ? 'offer' : 'exp'}`}>{t}</span>
+                  ))}
+                    <span className="badge">{total}/20</span></span>
+                </div>
+                <p className="small">{c.narrative}</p>
+                <p className="muted small">For {c.target_customer} · {c.revenue_logic} ·
+                  breaks: "{c.orthodoxy_broken}" · impact {c.impact} · diff {c.differentiation} ·
+                  feas {c.feasibility} · fit {c.fit}</p>
+                <button className="chip" onClick={() => seedIdea(c.name + ': ' + c.narrative.slice(0, 90), 'ideate-tentypes')}>+ capture as idea</button>
+              </div>
+            )
+          })}
+          <p className="small pending-action"><strong>Recommended:</strong> {out.recommendation_reasoning}</p>
+          {out.experiments.map((e0, i) => (
+            <p key={i} className="muted small">🧪 <strong>{e0.concept}:</strong> riskiest assumption —
+              {e0.riskiest_assumption}. {e0.experiment} ({e0.duration_days}d). Kill metric: {e0.kill_metric}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const TYPE_CATEGORY: Record<string, string> = {
+  'Profit Model': 'config', Network: 'config', Structure: 'config', Process: 'config',
+  'Product Performance': 'offer', 'Product System': 'offer',
+  Service: 'exp', Channel: 'exp', Brand: 'exp', 'Customer Engagement': 'exp',
+}
+const TYPE_NUM: Record<string, number> = {
+  'Profit Model': 1, Network: 2, Structure: 3, Process: 4, 'Product Performance': 5,
+  'Product System': 6, Service: 7, Channel: 8, Brand: 9, 'Customer Engagement': 10,
+}
+
 function TenTypesMirror() {
   const [m, setM] = useState<{ grid: { type: string; about: string; count: number; examples: string[] }[]; headline: string; empty_types: string[] } | null>(null)
   useEffect(() => { fetch('/api/ideate/tentypes-mirror').then((r) => r.json()).then(setM).catch(() => {}) }, [])
@@ -303,10 +369,15 @@ function TenTypesMirror() {
     <div className="card">
       <h3>Your portfolio in the mirror</h3>
       <p className="small"><strong>{m.headline}</strong></p>
+      <p className="muted small">
+        <span className="tt-key tt-config">■</span> Configuration (1–4) ·{' '}
+        <span className="tt-key tt-offer">■</span> Offering (5–6) ·{' '}
+        <span className="tt-key tt-exp">■</span> Experience (7–10)
+      </p>
       <div className="tentype-grid">
         {m.grid.map((g) => (
-          <div key={g.type} className={`card tentype-card ${g.count === 0 ? 'tentype-empty' : ''}`}>
-            <p className="small"><strong>{g.type}</strong>{' '}
+          <div key={g.type} className={`card tentype-card tt-${TYPE_CATEGORY[g.type]} ${g.count === 0 ? 'tentype-empty' : ''}`}>
+            <p className="small"><span className="tt-num">{TYPE_NUM[g.type]}</span> <strong>{g.type}</strong>{' '}
               {g.count > 0
                 ? <span className="pill act-approve">{g.count}</span>
                 : <span className="pill act-verify">empty</span>}</p>
@@ -320,6 +391,128 @@ function TenTypesMirror() {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+interface CompReport {
+  generated_by: string
+  executive_summary: string[]; top_recommendation: string
+  market_overview: string; trends: string[]
+  comparison_matrix_criteria: string[]
+  comparison_matrix: { name: string; scores: { criterion: string; rating: string; justification: string; confidence: string }[] }[]
+  positioning_x_axis: string; positioning_y_axis: string
+  positioning: { company: string; x: number; y: number }[]; white_space: string
+  swot_strengths: string[]; swot_weaknesses: string[]; swot_opportunities: string[]; swot_threats: string[]
+  recommendations: { title: string; based_on_finding: string; impact: string; effort: string; priority: number }[]
+  thin_areas: string[]; suggested_research: string[]
+}
+
+function CompetitiveReport() {
+  const [form, setForm] = useState({ product: '', description: '', segment: '', audience: 'leadership', decision: '', competitors: '' })
+  const [busy, setBusy] = useState(false)
+  const [stage, setStage] = useState('')
+  const [rep, setRep] = useState<CompReport | null>(null)
+  const [saved, setSaved] = useState<{ id: number; topic: string; created_at: string }[]>([])
+  useEffect(() => {
+    fetch('/api/ideate/competitive-reports').then((r) => r.json()).then((d) => setSaved(d.reports)).catch(() => {})
+  }, [rep])
+  const generate = async () => {
+    setBusy(true); setRep(null)
+    const stages = ['Researching competitors…', 'Scoring the comparison matrix…', 'Mapping positioning & white space…', 'Writing recommendations…']
+    let i = 0
+    const t = window.setInterval(() => setStage(stages[Math.min(i++, stages.length - 1)]), 1400)
+    try {
+      const r = await fetch('/api/ideate/competitive-report', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, competitors: form.competitors.split(',').map((c) => c.trim()).filter(Boolean) }),
+      })
+      if (!r.ok) throw new Error((await r.json()).detail ?? 'generation failed')
+      setRep(await r.json())
+    } catch (e) { toast(e instanceof Error ? e.message : String(e)) }
+    finally { window.clearInterval(t); setBusy(false); setStage('') }
+  }
+  const rateClass = (r: string) => r === 'strong' ? 'act-approve' : r === 'weak' ? 'act-intervene' : 'act-verify'
+  return (
+    <div className="card">
+      <h3>Full competitive report</h3>
+      <p className="muted small">Describe your product and the decision this informs — get a
+        structured, confidence-labeled report: matrix, positioning map, SWOT, and prioritized moves.</p>
+      <div className="row">
+        <input placeholder="Product name *" value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} />
+        <input placeholder="One-line description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        <input placeholder="Target segment" value={form.segment} onChange={(e) => setForm({ ...form, segment: e.target.value })} />
+      </div>
+      <div className="row">
+        <input placeholder="Competitors, comma-separated (blank = AI picks)" value={form.competitors} onChange={(e) => setForm({ ...form, competitors: e.target.value })} />
+        <input placeholder="Decision this informs" value={form.decision} onChange={(e) => setForm({ ...form, decision: e.target.value })} />
+        <button disabled={busy || !form.product.trim()} onClick={generate}>
+          {busy ? stage || 'Working…' : '✦ Generate report'}
+        </button>
+      </div>
+      {saved.length > 0 && !rep && (
+        <p className="muted small">Saved: {saved.slice(0, 5).map((s0) => (
+          <button key={s0.id} className="chip" onClick={async () => {
+            setRep(await (await fetch(`/api/ideate/competitive-reports/${s0.id}`)).json())
+          }}>{s0.topic} · {s0.created_at.slice(0, 10)}</button>
+        ))}</p>
+      )}
+      {rep && (
+        <div className="plan">
+          <h4>Executive summary <span className="muted small">({rep.generated_by})</span></h4>
+          <ul className="small">{rep.executive_summary.map((x) => <li key={x}>{x}</li>)}</ul>
+          <p className="small pending-action"><strong>Top recommendation:</strong> {rep.top_recommendation}</p>
+          <h4>Comparison matrix</h4>
+          <table className="kpi-table">
+            <thead><tr><th>Criterion</th>{rep.comparison_matrix.map((c) => <th key={c.name}>{c.name}</th>)}</tr></thead>
+            <tbody>
+              {rep.comparison_matrix_criteria.map((crit, i) => (
+                <tr key={crit}><td><strong>{crit}</strong></td>
+                  {rep.comparison_matrix.map((c) => {
+                    const sc = c.scores[i]
+                    return <td key={c.name}><span className={`pill ${rateClass(sc.rating)}`}
+                      title={`${sc.justification} [${sc.confidence}]`}>{sc.rating}</span></td>
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="muted small">Hover any rating for its justification and confidence
+            (fact / inference / assumption).</p>
+          <h4>Positioning — {rep.positioning_x_axis} vs {rep.positioning_y_axis}</h4>
+          <div className="matrix" style={{ height: 220 }}>
+            {rep.positioning.map((pp) => (
+              <span key={pp.company} className="dot dot-strategic_bet"
+                    style={{ left: `${(pp.x + 1) * 50}%`, top: `${(1 - pp.y) * 50}%`, width: 12, height: 12 }}
+                    title={pp.company} />
+            ))}
+            {rep.positioning.map((pp) => (
+              <span key={`${pp.company}-l`} className="small" style={{ position: 'absolute',
+                left: `${(pp.x + 1) * 50}%`, top: `calc(${(1 - pp.y) * 50}% + 8px)`, transform: 'translateX(-50%)' }}>
+                {pp.company}</span>
+            ))}
+          </div>
+          <p className="small"><strong>White space:</strong> {rep.white_space}</p>
+          <h4>SWOT</h4>
+          <div className="two-col">
+            <div><strong className="small">Strengths</strong><ul className="small">{rep.swot_strengths.map((x) => <li key={x}>{x}</li>)}</ul>
+              <strong className="small">Opportunities</strong><ul className="small">{rep.swot_opportunities.map((x) => <li key={x}>{x}</li>)}</ul></div>
+            <div><strong className="small">Weaknesses</strong><ul className="small">{rep.swot_weaknesses.map((x) => <li key={x}>{x}</li>)}</ul>
+              <strong className="small">Threats</strong><ul className="small">{rep.swot_threats.map((x) => <li key={x}>{x}</li>)}</ul></div>
+          </div>
+          <h4>Prioritized moves</h4>
+          {rep.recommendations.sort((a, b) => a.priority - b.priority).map((r0) => (
+            <div key={r0.title} className="decision-row">
+              <span className="pill act-approve">#{r0.priority}</span>
+              <span><strong>{r0.title}</strong> <span className="muted small">{r0.based_on_finding} ·
+                impact {r0.impact} · effort {r0.effort}</span></span>
+              <button className="chip" onClick={() => seedIdea(r0.title, 'ideate-competitive')}>+ idea</button>
+            </div>
+          ))}
+          <p className="muted small"><strong>Thin areas:</strong> {rep.thin_areas.join(' · ')} —{' '}
+            <strong>firm up with:</strong> {rep.suggested_research.join(' · ')}</p>
+        </div>
+      )}
     </div>
   )
 }
@@ -415,6 +608,7 @@ export default function Ideate({ view, onChanged }: { view: IdeateView; onChange
         <Studio kind="futures" withHorizon heading="Run a futures scan"
                 blurb="Signals → implications → a reimagined future state, with idea seeds to rehearse it now." />
       )}
+      {view === 'competitive' && <CompetitiveReport />}
       {view === 'competitive' && <Watchlist />}
       {view === 'competitive' && (
         <Studio kind="competitive" heading="Analyze a competitor or market"
@@ -428,6 +622,7 @@ export default function Ideate({ view, onChanged }: { view: IdeateView; onChange
       {view === 'workshops' && <MuralStudio onChanged={onChanged} />}
       {view === 'workshops' && <SessionHistory />}
       {view === 'tentypes' && <TenTypesMirror />}
+      {view === 'tentypes' && <BreakthroughConcepts />}
       {view === 'tentypes' && (
         <Studio kind="ten_types" heading="Scan all ten types"
                 blurb="One opportunity prompt per type, profit model through customer engagement." />

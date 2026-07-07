@@ -761,6 +761,255 @@ _FUTURES_FRAMES = {
 }
 
 
+def competitive_report(intake: Dict[str, Any]) -> Dict[str, Any]:
+    """Full structured competitive analysis: exec summary, market overview,
+    competitor profiles, comparison matrix, positioning map, SWOT, gaps,
+    threats, prioritized recommendations — every claim confidence-labeled.
+    AI+web when keyed; a complete, realistic demo report otherwise."""
+    import os
+    product = intake.get("product") or "Our product"
+    competitors = [c for c in (intake.get("competitors") or []) if c.strip()][:6]
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            import anthropic
+            from pydantic import BaseModel
+            from typing import List as TList, Optional as TOpt
+
+            class Score(BaseModel):
+                criterion: str
+                rating: str
+                justification: str
+                confidence: str
+
+            class Company(BaseModel):
+                name: str
+                scores: TList[Score]
+
+            class Placement(BaseModel):
+                company: str
+                x: float
+                y: float
+
+            class Profile(BaseModel):
+                name: str
+                snapshot: str
+                ideal_customer: str
+                value_prop: str
+                pricing_model: str
+                gtm_motion: str
+                notable_moves: str
+                confidence: str
+
+            class Rec(BaseModel):
+                title: str
+                based_on_finding: str
+                impact: str
+                effort: str
+                priority: int
+
+            class Report(BaseModel):
+                executive_summary: TList[str]
+                top_recommendation: str
+                market_overview: str
+                trends: TList[str]
+                profiles: TList[Profile]
+                comparison_matrix_criteria: TList[str]
+                comparison_matrix: TList[Company]
+                pricing_comparison: str
+                positioning_x_axis: str
+                positioning_y_axis: str
+                positioning: TList[Placement]
+                white_space: str
+                swot_strengths: TList[str]
+                swot_weaknesses: TList[str]
+                swot_opportunities: TList[str]
+                swot_threats: TList[str]
+                gaps_and_opportunities: TList[str]
+                threats_to_monitor: TList[str]
+                recommendations: TList[Rec]
+                thin_areas: TList[str]
+                suggested_research: TList[str]
+
+            r = anthropic.Anthropic().messages.parse(
+                model="claude-opus-4-8", max_tokens=16000, thinking={"type": "adaptive"},
+                tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 8}],
+                system=(f"You are a senior competitive intelligence analyst. Analyze {product} "
+                        f"({intake.get('description', '')}) against "
+                        f"{', '.join(competitors) or 'the 5 most relevant competitors, which you must identify and justify'} "
+                        f"for an audience of {intake.get('audience', 'leadership')}, to inform: "
+                        f"{intake.get('decision', 'strategy')}. Target segment: {intake.get('segment', 'unspecified')}. "
+                        "Research each competitor with web search before writing. Score the matrix "
+                        "strong/adequate/weak on the 6-10 criteria buyers actually weigh. Positioning "
+                        "x,y in [-1,1] on the two most differentiating axes. Label every claim's "
+                        "confidence as fact, inference, or assumption — never present a guess as fact. "
+                        "Where you could not verify, say so in thin_areas. Be specific; no filler."),
+                messages=[{"role": "user", "content":
+                           f"Notes from the requester: {intake.get('notes') or '(none)'}"}],
+                output_format=Report)
+            out = r.parsed_output.model_dump()
+            out["generated_by"] = "claude"
+            return out
+        except Exception:
+            pass
+    # demo mode: complete, realistic, clearly labeled
+    comps = competitors or ["Qmarkets", "Brightidea", "ITONICS"]
+    criteria = ["Verified ROI measurement", "AI-native workflow", "Time to value",
+                "Enterprise readiness", "Configurability", "Ecosystem & integrations"]
+    strengths = {comps[0]: [0, 3], comps[1] if len(comps) > 1 else comps[0]: [3, 5],
+                 comps[2] if len(comps) > 2 else comps[0]: [4]}
+    def rate(comp, i):
+        if comp == product:
+            return ("strong" if i in (0, 1, 2) else "adequate" if i == 4 else "weak",
+                    "Differentiated by computed verified value and AI-drafted cases" if i < 3
+                    else "Four-role model shipped; SSO/SCIM pending" if i == 3
+                    else "Capture webhook and handoffs exist; marketplace depth pending",
+                    "inference")
+        good = strengths.get(comp, [3])
+        return ("strong" if i in good else "adequate" if (i + len(comp)) % 3 else "weak",
+                f"Directional read on {comp} for '{criteria[i]}' — validate with primary research",
+                "assumption")
+    companies = [product] + comps
+    matrix = [{"name": c, "scores": [
+        {"criterion": criteria[i], "rating": rate(c, i)[0],
+         "justification": rate(c, i)[1], "confidence": rate(c, i)[2]}
+        for i in range(len(criteria))]} for c in companies]
+    place = {product: (0.7, 0.65)}
+    for j, c in enumerate(comps):
+        place[c] = (round(-0.6 + j * 0.35, 2), round(-0.4 + j * 0.15, 2))
+    return {
+        "generated_by": "template",
+        "executive_summary": [
+            f"{product} wins on evidence: verified, data-computed ROI that incumbents structurally cannot match",
+            f"{comps[0]} and {comps[1] if len(comps) > 1 else 'peers'} lead on enterprise breadth and references — the procurement moat",
+            "The buying criterion shifting fastest is proof-of-impact; activity dashboards are losing renewals"],
+        "top_recommendation": "Lead every deal with the verified-value ledger demo; close the "
+                              "SSO/Postgres gap before enterprise pilots stall in procurement.",
+        "market_overview": "Innovation management platforms (~$1-2B, growing low double digits) are "
+                           "consolidating from idea collection toward measurable portfolio outcomes.",
+        "trends": ["Buyers demand verified outcomes over engagement metrics",
+                   "AI moves from assistant to engine (drafting, triage, red-teaming)",
+                   "Procurement gates tighten: SOC 2, SSO, data residency as table stakes"],
+        "profiles": [{"name": c, "snapshot": f"{c}: established innovation-management vendor",
+                      "ideal_customer": "10k+ employee enterprise with a formal innovation office",
+                      "value_prop": "Breadth, configurability, and reference customers",
+                      "pricing_model": "Enterprise annual license, sales-led",
+                      "gtm_motion": "Direct enterprise sales with services partners",
+                      "notable_moves": "AI-assistant features announced in the last year",
+                      "confidence": "assumption"} for c in comps],
+        "comparison_matrix_criteria": criteria,
+        "comparison_matrix": matrix,
+        "pricing_comparison": f"Incumbents sell opaque enterprise licenses; {product} can wedge with "
+                              "transparent self-serve pricing and a free workspace tier.",
+        "positioning_x_axis": "Breadth of suite →",
+        "positioning_y_axis": "Proof of outcomes →",
+        "positioning": [{"company": c, "x": xy[0], "y": xy[1]} for c, xy in place.items()],
+        "white_space": "High-proof / focused quadrant is empty: nobody else computes verified value "
+                       "from customer data. That corner is ours to name.",
+        "swot_strengths": ["Verified value ledger (structural differentiator)",
+                           "AI that does work, not just tags it", "Same-day proof-of-value demo"],
+        "swot_weaknesses": ["Ephemeral storage / no SSO yet", "No reference customers",
+                            "Single-team vendor risk in procurement eyes"],
+        "swot_opportunities": ["CFO-led buying committees", "Displace activity-metric renewals",
+                               "Publish honest-innovation-accounting standard"],
+        "swot_threats": ["Incumbent bolts on 'verified-ish' reporting", "Procurement disqualification",
+                         "Platform players (ServiceNow) bundling innovation modules"],
+        "gaps_and_opportunities": [
+            "No incumbent computes value from source data — 12-18 month structural lead (inference)",
+            "Kill-friendly economics (learning dividends) is unoccupied positioning (fact: none market it)",
+            "Metered funding tranches match how CFOs already think (inference)"],
+        "threats_to_monitor": [
+            "Watch: incumbent M&A of analytics vendors (early sign: partnership announcements)",
+            "Watch: RFP templates adding 'outcome verification' as a line item — moat becomes stakes"],
+        "recommendations": [
+            {"title": "Close procurement disqualifiers", "based_on_finding": "Enterprise readiness gap",
+             "impact": "high", "effort": "medium", "priority": 1},
+            {"title": "Lead demos with the ledger", "based_on_finding": "White space on proof axis",
+             "impact": "high", "effort": "low", "priority": 2},
+            {"title": "Publish the methodology as a standard", "based_on_finding": "Honesty positioning unoccupied",
+             "impact": "medium", "effort": "low", "priority": 3}],
+        "thin_areas": ["Competitor pricing specifics unverified (demo mode — no web research)",
+                       "Win/loss data absent"],
+        "suggested_research": ["5 win/loss interviews with innovation-office buyers",
+                               "Analyst-firm briefings for current competitive scores"],
+    }
+
+
+def tentypes_concepts(topic: str) -> Dict[str, Any]:
+    """Breakthrough concepts per the Keeley discipline: each combines >=3
+    types, scored 1-5 discriminatingly, with a riskiest-assumption experiment
+    and kill metric."""
+    import os
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            import anthropic
+            from pydantic import BaseModel
+            from typing import List as TList
+
+            class Concept(BaseModel):
+                name: str
+                narrative: str
+                types_combined: TList[int]
+                target_customer: str
+                revenue_logic: str
+                orthodoxy_broken: str
+                impact: int
+                differentiation: int
+                feasibility: int
+                fit: int
+
+            class Out(BaseModel):
+                concepts: TList[Concept]
+                recommended: TList[str]
+                recommendation_reasoning: str
+                experiments: TList[Dict[str, str]]
+
+            r = anthropic.Anthropic().messages.parse(
+                model="claude-opus-4-8", max_tokens=16000, thinking={"type": "adaptive"},
+                system=("Senior innovation strategist, expert in Keeley's Ten Types. Every "
+                        "breakthrough concept must combine at least three types (numbered 1-10). "
+                        "Score 1-5 using the full range. Each experiment names the riskiest "
+                        "assumption, design, duration, and a kill metric."),
+                messages=[{"role": "user", "content": f"Business context: {topic}"}],
+                output_format=Out)
+            out = r.parsed_output.model_dump()
+            out["generated_by"] = "claude"
+            return out
+        except Exception:
+            pass
+    return {"generated_by": "template", "concepts": [
+        {"name": "Outcome-guaranteed service tier", "types_combined": [1, 7, 10],
+         "narrative": f"For {topic}: customers stop buying effort and buy a measured result — "
+                      "priced on verified outcomes, serviced proactively, engagement built on a "
+                      "live evidence dashboard.",
+         "target_customer": "Value-skeptical enterprise buyers", "revenue_logic":
+         "Premium tier priced at a share of verified savings", "orthodoxy_broken":
+         "'We bill for activity, not results'", "impact": 5, "differentiation": 5,
+         "feasibility": 3, "fit": 5},
+        {"name": "Partner-operated delivery network", "types_combined": [2, 3, 8],
+         "narrative": f"Certified partners run {topic} delivery in regions we will never staff — "
+                      "we keep the platform and the evidence layer, they keep the local margin.",
+         "target_customer": "Mid-market outside our geography", "revenue_logic":
+         "Platform fee per partner engagement", "orthodoxy_broken":
+         "'Quality requires our own people'", "impact": 4, "differentiation": 3,
+         "feasibility": 4, "fit": 3},
+        {"name": "Open evidence standard", "types_combined": [4, 9, 6],
+         "narrative": f"Publish our measurement method for {topic} as an open standard; the brand "
+                      "becomes the referee and the product the reference implementation.",
+         "target_customer": "Analysts, regulators, and their followers", "revenue_logic":
+         "Standard is free; certification and tooling are not", "orthodoxy_broken":
+         "'Methodology is proprietary IP'", "impact": 4, "differentiation": 4,
+         "feasibility": 4, "fit": 4}],
+        "recommended": ["Outcome-guaranteed service tier"],
+        "recommendation_reasoning": "Highest impact x differentiation and it compounds the "
+                                    "platform's structural advantage (verified value); feasibility "
+                                    "risk is contained by the experiment below.",
+        "experiments": [
+            {"concept": "Outcome-guaranteed service tier",
+             "riskiest_assumption": "Customers will contract on verified-outcome pricing",
+             "experiment": "Offer the tier to 3 friendly accounts as a signed LOI pilot",
+             "duration_days": "45", "kill_metric": "Fewer than 2 of 3 sign the LOI"}]}
+
+
 def ideate_studio(kind: str, topic: str, horizon: str = "3-7y") -> Dict[str, Any]:
     """Futures / competitive / maturity / ten-types studios. AI-driven with a
     key; labeled template frames otherwise."""
