@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getPortfolioDiagnostic, money, runSimulator, uploadDataset } from '../api'
 import type { PortfolioReport } from '../types'
 
@@ -18,6 +18,86 @@ function scoreClass(score: number) {
   if (score >= 70) return 'score-good'
   if (score >= 40) return 'score-warn'
   return 'score-bad'
+}
+
+interface Advisory {
+  purpose: string; total_pipeline_value: number
+  balance: { horizon: string; share: number; target: number; verdict: string }[]
+  concentration_top_case: number
+  peer_comparison: { metric: string; ours: number | null; peer_low: number; peer_high: number; note: string; verdict: string | null }[]
+  peer_note: string
+  recommendations: { title: string; why: string; action: string }[]
+}
+
+const H_LABELS: Record<string, string> = { h1: 'H1 · Core', h2: 'H2 · Adjacent', h3: 'H3 · Transformational' }
+
+function AdvisoryPanel() {
+  const [a, setA] = useState<Advisory | null>(null)
+  useEffect(() => {
+    fetch('/api/portfolio/advisory').then((r) => r.json()).then(setA).catch(() => {})
+  }, [])
+  if (!a) return null
+  return (
+    <>
+      <div className="card">
+        <div className="card-header">
+          <h3>Portfolio balance — vs the 70 / 20 / 10 target</h3>
+          <span className="muted small">{money(a.total_pipeline_value)}/yr active pipeline</span>
+        </div>
+        {a.balance.map((b) => (
+          <div key={b.horizon} className="initiative-row">
+            <div className="initiative-head">
+              <strong>{H_LABELS[b.horizon] ?? b.horizon}</strong>
+              <span className={`pill ${b.verdict === 'on-target' ? 'act-approve' : 'act-verify'}`}>
+                {Math.round(b.share * 100)}% vs {Math.round(b.target * 100)}% target · {b.verdict}
+              </span>
+            </div>
+            <div className="funnel-track">
+              <div className="funnel-bar stage-committed" style={{ width: `${b.share * 100}%` }} />
+            </div>
+            <div className="funnel-track thin">
+              <div className="funnel-bar stage-verified" style={{ width: `${b.target * 100}%` }} />
+            </div>
+          </div>
+        ))}
+        <p className="muted small">
+          Top bar: your share of pipeline value. Thin bar: target. Single-bet concentration:{' '}
+          <strong>{Math.round(a.concentration_top_case * 100)}%</strong> of value in the largest case.
+        </p>
+      </div>
+
+      <div className="card">
+        <h3>How this portfolio compares to peers</h3>
+        <table className="kpi-table">
+          <thead><tr><th>Metric</th><th className="num">You</th><th className="num">Peer range</th><th>Read</th></tr></thead>
+          <tbody>
+            {a.peer_comparison.map((p) => (
+              <tr key={p.metric}>
+                <td><strong>{p.metric}</strong><div className="muted small">{p.note}</div></td>
+                <td className="num">{p.ours != null ? `${Math.round(p.ours * 100)}%` : '—'}</td>
+                <td className="num muted">{Math.round(p.peer_low * 100)}–{Math.round(p.peer_high * 100)}%</td>
+                <td>{p.verdict
+                  ? <span className={`pill ${p.verdict === 'in-range' ? 'act-approve' : 'act-verify'}`}>{p.verdict}</span>
+                  : <span className="muted small">no data yet</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="muted small">{a.peer_note}</p>
+      </div>
+
+      <div className="card">
+        <h3>Recommended actions</h3>
+        {a.recommendations.map((r) => (
+          <div key={r.title} className="decision-row">
+            <span className="pill act-verify">act</span>
+            <span><strong>{r.title}</strong> <span className="muted small">{r.why}</span>
+              <div className="small">→ {r.action}</div></span>
+          </div>
+        ))}
+      </div>
+    </>
+  )
 }
 
 function Simulator() {
@@ -92,10 +172,11 @@ export default function Portfolio({ report, hasPortfolio, onChanged }: Props) {
     <section>
       <div className="section-header">
         <div>
-          <h2>Portfolio value diagnostic</h2>
+          <h2>Portfolio advisory</h2>
           <p className="muted">
-            Ingest an existing initiative portfolio (PMO export) and find where it leaks value —
-            unverified claims, realization shortfalls, weak ROI, stalled and parked work.
+            The management window on your innovation portfolio: balance against the 70/20/10
+            target, position vs industry peers, recommended actions, simulated futures — and a
+            diagnostic for external PMO exports below.
           </p>
         </div>
         <div>
@@ -112,7 +193,9 @@ export default function Portfolio({ report, hasPortfolio, onChanged }: Props) {
         </div>
       </div>
       {error && <p className="error">{error}</p>}
+      <AdvisoryPanel />
       <Simulator />
+      <h3 className="spaced">Diagnose an external portfolio (PMO export)</h3>
 
       {!report ? (
         <p className="muted">

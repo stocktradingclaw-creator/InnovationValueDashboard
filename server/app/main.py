@@ -2085,6 +2085,103 @@ def case_financials(case_id: str, horizon_years: int = Query(3, ge=1, le=7),
     }
 
 
+# Industry reference ranges for innovation portfolio management. External,
+# directional figures for orientation — clearly labeled, never blended with
+# the customer's own computed metrics.
+_PEER_REFERENCES = [
+    ("Claimed value that gets verified", "verification_ratio", 0.25, 0.45,
+     "Most programs verify 25-45% of claimed value; best-in-class exceed 60%"),
+    ("Ideas reaching business case", "idea_to_case_ratio", 0.10, 0.25,
+     "Healthy funnels convert 10-25% of ideas; higher often means weak intake filters"),
+    ("Experiment kill rate", "kill_rate", 0.20, 0.40,
+     "Leaders kill 20-40% of experiments; near-zero kill rates signal theater"),
+    ("Transformational (H3) share of pipeline value", "h3_share", 0.05, 0.15,
+     "The 70/20/10 rule implies ~10% in transformational bets"),
+]
+
+
+@app.get("/api/portfolio/advisory")
+def portfolio_advisory() -> Dict[str, Any]:
+    """The portfolio-management view: balance vs the 70/20/10 target,
+    concentration risk, peer reference comparison, and recommended actions —
+    computed from this hub's own live pipeline."""
+    ideas = db.list_ideas()
+    cases = db.list_business_cases()
+    active = [c for c in cases if c["stage"] not in ("closed",)]
+
+    def case_value(c):
+        return (c.get("estimated_annual_benefit")
+                or (c.get("linked_opportunity") or {}).get("estimated_annual_savings") or 0)
+
+    total_value = sum(case_value(c) for c in active) or 1.0
+    horizon_share = {"h1": 0.0, "h2": 0.0, "h3": 0.0}
+    for c in active:
+        horizon_share[c.get("horizon") or "h1"] = \
+            horizon_share.get(c.get("horizon") or "h1", 0) + case_value(c) / total_value
+    balance = [{"horizon": h, "share": round(v, 3), "target": t,
+                "verdict": "over" if v > t + 0.12 else "under" if v < t - 0.12 else "on-target"}
+               for (h, v), t in zip(sorted(horizon_share.items()), (0.70, 0.20, 0.10))]
+
+    top = max((case_value(c) for c in active), default=0)
+    concentration = round(top / total_value, 3)
+
+    claimed = sum(e["amount"] for c in cases for e in c.get("savings_entries", []))
+    verified = sum((b.get("annualized_delta") or 0)
+                   for c in cases for b in c.get("metric_bindings", []))
+    experiments = [e for c in cases for e in c.get("experiments", []) if e.get("outcome")]
+    ours = {
+        "verification_ratio": round(verified / claimed, 3) if claimed else None,
+        "idea_to_case_ratio": round(len(cases) / len(ideas), 3) if ideas else None,
+        "kill_rate": round(sum(1 for e in experiments if e["outcome"] == "kill")
+                           / len(experiments), 3) if experiments else None,
+        "h3_share": round(horizon_share.get("h3", 0), 3),
+    }
+    peers = [{"metric": label, "key": key, "ours": ours[key], "peer_low": lo,
+              "peer_high": hi, "note": note,
+              "verdict": (None if ours[key] is None else
+                          "above" if ours[key] > hi else "below" if ours[key] < lo else "in-range")}
+             for label, key, lo, hi, note in _PEER_REFERENCES]
+
+    recs = []
+    if horizon_share.get("h3", 0) < 0.05:
+        recs.append({"title": "Fund transformational bets",
+                     "why": f"Only {horizon_share.get('h3', 0):.0%} of pipeline value is H3 "
+                            "against a ~10% target — the portfolio skews incremental.",
+                     "action": "Launch a challenge scoped to horizon-3 plays and ring-fence a tranche."})
+    if concentration > 0.4:
+        recs.append({"title": "Reduce single-bet concentration",
+                     "why": f"{concentration:.0%} of active pipeline value sits in one case.",
+                     "action": "Stage its funding in smaller tranches and accelerate two mid-size cases."})
+    if ours["verification_ratio"] is not None and ours["verification_ratio"] < 0.25:
+        recs.append({"title": "Tighten measurement discipline",
+                     "why": f"Only {ours['verification_ratio']:.0%} of claimed value is verified — "
+                            "below the 25-45% peer range.",
+                     "action": "Require metric bindings before approval; re-observe live cases monthly."})
+    if ours["kill_rate"] is not None and ours["kill_rate"] < 0.2:
+        recs.append({"title": "Kill more, earlier",
+                     "why": f"Kill rate {ours['kill_rate']:.0%} is below the 20-40% peer range — "
+                            "weak experiments are surviving.",
+                     "action": "Demand explicit success criteria and a kill review at every tranche gate."})
+    backlogged = [i for i in ideas if i["status"] == "backlog"]
+    if len(backlogged) >= 3:
+        recs.append({"title": "Clear the backlog",
+                     "why": f"{len(backlogged)} qualified ideas are parked with no review date.",
+                     "action": "Resume or decline each — parked value is unmanaged value."})
+    if not recs:
+        recs.append({"title": "Hold course",
+                     "why": "Balance, concentration, and measurement are all within healthy ranges.",
+                     "action": "Revisit after the next funding cycle."})
+
+    return {"purpose": "Advisory window: is this portfolio balanced, honest, and "
+                       "positioned against peers — and what should leadership do next?",
+            "total_pipeline_value": round(total_value, 2),
+            "balance": balance, "concentration_top_case": concentration,
+            "ours": ours, "peer_comparison": peers,
+            "peer_note": "Peer figures are external industry reference ranges "
+                         "(directional); your metrics are computed from this hub's data.",
+            "recommendations": recs}
+
+
 @app.get("/api/value-ledger")
 def value_ledger(format: str = Query("json")) -> Any:
     """The Verified Value Ledger: every verified dollar traceable to a frozen

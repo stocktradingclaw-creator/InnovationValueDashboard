@@ -1989,3 +1989,14 @@ def test_cfo_grade_financials(client):
         fl = client.get(f"/api/business-cases/{live['id']}/financials").json()
         assert fl["benefit_basis"] == "verified"
     assert client.get("/api/business-cases/BC-nope/financials").status_code == 404
+
+
+def test_portfolio_advisory(client):
+    client.post("/api/demo/seed-lifecycle")
+    a = client.get("/api/portfolio/advisory").json()
+    assert abs(sum(b["share"] for b in a["balance"]) - 1.0) < 0.02
+    assert all(b["verdict"] in ("over", "under", "on-target") for b in a["balance"])
+    assert a["recommendations"] and all(r["why"] and r["action"] for r in a["recommendations"])
+    keys = {p["key"] for p in a["peer_comparison"]}
+    assert {"verification_ratio", "kill_rate", "h3_share"} <= keys
+    assert "reference" in a["peer_note"]
