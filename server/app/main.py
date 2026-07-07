@@ -951,10 +951,10 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
                 raise HTTPException(403, blocked)
             events = db.events_for("idea", idea["id"])
             last = events[-1] if events else None
-            if not last or last["action"] not in ("advance", "hold"):
+            if not last or last["action"] not in ("advance", "hold", "reject"):
                 raise HTTPException(400, "nothing revertible — only the immediately "
-                                         "preceding advance/hold can be undone")
-            if last["action"] == "hold":
+                                         "preceding advance/hold/reject can be undone")
+            if last["action"] in ("hold", "reject"):
                 pos_h = 0
                 for e in events[:-1]:
                     if e["action"] == "advance":
@@ -2313,6 +2313,7 @@ def portfolio_advisory() -> Dict[str, Any]:
 class ExecuteRecRequest(BaseModel):
     key: str
     actor: Optional[str] = None
+    confirm: bool = False
 
 
 @app.post("/api/portfolio/advisory/execute")
@@ -2368,6 +2369,16 @@ def execute_recommendation(body: ExecuteRecRequest) -> Dict[str, Any]:
         db.audit("advisory.execute", actor, None, f"kill reviews on {notified} experiments")
         return {"done": f"Scheduled kill reviews on {notified} open experiment(s) — owners "
                         "notified to bring evidence against their success criteria.", "details": []}
+    if body.key == "backlog" and not body.confirm:
+        held = [i["title"] for i in db.list_ideas() if i["status"] == "backlog"]
+        return {"requires_confirm": True,
+                "preview": f"This will resume {len(held)} parked idea(s) back into review: "
+                           + "; ".join(held[:6]) + ("…" if len(held) > 6 else "")}
+    if body.key == "kill_rate" and not body.confirm:
+        n = sum(1 for c in db.list_business_cases() if c["stage"] == "experiment")
+        return {"requires_confirm": True,
+                "preview": f"This will schedule kill reviews and notify the owners of {n} "
+                           "open experiment(s)."}
     if body.key == "backlog":
         resumed = []
         for i in db.list_ideas():

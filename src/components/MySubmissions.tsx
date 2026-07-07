@@ -20,6 +20,7 @@ interface Payload {
 
 function ReviseBox({ idea, onDone }: { idea: SubmissionIdea; onDone: () => void }) {
   const [text, setText] = useState(idea.description ?? '')
+  const [benefit, setBenefit] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   return (
@@ -27,12 +28,16 @@ function ReviseBox({ idea, onDone }: { idea: SubmissionIdea; onDone: () => void 
       <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)}
                 placeholder="Answer the reviewers' feedback by revising your idea…" />
       <div className="row">
+        <input type="text" inputMode="numeric" placeholder="Annual benefit $ (clears the flag)"
+               value={benefit} onChange={(e) => setBenefit(e.target.value.replace(/[^0-9]/g, ''))}
+               style={{ maxWidth: 220 }} />
         <button disabled={busy || !text.trim()} onClick={async () => {
           setBusy(true); setError(null)
           try {
             const res = await fetch(`/api/ideas/${idea.id}/revise`, {
               method: 'PUT', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ description: text }),
+              body: JSON.stringify({ description: text,
+                estimated_annual_benefit: benefit ? Number(benefit) : undefined }),
             })
             if (!res.ok) throw new Error((await res.json()).detail ?? 'revision failed')
             onDone()
@@ -234,6 +239,12 @@ export default function MySubmissions({ me }: { me: { name: string; role: string
                 <span className="pill act-verify">action needed</span>
               </div>
               <p className="small">{i.attention_reason}</p>
+              {((i.assessment as { guardrail_flags?: string[] } | null)?.guardrail_flags?.length ?? 0) > 0 && (
+                <ul className="muted small">
+                  {(i.assessment as unknown as { guardrail_flags: string[] }).guardrail_flags
+                    .map((f) => <li key={f}>{f}</li>)}
+                </ul>
+              )}
               <ReviseBox idea={i} onDone={() => load(name)} />
               <Chain idea={i} workflow={data!.workflow} />
             </div>

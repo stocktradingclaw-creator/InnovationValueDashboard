@@ -209,8 +209,12 @@ function SubmitForm({ challenges, initiatives, categories, onChanged }: { challe
                         setStep(2)
                         return
                       }
-                      await voteSimilar(si.id, submitter).catch(() => {})
-                      toast(`Joined "${si.title}" with your vote.`)
+                      try {
+                        await voteSimilar(si.id, submitter)
+                        toast(`Joined "${si.title}" with your vote.`)
+                      } catch (e) {
+                        toast(`Could not join: ${e instanceof Error ? e.message : e}`)
+                      }
                     }}>
               ▲ {si.title} <span className="muted small">({si.vote_count} votes · {si.status.replace('_', ' ')})</span>
             </button>

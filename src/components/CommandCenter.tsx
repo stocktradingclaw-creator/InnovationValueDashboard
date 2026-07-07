@@ -150,12 +150,12 @@ function GateActions({
             className={cls}
             disabled={!!busy && busy !== `confirm-${decision}`}
             onClick={async () => {
-              const fire = async (): Promise<boolean> => {
+              const fire = async (why?: string): Promise<boolean> => {
                 try {
                   await decide({
                     subject_type: 'idea', subject_id: ideaId,
                     decision: decision as Parameters<typeof decide>[0]['decision'],
-                    actor: actor || undefined, comment: comment || undefined,
+                    actor: actor || undefined, comment: why || comment || undefined,
                   })
                   setComment('')
                   onDone()
@@ -188,15 +188,16 @@ function GateActions({
                 if (await fire()) toast('Declined.')
                 return
               }
+              let holdWhy: string | undefined
               if (decision === 'hold' && !comment.trim()) {
                 const why = window.prompt('Why hold this? (required — the backlog shows it)')
                 if (!why) { setBusy(null); return }
-                setComment(why)
+                holdWhy = why
               }
               if (decision === 'advance' || decision === 'develop' || decision === 'hold') {
                 // commit immediately; offer a server-backed undo
                 setBusy(decision)
-                if (!(await fire())) return
+                if (!(await fire(holdWhy))) return
                 if (decision !== 'develop') {
                   toast(`${label} — done.`, async () => {
                     await decide({ subject_type: 'idea', subject_id: ideaId,
@@ -381,7 +382,11 @@ function TrancheManager({ bc, actor, onDone }: { bc: BusinessCase; actor: string
                 setBusy(true)
                 setError(null)
                 try {
+                  if (!window.confirm(`Release ${money(t.amount)} against "${t.milestone}"?`)) {
+                    setBusy(false); return
+                  }
                   await releaseTranche(bc.id, t.id, actor || undefined)
+                  toast(`${money(t.amount)} released.`)
                   onDone()
                 } catch (e) {
                   setError(e instanceof Error ? e.message : String(e))
@@ -864,6 +869,27 @@ export default function CommandCenter({ onChanged }: Props) {
             subjectType="case" subjectId={c.id} actor={actor} onDone={refresh}
             allowExperiment={c.stage === 'draft' || c.stage === 'proposed'}
           />
+          <TrancheManager bc={c} actor={actor} onDone={refresh} />
+        </div>
+      ))}
+
+      <h3 className="spaced" id="cc-motion">In motion — funding &amp; delivery ({queue.cases_in_motion.length})</h3>
+      {queue.cases_in_motion.length === 0 && (
+        <p className="muted small">Nothing approved awaiting funding or delivery.</p>
+      )}
+      {queue.cases_in_motion.map((c) => (
+        <div key={c.id} className="card">
+          <div className="card-header">
+            <div>
+              <h3>{c.title}</h3>
+              {(c as unknown as { approved_by?: string; approved_at?: string }).approved_by && (
+                <p className="muted small">approved by{' '}
+                  <strong>{(c as unknown as { approved_by?: string }).approved_by}</strong>{' '}
+                  {(c as unknown as { approved_at?: string }).approved_at}</p>
+              )}
+            </div>
+            <span className="badge">{STAGE_LABELS[c.stage]}</span>
+          </div>
           <TrancheManager bc={c} actor={actor} onDone={refresh} />
         </div>
       ))}

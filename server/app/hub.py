@@ -44,7 +44,17 @@ HORIZON_BY_BENEFIT = {
     "strategic": "h3",
 }
 
-HORIZON_TARGETS = {"h1": 0.70, "h2": 0.20, "h3": 0.10}  # McKinsey three-horizons mix
+def HORIZON_TARGETS_LIVE() -> Dict[str, float]:
+    """Horizon targets derive from the admin-set strategy context (old/now/new
+    mapped onto delivery horizons) so every surface tells ONE balance story."""
+    import json as _json
+    raw = db.meta_get("strategy_context")
+    t = (_json.loads(raw).get("target_onn") if raw else None) or \
+        {"old": 0.3, "now": 0.5, "new": 0.2}
+    return {"h1": t.get("now", 0.5), "h2": t.get("old", 0.3), "h3": t.get("new", 0.2)}
+
+
+HORIZON_TARGETS = {"h1": 0.70, "h2": 0.20, "h3": 0.10}  # legacy default; see HORIZON_TARGETS_LIVE
 
 DUPLICATE_SIMILARITY = 0.35
 
@@ -1449,7 +1459,7 @@ def hub_metrics(cases: List[Dict[str, Any]], ideas: List[Dict[str, Any]]) -> Dic
     for h, bucket in horizon_mix.items():
         bucket["value"] = round(bucket["value"], 2)
         bucket["share"] = round(bucket["value"] / total_hval, 3) if total_hval else None
-        bucket["target_share"] = HORIZON_TARGETS.get(h)
+        bucket["target_share"] = HORIZON_TARGETS_LIVE().get(h)
 
     promoted = sum(1 for i in ideas if i["status"] == "business_case")
     recent = db.automation_log_entries(limit=8)

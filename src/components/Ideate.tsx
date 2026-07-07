@@ -30,6 +30,7 @@ async function seedIdea(title: string, source: string, detail?: string) {
       return
     }
     toast('Promoted — opening the Ideation Funnel.')
+    window.dispatchEvent(new Event('ivd-refresh'))
     window.setTimeout(() => window.dispatchEvent(
       new CustomEvent('ivd-nav', { detail: 'ideate-funnel' })), 900)
   } catch (e) {
@@ -734,7 +735,10 @@ function IdeateFunnel({ ideas, onChanged }: { ideas: import('../types').Idea[]; 
                   <button disabled={busy === i.id} onClick={() => decide(i.id, 'qualify')}>
                     {busy === i.id ? '…' : '✓ Endorse → stage gates'}</button>
                   <button className="secondary" disabled={busy === i.id}
-                          onClick={() => decide(i.id, 'reject')}>Decline</button>
+                          onClick={() => {
+                            if (!window.confirm(`Decline "${i.title}"? The submitter is notified immediately.`)) return
+                            decide(i.id, 'reject')
+                          }}>Decline</button>
                 </span>
               </div>
               <div className="row">

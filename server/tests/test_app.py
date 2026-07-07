@@ -842,7 +842,7 @@ def test_benefit_types_and_horizons(client):
     # horizon mix appears on the dashboard hub metrics
     mix = client.get("/api/dashboard").json()["hub"]["horizon_mix"]
     assert set(mix) == {"h1", "h2", "h3"}
-    assert mix["h1"]["target_share"] == 0.7
+    assert mix["h1"]["target_share"] == 0.5  # derives from strategy-context default (now=50%)
 
 
 def test_experiment_loop_and_kill_rate(client):
@@ -2437,3 +2437,32 @@ def test_steward_round2_guards(client):
     assert moved["status"] != mid_key and moved["status"] == wf[0]["key"]
     q = client.get("/api/command/queue", headers=auth).json()
     assert any(x["id"] == idea["id"] for st in q["idea_steps"] for x in st["ideas"])
+
+
+def test_round3_guards(client):
+    client.post("/api/datasets/load-samples")
+    # reject is now revertible: replay restores the pre-reject gate
+    idea = client.post("/api/ideas", json={
+        "title": "Reject undo fidelity", "description": "declines deserve undo too."}).json()
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "qualify", "actor": "rio"})
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "reject", "actor": "rio"})
+    r = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "revert_last", "actor": "rio"})
+    assert r.json()["result"]["idea"]["status"] == "qualified"
+    # mass advisory executes require an explicit confirm with scope preview
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "hold",
+        "actor": "rio", "comment": "park"})
+    pv = client.post("/api/portfolio/advisory/execute", json={"key": "backlog"}).json()
+    assert pv["requires_confirm"] and "resume 1 parked" in pv["preview"]
+    done = client.post("/api/portfolio/advisory/execute",
+                       json={"key": "backlog", "confirm": True}).json()
+    assert "Resumed 1" in done["done"]
+    # horizon targets derive from strategy context (one balance story)
+    client.put("/api/strategy-context", json={
+        "ambition": "x", "disruption_current": 3, "susceptibility": 3, "notes": "",
+        "target_onn": {"old": 0.1, "now": 0.6, "new": 0.3}})
+    from app import hub as _hub
+    assert _hub.HORIZON_TARGETS_LIVE() == {"h1": 0.6, "h2": 0.1, "h3": 0.3}

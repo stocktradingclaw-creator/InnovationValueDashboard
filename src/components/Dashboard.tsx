@@ -695,7 +695,7 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
               : 'Verified value appears here once implemented work is measured against its frozen baseline.'}
           </p>
 
-          <h3 className="spaced">Horizon balance <span className="muted small">vs 70/20/10 target</span></h3>
+          <h3 className="spaced">Horizon balance <span className="muted small">vs your strategy-context targets</span></h3>
           {(['h1', 'h2', 'h3'] as const).map((h) => {
             const bucket = data.hub.horizon_mix[h]
             if (!bucket) return null

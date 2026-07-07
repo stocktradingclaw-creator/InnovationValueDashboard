@@ -349,6 +349,10 @@ export default function App() {
     const onNav = (e: Event) => setTab((e as CustomEvent).detail as Tab)
     window.addEventListener('ivd-auth-required', onAuthRequired)
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && document.body.classList.contains('present')) {
+        document.body.classList.remove('present')
+        return
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setCollapsed(false)
@@ -358,10 +362,13 @@ export default function App() {
       }
     }
     window.addEventListener('keydown', onKey)
+    const onRefresh = () => refresh()
+    window.addEventListener('ivd-refresh', onRefresh)
     window.addEventListener('ivd-nav', onNav)
     return () => {
       window.removeEventListener('ivd-auth-required', onAuthRequired)
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('ivd-refresh', onRefresh)
       window.removeEventListener('ivd-nav', onNav)
     }
   }, [])
@@ -478,6 +485,9 @@ export default function App() {
         )}
       </aside>
       <div className="content">
+      <button className="present-exit" onClick={() => document.body.classList.remove('present')}>
+        Exit presentation (Esc)
+      </button>
       <Toasts />
       <div className="mobile-search">{searchBlock}</div>
       <ProfileMenu me={me} onChangeUser={changeUser} />

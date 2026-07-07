@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getPortfolioDiagnostic, money, runSimulator, uploadDataset } from '../api'
+import { getPortfolioDiagnostic, money, runSimulator, toast, uploadDataset } from '../api'
 import type { PortfolioReport } from '../types'
 
 interface Props {
@@ -194,8 +194,17 @@ function AdvisoryPanel({ onExecuted }: { onExecuted?: () => void }) {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ key: r.key }),
                   })
-                  const d = await res.json()
+                  let d = await res.json()
                   if (!res.ok) throw new Error(d.detail ?? 'execution failed')
+                  if (d.requires_confirm) {
+                    if (!window.confirm(d.preview)) { setExecBusy(null); return }
+                    const res2 = await fetch('/api/portfolio/advisory/execute', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ key: r.key, confirm: true }),
+                    })
+                    d = await res2.json()
+                    if (!res2.ok) throw new Error(d.detail ?? 'execution failed')
+                  }
                   setExecResult((x) => ({ ...x, [r.key!]: d.done }))
                   reload(); onExecuted?.()
                 } catch (e) {
@@ -219,13 +228,19 @@ function Simulator() {
         <h3>Portfolio simulator</h3>
         <button className="secondary" disabled={busy} onClick={async () => {
           setBusy(true)
-          try { setSim(await runSimulator()) } finally { setBusy(false) }
+          try { setSim(await runSimulator()) }
+          catch (e) { toast(`Simulation failed: ${e instanceof Error ? e.message : e}`) }
+          finally { setBusy(false) }
         }}>{busy ? 'Simulating…' : 'Run 2,000 futures'}</button>
       </div>
       <p className="muted small">
         Monte Carlo over the active pipeline, sampling realization from calibration factors
         learned from actuals — probability-weighted outcomes, not point estimates.
       </p>
+      {sim && sim.cases === 0 && (
+        <p className="muted small">No active cases to simulate yet — approve or draft a business
+          case and the futures have something to run on.</p>
+      )}
       {sim && sim.cases > 0 && (
         <>
           <div className="metrics-row">
