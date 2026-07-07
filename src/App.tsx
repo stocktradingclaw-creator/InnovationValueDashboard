@@ -27,7 +27,7 @@ import type {
 
 type Tab =
   | 'overview' | 'ideas' | 'command' | 'pipeline' | 'sources'
-  | 'opportunities' | 'cases' | 'tracking' | 'portfolio' | 'settings' | 'mine' | 'campaigns' | 'ideate-futures' | 'ideate-competitive' | 'ideate-maturity' | 'ideate-workshops' | 'ideate-tentypes'
+  | 'opportunities' | 'cases' | 'tracking' | 'portfolio' | 'settings' | 'mine' | 'campaigns' | 'ideate-futures' | 'ideate-competitive' | 'ideate-maturity' | 'ideate-workshops' | 'ideate-tentypes' | 'ideate-funnel'
 
 const ICONS: Record<string, string> = {
   overview: 'M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10',
@@ -37,6 +37,7 @@ const ICONS: Record<string, string> = {
   'ideate-competitive': 'M6 3l12 12M18 3L6 15M4 21l4-1 1-4M20 21l-4-1-1-4',
   'ideate-maturity': 'M4 20V10M9 20V6M14 20v-8M19 20V4',
   'ideate-workshops': 'M4 5h16v11H4zM8 21h8M12 16v5',
+  'ideate-funnel': 'M4 4h16l-6 8v6l-4 2v-8L4 4z',
   'ideate-tentypes': 'M12 3a9 9 0 11-9 9M12 7v5l3 3',
   ideate: 'M12 3a6 6 0 00-4 10c.8.8 1 1.4 1 2h6c0-.6.2-1.2 1-2a6 6 0 00-4-10zM9 18h6M10 21h4',
   campaigns: 'M3 11l14-5v12L3 13v-2zM17 8a3 3 0 010 8M7 13v6h3v-5',
@@ -395,6 +396,7 @@ export default function App() {
       ['ideate-maturity', '▥', 'Maturity'],
       ['ideate-workshops', '☰', 'Workshops'],
       ['ideate-tentypes', '⑩', 'Ten Types'],
+      ['ideate-funnel', '▼', 'Funnel'],
     ]],
     ['Decide', [
       ['command', '☑', 'Approvals'],
@@ -539,7 +541,7 @@ export default function App() {
         {tab === 'campaigns' && <Campaigns ideas={ideas} onChanged={refresh} />}
         {tab === 'ideate-maturity' && <Maturity />}
         {tab !== 'ideate-maturity' && tab.startsWith('ideate-') && (
-          <Ideate view={tab.slice(7) as import('./components/Ideate').IdeateView} onChanged={refresh} />
+          <Ideate view={tab.slice(7) as import('./components/Ideate').IdeateView} onChanged={refresh} ideas={ideas} />
         )}
         {tab === 'pipeline' && <PipelineView />}
         {tab === 'settings' && <Settings onChanged={refresh} />}

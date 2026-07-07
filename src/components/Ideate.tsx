@@ -263,7 +263,7 @@ function MaturityStudioWithDeltas() {
   )
 }
 
-export type IdeateView = 'futures' | 'competitive' | 'maturity' | 'workshops' | 'tentypes'
+export type IdeateView = 'futures' | 'competitive' | 'maturity' | 'workshops' | 'tentypes' | 'funnel'
 
 const PAGES: Record<IdeateView, { title: string; intro: string }> = {
   futures: {
@@ -287,6 +287,11 @@ const PAGES: Record<IdeateView, { title: string; intro: string }> = {
     title: 'Design-thinking workshops',
     intro: 'Run team ideation in Mural with the preset templates below, then ingest the session ' +
            'export — every sticky note becomes a real, triaged idea attributed to the session.',
+  },
+  funnel: {
+    title: 'Ideation funnel',
+    intro: 'Everything captured across the Ideate studios, mapped on the Christensen disruption ' +
+           'trajectory with triage scores — endorse the best into the formal stage-gate process.',
   },
   tentypes: {
     title: 'Ten Types of Innovation',
@@ -621,7 +626,98 @@ function SessionHistory() {
   )
 }
 
-export default function Ideate({ view, onChanged }: { view: IdeateView; onChanged: () => void }) {
+function IdeateFunnel({ ideas, onChanged }: { ideas: import('../types').Idea[]; onChanged: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const mine = ideas.filter((i) =>
+    (i.source ?? '').match(/^(ideate-|mural|capture:)/) && i.status === 'proposed')
+  const graduated = ideas.filter((i) =>
+    (i.source ?? '').match(/^(ideate-|mural|capture:)/) && i.status !== 'proposed')
+  // Christensen map: x = market trajectory (sustaining -> new-market),
+  // y = triage opportunity score
+  const xOf = (i: import('../types').Idea) => {
+    const bt = i.benefit_type ?? (i.assessment as { benefit_type?: string } | null)?.benefit_type
+    return bt === 'cost_reduction' ? 0.15 : bt === 'risk_avoidance' ? 0.35
+      : bt === 'revenue_growth' ? 0.6 : bt === 'experience' ? 0.75 : bt === 'strategic' ? 0.9 : 0.5
+  }
+  const decide = async (id: string, decision: string) => {
+    setBusy(id)
+    try {
+      await fetch('/api/command/decide', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject_type: 'idea', subject_id: id, decision,
+          actor: localStorage.getItem('ivd_user') || undefined,
+          comment: 'endorsed from the Ideate funnel' }) })
+      toast(decision === 'qualify' ? 'Pushed into the formal stage-gate process.' : 'Declined.')
+      onChanged()
+    } finally { setBusy(null) }
+  }
+  return (
+    <>
+      <div className="card">
+        <h3>Disruption map (Christensen)</h3>
+        <p className="muted small">Every idea captured from the Ideate studios, placed by market
+          trajectory (sustaining → new-market) and triage opportunity score. Endorse the ones
+          worth formal investment.</p>
+        <div className="matrix" style={{ height: 210 }}>
+          <span className="matrix-corner tl">Sustaining, strong</span>
+          <span className="matrix-corner tr">New-market disruption</span>
+          <span className="matrix-corner bl">Sustaining, weak</span>
+          <span className="matrix-corner br">New-market, unproven</span>
+          {mine.map((i) => (
+            <span key={i.id} className="dot dot-strategic_bet"
+                  style={{ left: `${xOf(i) * 90 + 5}%`,
+                           top: `${95 - (i.assessment?.score ?? 30) * 0.88}%`,
+                           width: 12, height: 12 }}
+                  title={`${i.title} — score ${i.assessment?.score ?? '—'}`} />
+          ))}
+        </div>
+        <div className="matrix-axes muted small">
+          <span>← sustaining (existing market)</span><span>new-market →</span>
+        </div>
+      </div>
+      <div className="card">
+        <h3>Awaiting endorsement ({mine.length})</h3>
+        <p className="muted small">Approval here pushes an idea into the formal innovation
+          process — it enters the stage gates on the Approvals board.</p>
+        {mine.length === 0 && <p className="muted small">Nothing waiting — capture ideas from any
+          Ideate studio and they gather here.</p>}
+        {mine.map((i) => {
+          const comp = (i.assessment?.score_components ?? {}) as Record<string, number>
+          return (
+            <div key={i.id} className="card" style={{ marginBottom: '0.6rem' }}>
+              <div className="card-header">
+                <div>
+                  <h3>{i.title}</h3>
+                  <p className="muted small">from {i.source} · triage score{' '}
+                    <strong>{i.assessment?.score ?? '—'}</strong> ·{' '}
+                    {i.assessment?.recommendation}</p>
+                </div>
+                <span className="row">
+                  <button disabled={busy === i.id} onClick={() => decide(i.id, 'qualify')}>
+                    {busy === i.id ? '…' : '✓ Endorse → stage gates'}</button>
+                  <button className="secondary" disabled={busy === i.id}
+                          onClick={() => decide(i.id, 'reject')}>Decline</button>
+                </span>
+              </div>
+              <div className="row">
+                {Object.entries(comp).map(([k, v]) => (
+                  <span key={k} className="pill act-approve" title={`Triage criterion: ${k}`}>
+                    {k} {typeof v === 'number' ? v : ''}</span>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {graduated.length > 0 && (
+        <p className="muted small">{graduated.length} ideate-originated idea(s) already in the
+          formal process.</p>
+      )}
+    </>
+  )
+}
+
+export default function Ideate({ view, onChanged, ideas = [] }: { view: IdeateView; onChanged: () => void; ideas?: import('../types').Idea[] }) {
   const page = PAGES[view]
   return (
     <section>
@@ -649,6 +745,7 @@ export default function Ideate({ view, onChanged }: { view: IdeateView; onChange
       )}
       {view === 'workshops' && <MuralStudio onChanged={onChanged} />}
       {view === 'workshops' && <SessionHistory />}
+      {view === 'funnel' && <IdeateFunnel ideas={ideas} onChanged={onChanged} />}
       {view === 'tentypes' && <TenTypesMirror />}
       {view === 'tentypes' && <BreakthroughConcepts />}
       {view === 'tentypes' && (
