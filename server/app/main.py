@@ -2267,17 +2267,40 @@ def ideate_studio(body: StudioRequest) -> Dict[str, Any]:
     if not body.topic.strip():
         raise HTTPException(400, "a topic is required")
     out = hub.ideate_studio(body.kind, body.topic.strip(), body.horizon)
+    db.save_studio_run(body.kind, body.topic.strip(), body.horizon, out)
     db.audit(f"ideate.{body.kind}", _session_name(), None, body.topic[:80])
     return out
 
 
+@app.post("/api/demo/clear")
+def demo_clear(authorization: Optional[str] = Header(None),
+               actor: Optional[str] = Query(None)) -> Dict[str, Any]:
+    """Clear all demo/business data. The only sanctioned way to empty the hub;
+    until pressed, cold starts re-seed the demo so it never vanishes mid-use."""
+    _require_admin(authorization, actor)
+    db.restore_state({"_format": 1, **{t: [] for t in (
+        "ideas", "business_cases", "datasets", "strategic_initiatives",
+        "challenges", "notifications", "workflow_events", "studio_runs",
+        "learning_citations", "metric_snapshots")}})
+    db.meta_set("seeded_lifecycle", "")
+    db.meta_set("demo_cleared", "1")
+    db.audit("demo.clear", _session_name() or actor)
+    return {"cleared": True}
+
+
+@app.get("/api/ideate/studio/latest")
+def latest_studio(kind: str = Query(...)) -> Dict[str, Any]:
+    return {"run": db.latest_studio_run(kind)}
+
+
 _MURAL_TEMPLATES = [
-    ("Brainstorm & prioritize", "https://www.mural.co/templates/brainstorm-and-prioritize"),
     ("Empathy map", "https://www.mural.co/templates/empathy-map"),
     ("Customer journey map", "https://www.mural.co/templates/customer-journey-map"),
-    ("How Might We", "https://www.mural.co/templates/how-might-we"),
-    ("SCAMPER ideation", "https://www.mural.co/templates/scamper"),
-    ("Lightning decision jam", "https://www.mural.co/templates/lightning-decision-jam"),
+    ("Brainwriting", "https://www.mural.co/templates/brainwriting"),
+    ("Design sprint", "https://www.mural.co/templates/design-sprint"),
+    ("Retrospective", "https://www.mural.co/templates/retrospective"),
+    ("Mind map", "https://www.mural.co/templates/mind-map"),
+    ("Browse all templates", "https://www.mural.co/templates"),
 ]
 
 
@@ -2898,6 +2921,19 @@ def seed_lifecycle(force: bool = Query(False)) -> Dict[str, Any]:
                 observe_binding(c["id"], b["id"])
             except Exception:
                 pass
+    # ideate studios: a sample run per capability so every tab lands populated
+    for kind, topic, hz in [
+        ("futures", "Autonomous field operations", "7-15y"),
+        ("competitive", "ServiceNow expanding into our category", "3-7y"),
+        ("maturity", "AI-driven operations", "3-7y"),
+        ("ten_types", "Field service", "3-7y"),
+    ]:
+        db.save_studio_run(kind, topic, hz, hub.ideate_studio(kind, topic, hz))
+    mural_ingest(MuralIngestRequest(
+        text="Predictive parts stocking from telemetry\n"
+             "One-tap warranty claims for technicians\n"
+             "Customer-visible repair progress tracker",
+        session_name="Q3 design sprint", facilitator="maria"))
     db.meta_set("seeded_lifecycle", days(0))
 
     return {

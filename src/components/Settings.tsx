@@ -392,6 +392,12 @@ function DemoStudio({ onDone }: { onDone: () => void }) {
           } catch (e) { setSeedMsg(e instanceof Error ? e.message : String(e)) }
           finally { setSeeding(false) }
         }}>{seeding ? 'Seeding…' : 'Seed full-lifecycle sample data'}</button>
+        <button className="secondary" onClick={async () => {
+          if (!window.confirm('Clear ALL demo data? The hub will be empty until re-seeded.')) return
+          const res = await fetch('/api/demo/clear', { method: 'POST' })
+          setSeedMsg(res.ok ? 'Demo data cleared — the hub is empty and will stay empty.'
+                            : 'Clear failed.')
+        }}>Clear demo data</button>
         {seedMsg && <span className="muted small">{seedMsg}</span>}
       </div>
       {status ? (

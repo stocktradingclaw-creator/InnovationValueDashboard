@@ -22,9 +22,19 @@ function Studio({ kind, heading, blurb, withHorizon }: {
   const [horizon, setHorizon] = useState('3-7y')
   const [busy, setBusy] = useState(false)
   const [out, setOut] = useState<StudioOut | null>(null)
+  const [fromSample, setFromSample] = useState(false)
+  useEffect(() => {
+    fetch(`/api/ideate/studio/latest?kind=${kind}`).then((r) => r.json())
+      .then((d) => {
+        if (d.run && !out) { setOut(d.run); setTopic(d.run.topic); setFromSample(true) }
+      }).catch(() => {})
+  }, [kind])
   return (
     <div className="card">
       <h3>{heading}</h3>
+      {fromSample && out && (
+        <p className="muted small">Showing the latest saved run ("{topic}") — run your own below.</p>
+      )}
       <p className="muted small">{blurb}</p>
       <div className="row">
         <input placeholder="Topic — market, capability, competitor, or industry question"
@@ -43,7 +53,7 @@ function Studio({ kind, heading, blurb, withHorizon }: {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ kind, topic, horizon }),
             })
-            setOut(await r.json())
+            setOut(await r.json()); setFromSample(false)
           } finally { setBusy(false) }
         }}>{busy ? 'Working…' : '✦ Run'}</button>
       </div>

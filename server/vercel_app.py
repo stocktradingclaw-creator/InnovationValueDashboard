@@ -17,13 +17,16 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ.setdefault("IVD_DB_PATH", "/tmp/ivd.db")
 
-from app.main import app, load_samples  # noqa: E402
+from app.main import app, load_samples, seed_lifecycle  # noqa: E402
 from app import db  # noqa: E402
 
 try:
+    # Demo data persists across cold starts by re-seeding automatically,
+    # unless an admin pressed "Clear demo data" (best-effort: the cleared
+    # flag itself lives in ephemeral storage until Postgres lands).
     if not db.dataset_meta():
         load_samples()
+    if not db.list_ideas() and db.meta_get("demo_cleared") != "1" and not db.list_users():
+        seed_lifecycle(force=True)
 except Exception:
-    # Seeding is best-effort; the API still works and the UI can load data
-    # manually via "Load sample data".
     pass

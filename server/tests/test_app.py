@@ -2042,3 +2042,20 @@ def test_ideate_studios(client):
     assert len(created) == 2 and all(c["recommendation"] for c in created)
     ideas = client.get("/api/ideas").json()["ideas"]
     assert any(i["source"] == "mural" for i in ideas)
+
+
+def test_demo_populates_ideate_and_clear(client):
+    client.post("/api/demo/seed-lifecycle")
+    # every ideate studio lands populated
+    for kind in ("futures", "competitive", "maturity", "ten_types"):
+        run = client.get("/api/ideate/studio/latest", params={"kind": kind}).json()["run"]
+        assert run and run["items"] and run["topic"]
+    # workshop session ideas exist
+    assert any(i["source"] == "mural" for i in client.get("/api/ideas").json()["ideas"])
+    # verified Mural links only
+    for t in client.get("/api/ideate/mural-templates").json()["templates"]:
+        assert t["url"].startswith("https://www.mural.co/templates")
+    # clear empties everything and sets the flag
+    assert client.post("/api/demo/clear").json()["cleared"]
+    assert client.get("/api/ideas").json()["ideas"] == []
+    assert client.get("/api/ideate/studio/latest", params={"kind": "futures"}).json()["run"] is None

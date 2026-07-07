@@ -109,6 +109,14 @@ CREATE TABLE IF NOT EXISTS users (
     created_at    TEXT NOT NULL,
     password_hash TEXT
 );
+CREATE TABLE IF NOT EXISTS studio_runs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind       TEXT NOT NULL,
+    topic      TEXT NOT NULL,
+    horizon    TEXT,
+    output     TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS metric_snapshots (
     day      TEXT PRIMARY KEY,
     verified REAL NOT NULL,
@@ -1341,3 +1349,22 @@ def update_idea_fields(idea_id: str, title: str, description: str,
         else:
             conn.execute("UPDATE ideas SET title = ?, description = ? WHERE id = ?",
                          (title, description, idea_id))
+
+
+def save_studio_run(kind: str, topic: str, horizon: Optional[str],
+                    output: Dict[str, Any]) -> None:
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO studio_runs (kind, topic, horizon, output, created_at) "
+            "VALUES (?, ?, ?, ?, ?)", (kind, topic, horizon, json.dumps(output), _now()))
+
+
+def latest_studio_run(kind: str) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT topic, horizon, output, created_at FROM studio_runs "
+            "WHERE kind = ? ORDER BY id DESC LIMIT 1", (kind,)).fetchone()
+    if row is None:
+        return None
+    return {"topic": row["topic"], "horizon": row["horizon"],
+            "created_at": row["created_at"], **json.loads(row["output"])}
