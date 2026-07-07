@@ -2055,8 +2055,15 @@ def test_demo_populates_ideate_and_clear(client):
     # verified Mural links only
     for t in client.get("/api/ideate/mural-templates").json()["templates"]:
         assert t["url"].startswith("https://www.mural.co/templates")
-    # clear empties everything and sets the flag
-    assert client.post("/api/demo/clear").json()["cleared"]
+    # incremental clear keeps the base demo; full clear empties everything
+    client.put("/api/settings/context", json={"company": "AbbVie"})
+    inc = client.post("/api/demo/clear").json()
+    assert inc["layer"] == "incremental" and inc["removed"] > 0
+    assert client.get("/api/ideas").json()["ideas"]  # base kept
+    # re-seeding with base present only refreshes the incremental layer
+    again = client.post("/api/demo/seed-lifecycle").json()
+    assert again["layer"] == "incremental"
+    assert client.post("/api/demo/clear?all=true").json()["cleared"]
     assert client.get("/api/ideas").json()["ideas"] == []
     assert client.get("/api/ideate/studio/latest", params={"kind": "futures"}).json()["run"] is None
 

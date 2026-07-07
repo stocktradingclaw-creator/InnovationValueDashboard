@@ -8,11 +8,17 @@ interface StudioOut {
   generated_by: string
 }
 
-function seedIdea(title: string, source: string) {
+// The one promotion path shared by every Ideate studio: output -> candidate
+// opportunity in the Ideation Funnel -> endorsement -> formal stage gates.
+function seedIdea(title: string, source: string, detail?: string) {
   return fetch('/api/integrations/capture', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, source, submitter: localStorage.getItem('ivd_user') || undefined }),
-  }).then((r) => { if (!r.ok) throw new Error('capture failed'); toast(`Captured as an idea: "${title.slice(0, 60)}…"`) })
+    body: JSON.stringify({ title, description: detail || title, source,
+      submitter: localStorage.getItem('ivd_user') || undefined }),
+  }).then((r) => {
+    if (!r.ok) throw new Error('promotion failed')
+    toast('Promoted to the Ideation Funnel — endorse it there to enter the stage gates.')
+  })
 }
 
 function Studio({ kind, heading, blurb, withHorizon }: {
@@ -81,7 +87,7 @@ function Studio({ kind, heading, blurb, withHorizon }: {
           <div className="row">
             {out.idea_seeds.map((seed) => (
               <button key={seed} className="chip" onClick={() => seedIdea(seed, `ideate-${kind}`)}>
-                + {seed.slice(0, 70)}
+                ↑ Promote: {seed.slice(0, 60)}
               </button>
             ))}
           </div>
@@ -237,7 +243,7 @@ function FuturesMap() {
             {sel.col < 2 && <em className="muted">Next in the chain: "{chain.nodes[sel.col + 1]}". </em>}
             <button type="button" className="chip"
                     onClick={() => seedIdea(chain.seed, 'ideate-futures')}>
-              + capture: {chain.seed.slice(0, 60)}…
+              ↑ Promote: {chain.seed.slice(0, 55)}…
             </button>
           </>
         ) : (
@@ -360,7 +366,7 @@ function BreakthroughConcepts() {
                 <p className="muted small">For {c.target_customer} · {c.revenue_logic} ·
                   breaks: "{c.orthodoxy_broken}" · impact {c.impact} · diff {c.differentiation} ·
                   feas {c.feasibility} · fit {c.fit}</p>
-                <button className="chip" onClick={() => seedIdea(c.name + ': ' + c.narrative.slice(0, 90), 'ideate-tentypes')}>+ capture as idea</button>
+                <button className="chip" onClick={() => seedIdea(c.name, 'ideate-tentypes', c.narrative)}>↑ Promote to opportunity</button>
               </div>
             )
           })}
@@ -409,7 +415,7 @@ function TenTypesMirror() {
             {g.count === 0 && (
               <button className="chip" onClick={() =>
                 seedIdea(`Explore a ${g.type} play: change ${g.about} instead of the product`, 'ideate-tentypes')}>
-                + seed a {g.type} idea
+                ↑ Promote a {g.type} play
               </button>
             )}
           </div>
@@ -539,7 +545,7 @@ function CompetitiveReport() {
               <span className="pill act-approve">#{r0.priority}</span>
               <span><strong>{r0.title}</strong> <span className="muted small">{r0.based_on_finding} ·
                 impact {r0.impact} · effort {r0.effort}</span></span>
-              <button className="chip" onClick={() => seedIdea(r0.title, 'ideate-competitive')}>+ idea</button>
+              <button className="chip" onClick={() => seedIdea(r0.title, 'ideate-competitive', r0.based_on_finding)}>↑ Promote to opportunity</button>
             </div>
           ))}
           <p className="muted small"><strong>Thin areas:</strong> {rep.thin_areas.join(' · ')} —{' '}
@@ -582,7 +588,7 @@ function Watchlist() {
           )}
           <div className="row">
             {c.latest.idea_seeds.slice(0, 2).map((seed) => (
-              <button key={seed} className="chip" onClick={() => seedIdea(seed, 'ideate-competitive')}>+ {seed.slice(0, 55)}</button>
+              <button key={seed} className="chip" onClick={() => seedIdea(seed, 'ideate-competitive')}>↑ Promote: {seed.slice(0, 50)}</button>
             ))}
           </div>
         </div>

@@ -2276,10 +2276,23 @@ def ideate_studio(body: StudioRequest) -> Dict[str, Any]:
 
 @app.post("/api/demo/clear")
 def demo_clear(authorization: Optional[str] = Header(None),
-               actor: Optional[str] = Query(None)) -> Dict[str, Any]:
-    """Clear all demo/business data. The only sanctioned way to empty the hub;
-    until pressed, cold starts re-seed the demo so it never vanishes mid-use."""
+               actor: Optional[str] = Query(None),
+               all: bool = Query(False)) -> Dict[str, Any]:
+    """Default: clear only the incremental company/industry layer (context
+    studio runs and reports), keeping the static base demo. Pass ?all=true to
+    empty the hub entirely."""
     _require_admin(authorization, actor)
+    if not all:
+        ctx = db.meta_get("context_company") or db.meta_get("context_industry")
+        removed = 0
+        if ctx:
+            with db._conn() as conn:
+                cur = conn.execute("DELETE FROM studio_runs WHERE topic = ?", (ctx,))
+                removed = cur.rowcount
+        db.audit("demo.clear_incremental", _session_name() or actor, detail=f"{ctx}: {removed}")
+        return {"cleared": True, "layer": "incremental", "removed": removed,
+                "note": f"Removed {removed} '{ctx or '(no context)'}' artifact(s); "
+                        "base demo data kept. Use ?all=true to empty everything."}
     db.restore_state({"_format": 1, **{t: [] for t in (
         "ideas", "business_cases", "datasets", "strategic_initiatives",
         "challenges", "notifications", "workflow_events", "studio_runs",
@@ -3058,6 +3071,13 @@ def seed_lifecycle(force: bool = Query(False)) -> Dict[str, Any]:
     KPI readings, plus a real measured reduction observed from changed data."""
     from datetime import datetime, timedelta
 
+    ctx0 = db.meta_get("context_company") or db.meta_get("context_industry")
+    if db.meta_get("seeded_lifecycle") and not force:
+        # base layer already present: refresh only the incremental context layer
+        populated = _apply_context(ctx0) if ctx0 else {"artifacts": 0}
+        return {"seeded": True, "layer": "incremental",
+                "note": f"Base demo kept; refreshed {populated['artifacts']} "
+                        f"context artifact(s) for '{ctx0 or 'no context set'}'."}
     if (db.list_ideas() and not db.meta_get("seeded_lifecycle") and not force):
         raise HTTPException(409, "This hub already has real ideas in it — seeding would "
                                  "replace them. Pass ?force=true only if that's intended.")
