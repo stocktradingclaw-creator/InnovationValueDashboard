@@ -8,6 +8,7 @@ import DataSources from './components/DataSources'
 import Ideas from './components/Ideas'
 import Ideate from './components/Ideate'
 import Opportunities from './components/Opportunities'
+import Maturity from './components/Maturity'
 import MySubmissions from './components/MySubmissions'
 import PipelineView from './components/PipelineView'
 import Settings from './components/Settings'
@@ -536,7 +537,8 @@ export default function App() {
         {tab === 'ideas' && <Ideas ideas={ideas} onChanged={refresh} />}
         {tab === 'command' && <CommandCenter onChanged={refresh} />}
         {tab === 'campaigns' && <Campaigns ideas={ideas} onChanged={refresh} />}
-        {tab.startsWith('ideate-') && (
+        {tab === 'ideate-maturity' && <Maturity />}
+        {tab !== 'ideate-maturity' && tab.startsWith('ideate-') && (
           <Ideate view={tab.slice(7) as import('./components/Ideate').IdeateView} onChanged={refresh} />
         )}
         {tab === 'pipeline' && <PipelineView />}

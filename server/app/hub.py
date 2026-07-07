@@ -981,7 +981,8 @@ def competitive_report(intake: Dict[str, Any], force_template: bool = False) -> 
     }
 
 
-def tentypes_concepts(topic: str, force_template: bool = False) -> Dict[str, Any]:
+def tentypes_concepts(topic: str, force_template: bool = False,
+                      types: Optional[List[int]] = None) -> Dict[str, Any]:
     """Breakthrough concepts per the Keeley discipline: each combines >=3
     types, scored 1-5 discriminatingly, with a riskiest-assumption experiment
     and kill metric."""
@@ -1012,17 +1013,50 @@ def tentypes_concepts(topic: str, force_template: bool = False) -> Dict[str, Any
 
             r = anthropic.Anthropic(api_key=_ai_key()).messages.parse(
                 model="claude-opus-4-8", max_tokens=16000, thinking={"type": "adaptive"},
-                system=("Senior innovation strategist, expert in Keeley's Ten Types. Every "
-                        "breakthrough concept must combine at least three types (numbered 1-10). "
+                system=("Senior innovation strategist, expert in Keeley's Ten Types. Your job "
+                        "is COMBINATORIAL: fuse the specified types into net-new concepts that "
+                        "exist nowhere yet — the novelty must come from the intersection of the "
+                        "types, not from any single one. Name the mechanism of each fusion. "
                         "Score 1-5 using the full range. Each experiment names the riskiest "
                         "assumption, design, duration, and a kill metric."),
-                messages=[{"role": "user", "content": f"Business context: {topic}"}],
+                messages=[{"role": "user", "content":
+                           f"Business context: {topic}. "
+                           + (f"Combine EXACTLY these types in every concept: "
+                              f"{[f'{t}:{TEN_TYPES[t-1][0]}' for t in types]}. "
+                              if types else
+                              "Choose three unusual 3-4 type combinations yourself; avoid "
+                              "combinations common in the literature.")}],
                 output_format=Out)
             out = r.parsed_output.model_dump()
             out["generated_by"] = "claude"
             return out
         except Exception:
             pass
+    if types:
+        names = [TEN_TYPES[t - 1][0] for t in types if 1 <= t <= 10]
+        descs = [TEN_TYPES[t - 1][1] for t in types if 1 <= t <= 10]
+        fusion = " × ".join(names)
+        return {"generated_by": "template", "concepts": [{
+            "name": f"{fusion} fusion for {topic}",
+            "types_combined": types,
+            "narrative": (f"Force the intersection: what would {topic} look like if you changed "
+                          + ", ".join(descs[:-1]) + f", and {descs[-1]} in ONE move? The novelty "
+                          "lives where these constraints meet — describe the mechanism that "
+                          "satisfies all of them simultaneously, then name who pays and why."),
+            "target_customer": "The segment most underserved by single-type competitors",
+            "revenue_logic": f"Monetize the {names[0].lower()} change; defend with the "
+                             f"{names[-1].lower()} change",
+            "orthodoxy_broken": f"'{names[0]} and {names[-1]} are separate decisions'",
+            "impact": 4, "differentiation": 5, "feasibility": 3, "fit": 4}],
+            "recommended": [f"{fusion} fusion for {topic}"],
+            "recommendation_reasoning": "Chosen combination is unusual by construction — "
+                                        "differentiation is structural, feasibility is the bet.",
+            "experiments": [{"concept": f"{fusion} fusion for {topic}",
+                             "riskiest_assumption": "The intersection creates value a single "
+                             "type wouldn't", "experiment": "Paper-prototype the fused offer and "
+                             "price-test it against the single-type alternative with 5 customers",
+                             "duration_days": "30",
+                             "kill_metric": "No customer prefers the fusion at equal price"}]}
     return {"generated_by": "template", "concepts": [
         {"name": "Outcome-guaranteed service tier", "types_combined": [1, 7, 10],
          "narrative": f"For {topic}: customers stop buying effort and buy a measured result — "

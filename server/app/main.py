@@ -10,6 +10,7 @@ from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from . import maturity as maturity_mod
 from . import (
     calibration, connectors, db, demo, hub, metrics, opportunities,
     portfolio, prioritization, roi, timeline,
@@ -2258,6 +2259,7 @@ class StudioRequest(BaseModel):
     kind: str
     topic: str
     horizon: str = "3-7y"
+    types: Optional[List[int]] = None
 
 
 @app.post("/api/ideate/studio")
@@ -2345,9 +2347,98 @@ def get_competitive_report(run_id: int) -> Dict[str, Any]:
 
 @app.post("/api/ideate/tentypes-concepts")
 def tentypes_concepts(body: StudioRequest) -> Dict[str, Any]:
-    out = hub.tentypes_concepts(body.topic.strip() or "our business")
+    if body.types and len([t for t in body.types if 1 <= t <= 10]) < 3:
+        raise HTTPException(400, "combine at least three types — that's where novelty lives")
+    out = hub.tentypes_concepts(body.topic.strip() or "our business", types=body.types)
     db.save_studio_run("tentypes_concepts", body.topic.strip(), None, out)
     return out
+
+
+# ---------------------------------------------- maturity assessment module
+
+@app.get("/api/maturity/framework")
+def maturity_framework() -> Dict[str, Any]:
+    return maturity_mod.get_framework()
+
+
+@app.put("/api/maturity/framework")
+def put_maturity_framework(body: Dict[str, Any], authorization: Optional[str] = Header(None),
+                           actor: Optional[str] = Query(None)) -> Dict[str, Any]:
+    _require_admin(authorization, actor)
+    try:
+        return maturity_mod.save_framework(body)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/maturity/benchmarks")
+def maturity_benchmarks() -> Dict[str, Any]:
+    return {"benchmarks": maturity_mod._benchmarks()}
+
+
+@app.put("/api/maturity/benchmarks")
+def put_maturity_benchmarks(body: Dict[str, Dict[str, float]]) -> Dict[str, Any]:
+    return {"benchmarks": maturity_mod.save_benchmarks(body)}
+
+
+@app.get("/api/maturity/waves")
+def maturity_waves() -> Dict[str, Any]:
+    return {"waves": maturity_mod.waves()}
+
+
+@app.post("/api/maturity/waves")
+def create_maturity_wave(body: Dict[str, str]) -> Dict[str, Any]:
+    if not (body.get("name") or "").strip():
+        raise HTTPException(400, "wave name required")
+    return maturity_mod.create_wave(body["name"].strip())
+
+
+@app.post("/api/maturity/waves/{wave_id}/responses")
+def maturity_responses(wave_id: int, body: Dict[str, Any]) -> Dict[str, Any]:
+    rows = body.get("responses") or []
+    if body.get("csv"):
+        import csv as _csv, io
+        for row in _csv.DictReader(io.StringIO(body["csv"])):
+            rows.append({"respondent": row.get("respondent"), "dimension": row.get("dimension"),
+                         "score": row.get("score"), "evidence": row.get("evidence")})
+    if not rows:
+        raise HTTPException(400, "no responses given (rows or csv)")
+    try:
+        n = maturity_mod.add_responses(wave_id, rows)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(400, f"bad response row: {exc}")
+    return {"added": n}
+
+
+@app.put("/api/maturity/waves/{wave_id}/calibration")
+def maturity_calibrate(wave_id: int, body: Dict[str, Any]) -> Dict[str, Any]:
+    if not (1 <= float(body.get("score", 0)) <= 5):
+        raise HTTPException(400, "calibrated score must be 1-5")
+    maturity_mod.calibrate(wave_id, body["dimension"], float(body["score"]), body.get("note"))
+    return maturity_mod.wave_summary(wave_id)
+
+
+@app.put("/api/maturity/waves/{wave_id}/gaps/{dimension}")
+def maturity_gap_value(wave_id: int, dimension: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    maturity_mod.set_gap_value(wave_id, dimension, body)
+    return maturity_mod.wave_summary(wave_id)
+
+
+@app.get("/api/maturity/waves/{wave_id}/summary")
+def maturity_wave_summary(wave_id: int) -> Dict[str, Any]:
+    return maturity_mod.wave_summary(wave_id)
+
+
+@app.post("/api/maturity/initiatives")
+def maturity_initiative(body: Dict[str, Any]) -> Dict[str, Any]:
+    if not (body.get("title") or "").strip():
+        raise HTTPException(400, "title required")
+    return maturity_mod.add_initiative(body)
+
+
+@app.get("/api/maturity/readout")
+def maturity_readout() -> Dict[str, Any]:
+    return maturity_mod.readout()
 
 
 @app.get("/api/ideate/tentypes-mirror")
@@ -3165,6 +3256,7 @@ def seed_lifecycle(force: bool = Query(False)) -> Dict[str, Any]:
              "One-tap warranty claims for technicians\n"
              "Customer-visible repair progress tracker",
         session_name="Q3 design sprint", facilitator="maria"))
+    maturity_mod.seed_demo()
     db.meta_set("seeded_lifecycle", days(0))
 
     return {

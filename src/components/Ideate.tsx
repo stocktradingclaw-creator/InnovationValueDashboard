@@ -297,13 +297,32 @@ const PAGES: Record<IdeateView, { title: string; intro: string }> = {
 
 function BreakthroughConcepts() {
   const [topic, setTopic] = useState('')
+  const [picked, setPicked] = useState<number[]>([])
   const [busy, setBusy] = useState(false)
   const [out, setOut] = useState<{ concepts: { name: string; narrative: string; types_combined: number[]; target_customer: string; revenue_logic: string; orthodoxy_broken: string; impact: number; differentiation: number; feasibility: number; fit: number }[]; recommended: string[]; recommendation_reasoning: string; experiments: Record<string, string>[]; generated_by: string } | null>(null)
   return (
     <div className="card">
       <h3>Breakthrough concepts</h3>
-      <p className="muted small">Concepts that combine three or more types — scored 1–5 on impact,
-        differentiation, feasibility, and fit, each with the experiment that could kill it.</p>
+      <p className="muted small">The Keeley discipline is combinatorial: fuse three or more types
+        into concepts that exist nowhere yet — the novelty comes from the intersection, not any
+        single type. Pick your combination (or let the engine pick unusual ones), and every
+        concept is scored 1–5 with the experiment that could kill it.</p>
+      <div className="row">
+        {Object.entries(TYPE_NUM).map(([name, n]) => (
+          <button key={n} type="button"
+                  className={`pill tt-chip tt-${n <= 4 ? 'config' : n <= 6 ? 'offer' : 'exp'} ${picked.includes(n) ? 'chip-active' : ''}`}
+                  title={name} aria-pressed={picked.includes(n)}
+                  onClick={() => setPicked(picked.includes(n)
+                    ? picked.filter((x) => x !== n) : [...picked, n])}>{n}</button>
+        ))}
+        <button type="button" className="chip" onClick={() => {
+          const pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].sort(() => Math.random() - 0.5)
+          setPicked(pool.slice(0, 3).sort((a, b) => a - b))
+        }}>🎲 surprise combo</button>
+        {picked.length > 0 && picked.length < 3 && (
+          <span className="muted small">pick at least 3 — novelty lives at the intersection</span>
+        )}
+      </div>
       <div className="row">
         <input placeholder="Business context — what are we building concepts for?"
                value={topic} onChange={(e) => setTopic(e.target.value)} />
@@ -312,10 +331,10 @@ function BreakthroughConcepts() {
           try {
             const r = await fetch('/api/ideate/tentypes-concepts', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ kind: 'ten_types', topic }) })
+              body: JSON.stringify({ kind: 'ten_types', topic, types: picked.length >= 3 ? picked : undefined }) })
             setOut(await r.json())
           } finally { setBusy(false) }
-        }}>{busy ? 'Combining types…' : '✦ Generate concepts'}</button>
+        }}>{busy ? 'Fusing types…' : picked.length >= 3 ? `✦ Fuse types ${picked.join('+')}` : '✦ Generate concepts'}</button>
       </div>
       {out && (
         <div className="plan">

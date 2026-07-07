@@ -2108,3 +2108,23 @@ def test_context_populates_all_tabs(client):
     assert reports[0]["topic"] == "AbbVie"
     assert any(c["topic"] == "AbbVie" for c in
                client.get("/api/ideate/watchlist").json()["watchlist"])
+
+
+def test_maturity_module_e2e(client):
+    client.post("/api/demo/seed-lifecycle")
+    fw = client.get("/api/maturity/framework").json()
+    assert len(fw["dimensions"]) == 8 and all(len(d["rubric"]) == 5 for d in fw["dimensions"])
+    ws = client.get("/api/maturity/waves").json()["waves"]
+    assert len(ws) == 2
+    s = client.get(f"/api/maturity/waves/{ws[1]['id']}/summary").json()
+    assert s["overall_calibrated"] and s["total_value_high"] > s["total_value_low"] > 0
+    assert any(d["optimism_flag"] for d in s["dimensions"])  # self-scores skew optimistic
+    r = client.get("/api/maturity/readout").json()
+    assert len(r["top_gaps"]) == 3 and r["roadmap"]["0-3m"]
+    assert r["trend"][1]["dimensions"]["velocity"] > r["trend"][0]["dimensions"]["velocity"]
+    # validation: scores constrained, csv import works
+    assert client.post(f"/api/maturity/waves/{ws[0]['id']}/responses",
+                       json={"responses": [{"respondent": "x", "dimension": "culture",
+                                            "score": 9}]}).status_code == 400
+    assert client.post(f"/api/maturity/waves/{ws[0]['id']}/responses", json={
+        "csv": "respondent,dimension,score,evidence\nlee,culture,3,ran retro"}).json()["added"] == 1
