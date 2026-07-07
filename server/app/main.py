@@ -2651,18 +2651,20 @@ def _apply_context(subject: str) -> Dict[str, int]:
     for kind, hz in (("futures", "7-15y"), ("maturity", "3-7y"),
                      ("ten_types", "3-7y"), ("competitive", "3-7y")):
         try:
-            db.save_studio_run(kind, subject, hz, hub.ideate_studio(kind, subject, hz))
+            db.save_studio_run(kind, subject, hz,
+                               hub.ideate_studio(kind, subject, hz, force_template=True))
             done += 1
         except Exception:
             pass
     try:
-        report = hub.competitive_report({"product": subject})
+        report = hub.competitive_report({"product": subject}, force_template=True)
         db.save_studio_run("competitive_report", subject, None, report)
         done += 1
     except Exception:
         pass
     try:
-        db.save_studio_run("tentypes_concepts", subject, None, hub.tentypes_concepts(subject))
+        db.save_studio_run("tentypes_concepts", subject, None,
+                           hub.tentypes_concepts(subject, force_template=True))
         done += 1
     except Exception:
         pass
@@ -3133,7 +3135,7 @@ def seed_lifecycle(force: bool = Query(False)) -> Dict[str, Any]:
         ("maturity", ctx or "AI-driven operations", "3-7y"),
         ("ten_types", ctx or "Field service", "3-7y"),
     ]:
-        db.save_studio_run(kind, topic, hz, hub.ideate_studio(kind, topic, hz))
+        db.save_studio_run(kind, topic, hz, hub.ideate_studio(kind, topic, hz, force_template=True))
     if ctx:
         _apply_context(ctx)
     mural_ingest(MuralIngestRequest(

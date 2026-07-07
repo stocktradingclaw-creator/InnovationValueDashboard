@@ -4,17 +4,34 @@
     {
       "src": "server/vercel_app.py",
       "use": "@vercel/python",
-      "config": { "includeFiles": "server/**" }
+      "config": {
+        "includeFiles": "server/**"
+      }
     },
     {
       "src": "package.json",
       "use": "@vercel/static-build",
-      "config": { "distDir": "dist" }
+      "config": {
+        "distDir": "dist"
+      }
     }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "server/vercel_app.py" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
-  ]
+    {
+      "src": "/api/(.*)",
+      "dest": "server/vercel_app.py"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "functions": {
+    "server/vercel_app.py": {
+      "maxDuration": 300
+    }
+  }
 }

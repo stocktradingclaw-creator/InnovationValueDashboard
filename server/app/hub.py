@@ -761,7 +761,44 @@ _FUTURES_FRAMES = {
 }
 
 
-def competitive_report(intake: Dict[str, Any]) -> Dict[str, Any]:
+_PEER_SETS = {
+    "pharmaceuticals": ["Pfizer", "Novartis", "Merck", "Bristol Myers Squibb", "AstraZeneca"],
+    "healthcare": ["UnitedHealth", "CVS Health", "Cigna", "Humana"],
+    "financial services": ["JPMorgan Chase", "Bank of America", "Goldman Sachs", "Morgan Stanley"],
+    "insurance": ["Allstate", "Progressive", "Travelers", "Chubb"],
+    "retail": ["Walmart", "Target", "Costco", "Amazon"],
+    "manufacturing": ["Siemens", "GE", "Honeywell", "3M"],
+    "technology": ["Microsoft", "Google", "Amazon", "Salesforce"],
+    "energy": ["ExxonMobil", "Chevron", "Shell", "BP"],
+    "telecom": ["Verizon", "AT&T", "T-Mobile", "Comcast"],
+    "automotive": ["Toyota", "Volkswagen", "GM", "Ford"],
+    "food & beverage": ["Nestle", "PepsiCo", "Coca-Cola", "Mondelez"],
+}
+_COMPANY_INDUSTRY = {
+    "abbvie": "pharmaceuticals", "pfizer": "pharmaceuticals", "merck": "pharmaceuticals",
+    "novartis": "pharmaceuticals", "starbucks": "food & beverage", "pepsico": "food & beverage",
+    "walmart": "retail", "target": "retail", "amazon": "retail", "jpmorgan": "financial services",
+    "unitedhealth": "healthcare", "cvs": "healthcare", "verizon": "telecom", "at&t": "telecom",
+    "toyota": "automotive", "ford": "automotive", "microsoft": "technology",
+    "salesforce": "technology", "siemens": "manufacturing", "ge": "manufacturing",
+    "exxon": "energy", "chevron": "energy", "allstate": "insurance", "progressive": "insurance",
+}
+
+
+def _peers_for(subject: str, industry: str = "") -> list:
+    low = (subject or "").lower()
+    ind = (industry or "").lower()
+    for name, mapped in _COMPANY_INDUSTRY.items():
+        if name in low:
+            peers = [p for p in _PEER_SETS[mapped] if p.lower() not in low]
+            return peers[:4]
+    for key in _PEER_SETS:
+        if key in low or key in ind:
+            return _PEER_SETS[key][:4]
+    return []
+
+
+def competitive_report(intake: Dict[str, Any], force_template: bool = False) -> Dict[str, Any]:
     """Full structured competitive analysis: exec summary, market overview,
     competitor profiles, comparison matrix, positioning map, SWOT, gaps,
     threats, prioritized recommendations — every claim confidence-labeled.
@@ -769,7 +806,7 @@ def competitive_report(intake: Dict[str, Any]) -> Dict[str, Any]:
     import os
     product = intake.get("product") or intake.get("segment") or "Our company"
     competitors = [c for c in (intake.get("competitors") or []) if c.strip()][:6]
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    if os.environ.get("ANTHROPIC_API_KEY") and not force_template:
         try:
             import anthropic
             from pydantic import BaseModel
@@ -852,7 +889,8 @@ def competitive_report(intake: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             pass
     # demo mode: complete, realistic, clearly labeled
-    comps = competitors or ["Peer Company A", "Peer Company B", "Peer Company C"]
+    known = _peers_for(product, intake.get("segment") or "")
+    comps = competitors or known or ["Peer Company A", "Peer Company B", "Peer Company C"]
     criteria = ["Innovation velocity", "Digital & AI maturity", "Customer experience",
                 "Cost position", "Talent & culture", "Partner ecosystem"]
     strengths = {comps[0]: [0, 3], comps[1] if len(comps) > 1 else comps[0]: [3, 5],
@@ -932,12 +970,12 @@ def competitive_report(intake: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def tentypes_concepts(topic: str) -> Dict[str, Any]:
+def tentypes_concepts(topic: str, force_template: bool = False) -> Dict[str, Any]:
     """Breakthrough concepts per the Keeley discipline: each combines >=3
     types, scored 1-5 discriminatingly, with a riskiest-assumption experiment
     and kill metric."""
     import os
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    if os.environ.get("ANTHROPIC_API_KEY") and not force_template:
         try:
             import anthropic
             from pydantic import BaseModel
@@ -1008,11 +1046,12 @@ def tentypes_concepts(topic: str) -> Dict[str, Any]:
              "duration_days": "45", "kill_metric": "Fewer than 2 of 3 sign the LOI"}]}
 
 
-def ideate_studio(kind: str, topic: str, horizon: str = "3-7y") -> Dict[str, Any]:
+def ideate_studio(kind: str, topic: str, horizon: str = "3-7y",
+                  force_template: bool = False) -> Dict[str, Any]:
     """Futures / competitive / maturity / ten-types studios. AI-driven with a
     key; labeled template frames otherwise."""
     import os
-    has_ai = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    has_ai = bool(os.environ.get("ANTHROPIC_API_KEY")) and not force_template
     if has_ai:
         try:
             import anthropic
@@ -1057,8 +1096,10 @@ def ideate_studio(kind: str, topic: str, horizon: str = "3-7y") -> Dict[str, Any
                                f"Prototype the {horizon} version of {topic} as a one-week probe",
                                f"Name the capability we'd need if {topic} became fully autonomous"]}
     if kind == "competitive":
+        peers = _peers_for(topic)
+        peer_line = (f"Closest peers: {', '.join(peers)}." if peers else "")
         return {"generated_by": "template", "narrative":
-                f"Template competitive frame for '{topic}' (add an API key for researched analysis).",
+                f"Competitive frame for '{topic}'. {peer_line}",
                 "items": [{"title": "Their likely strength", "detail": f"Scale and installed base around {topic}."},
                           {"title": "Their likely blind spot", "detail": "Verified outcomes — incumbents report activity, not evidence."},
                           {"title": "Our exploitable gap", "detail": f"Move faster from detection to funded experiment on {topic}."}],

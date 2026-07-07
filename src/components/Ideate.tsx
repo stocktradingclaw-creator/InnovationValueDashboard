@@ -408,11 +408,14 @@ interface CompReport {
   thin_areas: string[]; suggested_research: string[]
 }
 
+let _repCache: CompReport | null = null
+
 function CompetitiveReport() {
   const [form, setForm] = useState({ product: '', description: '', segment: '', audience: 'leadership', decision: '', competitors: '' })
   const [busy, setBusy] = useState(false)
   const [stage, setStage] = useState('')
-  const [rep, setRep] = useState<CompReport | null>(null)
+  const [rep, setRepState] = useState<CompReport | null>(_repCache)
+  const setRep = (r: CompReport | null) => { _repCache = r; setRepState(r) }
   const [saved, setSaved] = useState<{ id: number; topic: string; created_at: string }[]>([])
   useEffect(() => {
     fetch('/api/ideate/competitive-reports').then((r) => r.json()).then(async (d) => {
