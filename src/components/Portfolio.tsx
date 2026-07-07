@@ -26,13 +26,16 @@ interface Advisory {
   concentration_top_case: number
   peer_comparison: { metric: string; ours: number | null; peer_low: number; peer_high: number; note: string; verdict: string | null }[]
   peer_note: string
-  recommendations: { title: string; why: string; action: string }[]
+  recommendations: { key: string | null; title: string; why: string; action: string }[]
 }
 
 const H_LABELS: Record<string, string> = { h1: 'H1 · Core', h2: 'H2 · Adjacent', h3: 'H3 · Transformational' }
 
 function AdvisoryPanel() {
   const [a, setA] = useState<Advisory | null>(null)
+  const [execBusy, setExecBusy] = useState<string | null>(null)
+  const [execResult, setExecResult] = useState<Record<string, string>>({})
+  const reload = () => fetch('/api/portfolio/advisory').then((r) => r.json()).then(setA).catch(() => {})
   useEffect(() => {
     fetch('/api/portfolio/advisory').then((r) => r.json()).then(setA).catch(() => {})
   }, [])
@@ -91,8 +94,28 @@ function AdvisoryPanel() {
         {a.recommendations.map((r) => (
           <div key={r.title} className="decision-row">
             <span className="pill act-verify">act</span>
-            <span><strong>{r.title}</strong> <span className="muted small">{r.why}</span>
-              <div className="small">→ {r.action}</div></span>
+            <span style={{ flex: 1 }}><strong>{r.title}</strong> <span className="muted small">{r.why}</span>
+              <div className="small">→ {r.action}</div>
+              {execResult[r.key ?? ''] && (
+                <div className="success small">✓ {execResult[r.key ?? '']}</div>
+              )}</span>
+            {r.key && !execResult[r.key] && (
+              <button disabled={execBusy === r.key} onClick={async () => {
+                setExecBusy(r.key)
+                try {
+                  const res = await fetch('/api/portfolio/advisory/execute', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: r.key }),
+                  })
+                  const d = await res.json()
+                  if (!res.ok) throw new Error(d.detail ?? 'execution failed')
+                  setExecResult((x) => ({ ...x, [r.key!]: d.done }))
+                  reload()
+                } catch (e) {
+                  setExecResult((x) => ({ ...x, [r.key!]: e instanceof Error ? e.message : String(e) }))
+                } finally { setExecBusy(null) }
+              }}>{execBusy === r.key ? 'Executing…' : '⚡ Execute'}</button>
+            )}
           </div>
         ))}
       </div>

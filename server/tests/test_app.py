@@ -2000,3 +2000,23 @@ def test_portfolio_advisory(client):
     keys = {p["key"] for p in a["peer_comparison"]}
     assert {"verification_ratio", "kill_rate", "h3_share"} <= keys
     assert "reference" in a["peer_note"]
+
+
+def test_advisory_execute(client):
+    client.post("/api/demo/seed-lifecycle")
+    recs = client.get("/api/portfolio/advisory").json()["recommendations"]
+    keys = [r["key"] for r in recs if r["key"]]
+    assert keys, "seeded portfolio should produce executable recommendations"
+
+    # executing fund_h3 launches a real campaign
+    r = client.post("/api/portfolio/advisory/execute", json={"key": "fund_h3"}).json()
+    assert "H3 campaign" in r["done"]
+    challenges = client.get("/api/challenges").json()["challenges"]
+    assert any(c["theme"] == "h3-transformational" for c in challenges)
+
+    # verification re-measures real bindings
+    r = client.post("/api/portfolio/advisory/execute", json={"key": "verification"}).json()
+    assert "Re-measured" in r["done"]
+
+    assert client.post("/api/portfolio/advisory/execute",
+                       json={"key": "nope"}).status_code == 400

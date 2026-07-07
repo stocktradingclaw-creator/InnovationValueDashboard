@@ -2144,31 +2144,31 @@ def portfolio_advisory() -> Dict[str, Any]:
 
     recs = []
     if horizon_share.get("h3", 0) < 0.05:
-        recs.append({"title": "Fund transformational bets",
+        recs.append({"key": "fund_h3", "title": "Fund transformational bets",
                      "why": f"Only {horizon_share.get('h3', 0):.0%} of pipeline value is H3 "
                             "against a ~10% target — the portfolio skews incremental.",
                      "action": "Launch a challenge scoped to horizon-3 plays and ring-fence a tranche."})
     if concentration > 0.4:
-        recs.append({"title": "Reduce single-bet concentration",
+        recs.append({"key": "concentration", "title": "Reduce single-bet concentration",
                      "why": f"{concentration:.0%} of active pipeline value sits in one case.",
                      "action": "Stage its funding in smaller tranches and accelerate two mid-size cases."})
     if ours["verification_ratio"] is not None and ours["verification_ratio"] < 0.25:
-        recs.append({"title": "Tighten measurement discipline",
+        recs.append({"key": "verification", "title": "Tighten measurement discipline",
                      "why": f"Only {ours['verification_ratio']:.0%} of claimed value is verified — "
                             "below the 25-45% peer range.",
                      "action": "Require metric bindings before approval; re-observe live cases monthly."})
     if ours["kill_rate"] is not None and ours["kill_rate"] < 0.2:
-        recs.append({"title": "Kill more, earlier",
+        recs.append({"key": "kill_rate", "title": "Kill more, earlier",
                      "why": f"Kill rate {ours['kill_rate']:.0%} is below the 20-40% peer range — "
                             "weak experiments are surviving.",
                      "action": "Demand explicit success criteria and a kill review at every tranche gate."})
     backlogged = [i for i in ideas if i["status"] == "backlog"]
     if len(backlogged) >= 3:
-        recs.append({"title": "Clear the backlog",
+        recs.append({"key": "backlog", "title": "Clear the backlog",
                      "why": f"{len(backlogged)} qualified ideas are parked with no review date.",
                      "action": "Resume or decline each — parked value is unmanaged value."})
     if not recs:
-        recs.append({"title": "Hold course",
+        recs.append({"key": None, "title": "Hold course",
                      "why": "Balance, concentration, and measurement are all within healthy ranges.",
                      "action": "Revisit after the next funding cycle."})
 
@@ -2180,6 +2180,78 @@ def portfolio_advisory() -> Dict[str, Any]:
             "peer_note": "Peer figures are external industry reference ranges "
                          "(directional); your metrics are computed from this hub's data.",
             "recommendations": recs}
+
+
+class ExecuteRecRequest(BaseModel):
+    key: str
+    actor: Optional[str] = None
+
+
+@app.post("/api/portfolio/advisory/execute")
+def execute_recommendation(body: ExecuteRecRequest) -> Dict[str, Any]:
+    """Execute an advisory recommendation inside the app — AI does the
+    drafting, the platform does the plumbing, and everything lands as real,
+    auditable objects (challenges, tranches, observations, queue moves)."""
+    actor = _session_name() or body.actor or "portfolio-advisory"
+    if body.key == "fund_h3":
+        draft = hub.radar_scan("transformational horizon-three innovation bets beyond our core business")
+        challenge = create_challenge(ChallengeRequest(
+            title=f"H3 campaign: {draft['challenge_title']}",
+            question=draft["challenge_question"], theme="h3-transformational"))
+        db.audit("advisory.execute", actor, challenge["id"], "fund_h3 campaign launched")
+        return {"done": f"Launched the H3 campaign '{challenge['title']}' — "
+                        f"{len(draft['starter_ideas'])} AI starter ideas suggested.",
+                "details": draft["starter_ideas"], "challenge_id": challenge["id"]}
+    if body.key == "concentration":
+        cases = [c for c in db.list_business_cases() if c["stage"] not in ("closed",)]
+        if not cases:
+            raise HTTPException(400, "no active cases")
+        biggest = max(cases, key=lambda c: (c.get("estimated_annual_benefit")
+                      or (c.get("linked_opportunity") or {}).get("estimated_annual_savings") or 0))
+        val = (biggest.get("estimated_annual_benefit")
+               or (biggest.get("linked_opportunity") or {}).get("estimated_annual_savings") or 0)
+        add_tranche(biggest["id"], TrancheRequest(
+            label="De-risking checkpoint", amount=max(round(val * 0.1, 2), 1000),
+            milestone="Concentration review: evidence before further commitment"))
+        db.audit("advisory.execute", actor, biggest["id"], "concentration checkpoint tranche")
+        return {"done": f"Added a milestone-gated de-risking tranche to '{biggest['title']}' — "
+                        "further capital now requires an evidence checkpoint.", "details": []}
+    if body.key == "verification":
+        observed = 0
+        for c in db.list_business_cases():
+            for b in c.get("metric_bindings", []):
+                try:
+                    observe_binding(c["id"], b["id"])
+                    observed += 1
+                except Exception:
+                    pass
+        db.audit("advisory.execute", actor, None, f"re-measured {observed} bindings")
+        return {"done": f"Re-measured {observed} frozen-baseline metric(s) across the portfolio "
+                        "from current source data.", "details": []}
+    if body.key == "kill_rate":
+        notified = 0
+        for c in db.list_business_cases():
+            if c["stage"] == "experiment":
+                db.notify(db.submitter_for_case(c["id"]), "case", c["id"],
+                          f"Kill review scheduled for the experiment on '{c['title']}': bring "
+                          "evidence against the success criteria — surviving without evidence "
+                          "is not an option.")
+                notified += 1
+        db.audit("advisory.execute", actor, None, f"kill reviews on {notified} experiments")
+        return {"done": f"Scheduled kill reviews on {notified} open experiment(s) — owners "
+                        "notified to bring evidence against their success criteria.", "details": []}
+    if body.key == "backlog":
+        resumed = []
+        for i in db.list_ideas():
+            if i["status"] == "backlog":
+                command_decide(DecisionRequest(subject_type="idea", subject_id=i["id"],
+                                               decision="resume", actor=actor,
+                                               comment="resumed by portfolio advisory"))
+                resumed.append(i["title"])
+        db.audit("advisory.execute", actor, None, f"resumed {len(resumed)} backlog ideas")
+        return {"done": f"Resumed {len(resumed)} parked idea(s) back into review — "
+                        "no more unmanaged value.", "details": resumed}
+    raise HTTPException(400, f"unknown recommendation key '{body.key}'")
 
 
 @app.get("/api/value-ledger")
