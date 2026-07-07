@@ -1890,3 +1890,21 @@ body.present .content { max-width: 1400px; padding: 2rem 3rem; }
 .tentype-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.6rem; }
 .tentype-card { margin-bottom: 0; padding: 0.7rem 0.9rem; }
 .studio-item { margin: 0.3rem 0; }
+
+.fmap { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.7rem; margin-top: 0.6rem; }
+.fmap-col { display: flex; flex-direction: column; gap: 0.55rem; }
+.fmap-node {
+  position: relative; text-align: left; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem 1.4rem 0.6rem 0.8rem;
+  min-height: 74px; transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+.fmap-node:hover:not(:disabled) { border-color: var(--info); background: var(--surface-2); color: var(--text); }
+.fmap-hot { border-color: var(--info); box-shadow: 0 0 10px rgba(121, 184, 255, 0.25); }
+.fmap-dim { opacity: 0.35; }
+.fmap-arrow { position: absolute; right: -14px; top: 50%; transform: translateY(-50%);
+  color: var(--accent-dim); font-size: 0.9rem; z-index: 2; }
+.fmap-caption { min-height: 2.4em; margin: 0.6rem 0 0; }
+@media (max-width: 800px) {
+  .fmap { grid-template-columns: 1fr; }
+  .fmap-arrow { display: none; }
+}

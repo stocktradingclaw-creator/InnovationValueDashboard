@@ -134,6 +134,93 @@ function MuralStudio({ onChanged }: { onChanged: () => void }) {
   )
 }
 
+// Sample futures framework: three causal chains cascading across horizons.
+const FUTURES_SAMPLE = {
+  topic: 'The autonomous enterprise',
+  chains: [
+    {
+      key: 'agents', label: 'AI agents',
+      nodes: [
+        'AI agents absorb routine knowledge work',
+        'Workflows reorganize around human-AI teams; spans of control widen',
+        'Humans govern by exception — operations run autonomously against verified outcomes',
+      ],
+      narrative: 'The extrapolation is tooling; the second-order effect is organizational; the reimagined state is governance itself changing shape. Companies that rehearse exception-based governance now will not have to retrofit it later.',
+      seed: 'Prototype exception-based governance: one process runs autonomously for 30 days, humans review only breaches',
+    },
+    {
+      key: 'value', label: 'Verified outcomes',
+      nodes: [
+        'Cost scrutiny reshapes vendor stacks and kills activity metrics',
+        'Buyers consolidate on partners who can prove impact from data',
+        'Value migrates from products to guaranteed, measured outcomes',
+      ],
+      narrative: 'Near-term budget pressure looks defensive, but its second-order effect is a market that pays for evidence. The reimagined enterprise sells outcomes with a ledger behind them.',
+      seed: 'Pick one offering and restate its contract as a measured-outcome guarantee',
+    },
+    {
+      key: 'trust', label: 'Trust & regulation',
+      nodes: [
+        'Regulation catches up to automated decision-making',
+        'Auditability becomes a market requirement, not a compliance chore',
+        'Trust infrastructure — provable, tamper-evident value — becomes the moat',
+      ],
+      narrative: 'What starts as compliance cost compounds into advantage: the firms with audit-grade decision trails will be the only ones allowed to automate aggressively.',
+      seed: 'Inventory our automated decisions and rank them by audit-readiness',
+    },
+  ],
+}
+
+const HORIZON_HEADS: [string, string, string][] = [
+  ['1–3y', 'Extrapolate', 'lc-tone-idea'],
+  ['3–7y', 'Second-order', 'lc-tone-case'],
+  ['7–15y', 'Reimagine', 'lc-tone-value'],
+]
+
+function FuturesMap() {
+  const [sel, setSel] = useState<string | null>(null)
+  const chain = FUTURES_SAMPLE.chains.find((c) => c.key === sel)
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h3>How the horizons connect — sample framework: {FUTURES_SAMPLE.topic}</h3>
+        <span className="muted small">click a card to trace its causal chain</span>
+      </div>
+      <div className="fmap">
+        {HORIZON_HEADS.map(([years, label, tone], col) => (
+          <div key={label} className="fmap-col">
+            <div className={`lc-phase-head ${tone}`}>
+              <strong>{label}</strong><span className="muted small">{years}</span>
+            </div>
+            {FUTURES_SAMPLE.chains.map((c) => (
+              <button key={c.key} type="button"
+                      className={`fmap-node ${sel === c.key ? 'fmap-hot' : sel ? 'fmap-dim' : ''}`}
+                      onClick={() => setSel(sel === c.key ? null : c.key)}
+                      title={c.label}>
+                <span className="small">{c.nodes[col]}</span>
+                {col < 2 && <span className="fmap-arrow" aria-hidden="true">➜</span>}
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+      <p className="small fmap-caption" aria-live="polite">
+        {chain ? (
+          <>
+            <strong>{chain.label}:</strong> {chain.narrative}{' '}
+            <button type="button" className="chip"
+                    onClick={() => seedIdea(chain.seed, 'ideate-futures')}>
+              + capture: {chain.seed.slice(0, 60)}…
+            </button>
+          </>
+        ) : (
+          'Each row is one force traced left to right: what we can already see, what it does to the system next, and the future it implies. Click any card to read the chain — then run your own topic below.'
+        )}
+      </p>
+    </div>
+  )
+}
+
 export type IdeateView = 'futures' | 'competitive' | 'maturity' | 'workshops' | 'tentypes'
 
 const PAGES: Record<IdeateView, { title: string; intro: string }> = {
@@ -176,6 +263,7 @@ export default function Ideate({ view, onChanged }: { view: IdeateView; onChange
           <p className="muted">{page.intro}</p>
         </div>
       </div>
+      {view === 'futures' && <FuturesMap />}
       {view === 'futures' && (
         <Studio kind="futures" withHorizon heading="Run a futures scan"
                 blurb="Signals → implications → a reimagined future state, with idea seeds to rehearse it now." />
