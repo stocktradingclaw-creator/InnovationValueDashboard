@@ -2303,7 +2303,7 @@ _TYPE_KEYWORDS = {
 
 
 class CompetitiveIntake(BaseModel):
-    product: str
+    product: Optional[str] = None
     description: Optional[str] = None
     segment: Optional[str] = None
     competitors: Optional[List[str]] = None
@@ -2314,10 +2314,11 @@ class CompetitiveIntake(BaseModel):
 
 @app.post("/api/ideate/competitive-report")
 def competitive_report(body: CompetitiveIntake) -> Dict[str, Any]:
-    if not body.product.strip():
-        raise HTTPException(400, "product name is required")
+    subject = (body.product or body.segment or "").strip()
+    if not subject:
+        raise HTTPException(400, "enter a company name or an industry")
     report = hub.competitive_report(body.model_dump())
-    db.save_studio_run("competitive_report", body.product.strip(), None, report)
+    db.save_studio_run("competitive_report", subject, None, report)
     db.audit("ideate.competitive_report", _session_name(), None, body.product[:80])
     return report
 

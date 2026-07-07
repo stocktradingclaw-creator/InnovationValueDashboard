@@ -439,17 +439,17 @@ function CompetitiveReport() {
       <p className="muted small">Compare your company against peer companies — strategy, innovation posture, and
         position — in a structured, confidence-labeled report: matrix, positioning map, SWOT, and prioritized moves.</p>
       <div className="row">
-        <input placeholder="Your company *" value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} />
-        <input placeholder="What the company does (one line)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-        <input placeholder="Industry / market" value={form.segment} onChange={(e) => setForm({ ...form, segment: e.target.value })} />
-      </div>
-      <div className="row">
-        <input placeholder="Peer companies, comma-separated (blank = AI identifies peers)" value={form.competitors} onChange={(e) => setForm({ ...form, competitors: e.target.value })} />
-        <input placeholder="Decision this informs" value={form.decision} onChange={(e) => setForm({ ...form, decision: e.target.value })} />
+        <input placeholder="Company name or industry — that's all you need *"
+               value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })}
+               onKeyDown={(e) => e.key === 'Enter' && form.product.trim() && !busy && generate()} />
         <button disabled={busy || !form.product.trim()} onClick={generate}>
           {busy ? stage || 'Working…' : '✦ Generate report'}
         </button>
       </div>
+      <p className="muted small">
+        The engine researches and infers the rest — what the company does, its market, the five
+        closest peers (justified), and the innovation-strategy framing.
+      </p>
       {saved.length > 0 && !rep && (
         <p className="muted small">Saved: {saved.slice(0, 5).map((s0) => (
           <button key={s0.id} className="chip" onClick={async () => {

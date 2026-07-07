@@ -767,7 +767,7 @@ def competitive_report(intake: Dict[str, Any]) -> Dict[str, Any]:
     threats, prioritized recommendations — every claim confidence-labeled.
     AI+web when keyed; a complete, realistic demo report otherwise."""
     import os
-    product = intake.get("product") or "Our company"
+    product = intake.get("product") or intake.get("segment") or "Our company"
     competitors = [c for c in (intake.get("competitors") or []) if c.strip()][:6]
     if os.environ.get("ANTHROPIC_API_KEY"):
         try:
