@@ -46,7 +46,7 @@ export default function Audit() {
   const [camps, setCamps] = useState<{ id: number; name: string }[]>([])
   const [res, setRes] = useState<Results | null>(null)
   const [level, setLevel] = useState('practitioner')
-  const [qs, setQs] = useState<{ id: string; dimension: string; statement: string; anchors: Record<string, string> }[]>([])
+  const [qs, setQs] = useState<{ id: string; dimension: string; statement: string; role_specific?: boolean; anchors: Record<string, string> }[]>([])
   const [rubric, setRubric] = useState<Record<string, string>>({})
   const [answers, setAnswers] = useState<Record<string, number | 'na'>>({})
   const [quad, setQuad] = useState<{ points: { campaign: string; maturity: number; value: number }[]; maturity_threshold: number; value_threshold: number; labels: Record<string, string> } | null>(null)
@@ -138,11 +138,13 @@ export default function Audit() {
             </select>
           </div>
           <p className="muted small">Scored 0–4: {Object.entries(rubric).map(([k, v]) => `${k}=${v}`).join(' · ')}.
-            {' '}You see only the {qs.length} questions for your level. "N/A" answers are excluded
+            {' '}Questions are tailored to your role — the {qs.length} you see are asked from your vantage point. "N/A" answers are excluded
             from scoring.</p>
           {qs.map((q) => (
             <div key={q.id} className="card" style={{ marginBottom: '0.5rem' }}>
-              <p className="small"><strong>{q.dimension}</strong> · {q.statement}</p>
+              <p className="small"><strong>{q.dimension}</strong>
+                {q.role_specific && <span className="pill act-approve" title="Phrased for your role — other levels are asked this from their own vantage point"> your view</span>}
+                {' '}· {q.statement}</p>
               <div className="row">
                 {[0, 1, 2, 3, 4].map((v) => (
                   <button key={v} className={answers[q.id] === v ? 'chip chip-active' : 'chip'}

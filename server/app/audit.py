@@ -51,9 +51,15 @@ def band(score: float, cfg: Dict[str, Any]) -> str:
 
 
 def questions_for(level: str) -> List[Dict[str, Any]]:
-    return [{"id": q[0], "dimension": q[1], "statement": q[3],
-             "anchors": seed.anchors_for(q[3])}
-            for q in seed.QUESTIONS if level in q[2]]
+    out = []
+    for q in seed.QUESTIONS:
+        if level not in q[2]:
+            continue
+        statement = seed.STATEMENT_VARIANTS.get(q[0], {}).get(level, q[3])
+        out.append({"id": q[0], "dimension": q[1], "statement": statement,
+                    "role_specific": q[0] in seed.STATEMENT_VARIANTS or len(q[2]) == 1,
+                    "anchors": seed.anchors_for(statement)})
+    return out
 
 
 def dimensions() -> List[Dict[str, Any]]:

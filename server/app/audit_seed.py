@@ -55,7 +55,40 @@ QUESTIONS = [
     ("D8.Q1", "D8", [E, M], "We track a balanced set of innovation metrics across inputs, activities, outputs, and outcomes."),
     ("D8.Q2", "D8", [E, M, P], "Realized value from innovation is measured and attributed."),
     ("D8.Q3", "D8", [E, M], "Metrics drive decisions — portfolio rebalancing, funding, and improvement of the innovation system itself."),
+    # level-exclusive questions: asked ONLY at the vantage point that can answer them
+    ("D1.Q5", "D1", [E], "The board and CEO review innovation performance with the same rigor and cadence as financial performance."),
+    ("D4.Q4", "D4", [M], "I can staff a validated experiment across functions without escalating for permission each time."),
+    ("D3.Q5", "D3", [P], "I know exactly where to take an idea and can see what happens to it at every step afterwards."),
 ]
+
+# Per-level statement variants: the same capability, asked from each role's
+# seat. Falls back to the base statement when a level has no variant.
+STATEMENT_VARIANTS = {
+    "D1.Q1": {E: "We have set an explicit innovation strategy and I can state how it links to business strategy.",
+              M: "The innovation strategy concretely guides which initiatives my area selects and resources.",
+              P: "I know our innovation strategy and can say how my own work connects to it."},
+    "D1.Q3": {E: "I personally sponsor innovation with time, money, and airtime — not just words.",
+              M: "My leadership gives me cover and resources when I back an unproven idea.",
+              P: "When leaders say innovation matters, I see it in what actually gets funded and celebrated."},
+    "D2.Q3": {E: "I can defend every major portfolio decision with transparent criteria rather than sponsorship.",
+              M: "When my initiative is compared to others, the criteria are transparent and consistently applied.",
+              P: "Ideas from my level get judged on the same criteria as ideas from above."},
+    "D3.Q1": {E: "We have an instrumented end-to-end path from idea to scale that I review with data.",
+              M: "I can run an initiative through every stage without inventing the process as I go.",
+              P: "When I submit an idea, a defined process picks it up — it doesn't depend on who I know."},
+    "D5.Q1": {E: "People tell me uncomfortable truths about our innovation efforts without me asking twice.",
+              M: "My team reports failed experiments to me as readily as successes.",
+              P: "I can propose an idea or admit an experiment failed without it hurting my standing."},
+    "D5.Q2": {E: "We fund time, incentives, and recognition for innovation at a level I can point to in the budget.",
+              M: "I can give my people real time for innovation work without missing my targets.",
+              P: "I have actual time in my week for innovation, and it's recognized when I use it."},
+    "D7.Q2": {E: "We have invested in self-service experimentation infrastructure, not just tool licenses.",
+              M: "My teams get data and sandbox access for an experiment in days, not months.",
+              P: "I can get the data and tools to test an idea without favors or workarounds."},
+    "D8.Q2": {E: "I can state the realized value of innovation this year and how it was attributed.",
+              M: "The value my initiatives create is measured with rules I understand and agreed to.",
+              P: "When my idea ships, someone measures what it was worth — and I get to see the number."},
+}
 
 # (id, dim, band_lo, band_hi, title, effort S/M/L, impact H/M/L, horizon)
 RECOMMENDATION_TEMPLATES = [

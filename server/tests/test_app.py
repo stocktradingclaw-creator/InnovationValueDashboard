@@ -2167,10 +2167,19 @@ def test_portfolio_telemetry_features_a_to_g(client):
 
 def test_governance_audit_module(client):
     client.post("/api/demo/seed-lifecycle")
-    # level curation: 16 practitioner, 26 management, 21 executive
-    assert len(client.get("/api/audit/questions", params={"level": "practitioner"}).json()["questions"]) == 16
-    assert len(client.get("/api/audit/questions", params={"level": "management"}).json()["questions"]) == 26
-    assert len(client.get("/api/audit/questions", params={"level": "executive"}).json()["questions"]) == 21
+    # level curation incl. level-exclusive questions: 17 / 27 / 22
+    pq = client.get("/api/audit/questions", params={"level": "practitioner"}).json()["questions"]
+    mq = client.get("/api/audit/questions", params={"level": "management"}).json()["questions"]
+    eq = client.get("/api/audit/questions", params={"level": "executive"}).json()["questions"]
+    assert (len(pq), len(mq), len(eq)) == (17, 27, 22)
+    # role-specific phrasing: same question id, different statement per level
+    d11 = {qs[0]["id"]: qs[0]["statement"] for qs in
+           ([q for q in lvl if q["id"] == "D1.Q1"] for lvl in (pq, mq, eq))}
+    stmts = {next(q["statement"] for q in lvl if q["id"] == "D1.Q1") for lvl in (pq, mq, eq)}
+    assert len(stmts) == 3  # three levels, three different statements
+    # level-exclusive questions land only at their level
+    assert any(q["id"] == "D3.Q5" for q in pq) and not any(q["id"] == "D3.Q5" for q in eq)
+    assert any(q["id"] == "D1.Q5" for q in eq) and not any(q["id"] == "D1.Q5" for q in pq)
 
     camps = client.get("/api/audit/campaigns").json()["campaigns"]
     cid = camps[0]["id"]
