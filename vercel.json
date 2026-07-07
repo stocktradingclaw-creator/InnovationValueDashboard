@@ -5,7 +5,8 @@
       "src": "server/vercel_app.py",
       "use": "@vercel/python",
       "config": {
-        "includeFiles": "server/**"
+        "includeFiles": "server/**",
+        "maxDuration": 300
       }
     },
     {
@@ -28,10 +29,5 @@
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ],
-  "functions": {
-    "server/vercel_app.py": {
-      "maxDuration": 300
-    }
-  }
+  ]
 }
