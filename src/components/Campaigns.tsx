@@ -100,7 +100,10 @@ export default function Campaigns({ ideas, onChanged }: { ideas: Idea[]; onChang
               ))}
             </div>
             <div className="metrics-row">
-              <div className="metric"><span className="muted small">Ideas</span><strong>{mine.length}</strong></div>
+              <div className="metric" role="button" tabIndex={0} style={{ cursor: 'pointer' }}
+                   title="Review these at the gates"
+                   onClick={() => window.dispatchEvent(new CustomEvent('ivd-nav', { detail: 'command' }))}>
+                <span className="muted small">Ideas →</span><strong>{mine.length}</strong></div>
               <div className="metric"><span className="muted small">In review</span>
                 <strong>{mine.filter((i) => !['proposed', 'business_case', 'declined', 'backlog'].includes(i.status)).length}</strong></div>
               <div className="metric"><span className="muted small">Converted to cases</span><strong>{converted}</strong></div>
@@ -108,6 +111,7 @@ export default function Campaigns({ ideas, onChanged }: { ideas: Idea[]; onChang
             </div>
             {c.status === 'active' && (
               <button className="secondary" onClick={async () => {
+                if (!window.confirm(`Close "${c.title}"? Results: ${mine.length} ideas, ${converted} case(s), ${money(value)}/yr surfaced.`)) return
                 await closeChallenge(c.id).catch(() => {})
                 toast(`Campaign closed — ${converted} case(s) and ${money(value)}/yr surfaced.`)
                 load(); onChanged()

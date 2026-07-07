@@ -29,7 +29,6 @@ interface Advisory {
   recommendations: { key: string | null; title: string; why: string; action: string }[]
 }
 
-const H_LABELS: Record<string, string> = { h1: 'H1 · Core', h2: 'H2 · Adjacent', h3: 'H3 · Transformational' }
 
 interface Telemetry {
   strategy_context: { ambition: string; disruption_current: number; susceptibility: number; target_onn: Record<string, number> }
@@ -157,33 +156,6 @@ function AdvisoryPanel() {
   if (!a) return null
   return (
     <>
-      <div className="card">
-        <div className="card-header">
-          <h3>Portfolio balance — vs the 70 / 20 / 10 target</h3>
-          <span className="muted small">{money(a.total_pipeline_value)}/yr active pipeline</span>
-        </div>
-        {a.balance.map((b) => (
-          <div key={b.horizon} className="initiative-row">
-            <div className="initiative-head">
-              <strong>{H_LABELS[b.horizon] ?? b.horizon}</strong>
-              <span className={`pill ${b.verdict === 'on-target' ? 'act-approve' : 'act-verify'}`}>
-                {Math.round(b.share * 100)}% vs {Math.round(b.target * 100)}% target · {b.verdict}
-              </span>
-            </div>
-            <div className="funnel-track">
-              <div className="funnel-bar stage-committed" style={{ width: `${b.share * 100}%` }} />
-            </div>
-            <div className="funnel-track thin">
-              <div className="funnel-bar stage-verified" style={{ width: `${b.target * 100}%` }} />
-            </div>
-          </div>
-        ))}
-        <p className="muted small">
-          Top bar: your share of pipeline value. Thin bar: target. Single-bet concentration:{' '}
-          <strong>{Math.round(a.concentration_top_case * 100)}%</strong> of value in the largest case.
-        </p>
-      </div>
-
       <div className="card">
         <h3>How this portfolio compares to peers</h3>
         <table className="kpi-table">

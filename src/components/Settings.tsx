@@ -206,8 +206,11 @@ function UserProfiles() {
   const [caps, setCaps] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [pending, setPending] = useState<{ name: string; at: string }[]>([])
   useEffect(() => {
     getUsers().then((r) => { setUsers(r.users); setRoles(r.roles); setCaps(r.capabilities) })
+    fetch('/api/auth/access-requests').then((r) => r.json())
+      .then((d) => setPending(d.requests)).catch(() => {})
   }, [])
   const edit = (i: number, patch: Partial<UserProfile>) =>
     setUsers(users.map((u, j) => (j === i ? { ...u, ...patch } : u)))
@@ -225,6 +228,17 @@ function UserProfiles() {
           <li key={r}><strong>{r}</strong> — {c}</li>
         ))}
       </ul>
+      {pending.length > 0 && (
+        <p className="small pending-action">
+          {pending.length} access request(s) waiting:{' '}
+          {pending.map((r) => (
+            <button key={r.name} className="chip"
+                    onClick={() => setUsers([...users, { name: r.name, role: 'contributor' }])}>
+              + add {r.name} ({r.at})
+            </button>
+          ))} — set a password and save to let them in.
+        </p>
+      )}
       {users.map((u, i) => (
         <div key={i} className="row objective-row">
           <input placeholder="Name" value={u.name} onChange={(e) => edit(i, { name: e.target.value })} />

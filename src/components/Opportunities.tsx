@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { money } from '../api'
+import { money, toast } from '../api'
 import type { Opportunity, PrioritizationSummary, Quadrant } from '../types'
 
 interface Props {
@@ -179,6 +179,7 @@ export default function Opportunities({
             <th className="num">Payback</th>
             <th>Complexity</th>
             <th>Quadrant</th>
+            <th />
           </tr>
         </thead>
         <tbody>
@@ -217,6 +218,20 @@ export default function Opportunities({
                   <span className={`pill quad-${o.priority.quadrant}`}>
                     {QUADRANT_LABELS[o.priority.quadrant]}
                   </span>
+                </td>
+                <td>
+                  <button className="chip" onClick={async (e) => {
+                    e.stopPropagation()
+                    const r = await fetch('/api/integrations/capture', { method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ title: o.title, description: o.description,
+                        source: 'ideate-detected',
+                        submitter: localStorage.getItem('ivd_user') || undefined }) })
+                    if (!r.ok) { toast('Promotion failed — sign in and retry.'); return }
+                    toast('Promoted — opening the Ideation Funnel.')
+                    window.setTimeout(() => window.dispatchEvent(
+                      new CustomEvent('ivd-nav', { detail: 'ideate-funnel' })), 900)
+                  }}>↑ Promote</button>
                 </td>
               </tr>
               {expanded === o.id && (

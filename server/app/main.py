@@ -158,8 +158,24 @@ def request_access(body: AccessRequest) -> Dict[str, Any]:
                   f"Access request: {body.name.strip()} wants to join this workspace"
                   + (f" — \"{body.note.strip()}\"" if body.note else "")
                   + ". Add them in Hub Settings → User profiles.")
+    import json as _json
+    pending = _json.loads(db.meta_get("access_requests") or "[]")
+    pending = [r for r in pending if r["name"] != body.name.strip().lower()]
+    pending.append({"name": body.name.strip().lower(), "note": body.note or "",
+                    "at": db._now()[:10]})
+    db.meta_set("access_requests", _json.dumps(pending))
     db.audit("auth.request_access", body.name.strip().lower())
     return {"ok": True, "admins_notified": len(admins)}
+
+
+@app.get("/api/auth/access-requests")
+def access_requests() -> Dict[str, Any]:
+    import json as _json
+    pending = _json.loads(db.meta_get("access_requests") or "[]")
+    have = {u["name"] for u in db.list_users()}
+    pending = [r for r in pending if r["name"] not in have]
+    db.meta_set("access_requests", _json.dumps(pending))
+    return {"requests": pending}
 
 
 @app.get("/api/auth/me")

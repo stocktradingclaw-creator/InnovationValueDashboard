@@ -329,6 +329,12 @@ export default function App() {
       setSeeded(Boolean((demoState as { seeded?: boolean }).seeded))
       setPortfolioReport(await getPortfolioDiagnostic().catch(() => null))
       setOffline(false)
+      const who = localStorage.getItem('ivd_user')
+      if (who) {
+        import('./api').then(({ getMyWork }) =>
+          getMyWork(who).then((r) => setNeedsMe(r.items.filter((i) => i.kind === 'respond').length))
+            .catch(() => {}))
+      }
     } catch {
       setOffline(true)
     }
@@ -341,12 +347,6 @@ export default function App() {
       .finally(() => setAuthChecked(true))
     const onAuthRequired = () => { setAuthRequired(true); setMe(null) }
     const onNav = (e: Event) => setTab((e as CustomEvent).detail as Tab)
-    const who = localStorage.getItem('ivd_user')
-    if (who) {
-      import('./api').then(({ getMyWork }) =>
-        getMyWork(who).then((r) => setNeedsMe(r.items.filter((i) => i.kind === 'respond').length))
-          .catch(() => {}))
-    }
     window.addEventListener('ivd-auth-required', onAuthRequired)
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {

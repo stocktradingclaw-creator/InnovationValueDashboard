@@ -185,6 +185,18 @@ function SubmitForm({ challenges, initiatives, categories, onChanged }: { challe
         <p className="muted small">Draft saved automatically — safe to leave and come back.</p>
       )}
       {step === 1 && (<>
+      {activeChallenges.length > 0 && !challengeId && (
+        <p className="muted small">Answering a campaign?{' '}
+          {activeChallenges.map((c) => (
+            <button key={c.id} type="button" className="chip"
+                    onClick={() => setChallengeId(c.id)}>{c.title}</button>
+          ))}
+        </p>
+      )}
+      {challengeId && (
+        <p className="muted small">✓ Answering: {activeChallenges.find((c) => c.id === challengeId)?.title}{' '}
+          <button type="button" className="chip" onClick={() => setChallengeId('')}>✕</button></p>
+      )}
       <input placeholder="Title — what's the idea in one line?" value={title} onChange={(e) => setTitle(e.target.value)} />
       {similar.length > 0 && (
         <div className="similar-box">
@@ -258,7 +270,9 @@ function SubmitForm({ challenges, initiatives, categories, onChanged }: { challe
                 onClick={() => fillFromAI(2)}>✦ Draft with AI — fill who it's for</button>
       </div>
       <div className="row">
-        <input placeholder="Your name" value={submitter} onChange={(e) => setSubmitter(e.target.value)} />
+        {localStorage.getItem('ivd_user')
+          ? <span className="badge">as <strong>{submitter}</strong></span>
+          : <input placeholder="Your name" value={submitter} onChange={(e) => setSubmitter(e.target.value)} />}
         <input placeholder="Category — pick or type your own (optional)" value={category}
                list="idea-categories" onChange={(e) => setCategory(e.target.value)} />
         <datalist id="idea-categories">
@@ -511,7 +525,9 @@ function Social({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
         </div>
       ))}
       <div className="row">
-        <input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 140 }} />
+        {localStorage.getItem('ivd_user')
+          ? <span className="badge">for <strong>{name}</strong></span>
+          : <input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 140 }} />}
         <input
           placeholder='Add a comment — or check "build on" to extend the idea'
           value={text}
