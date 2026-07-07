@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getGenome, getMyWork, getPnl, loadSamples, money } from '../api'
+import { exportUrl, getGenome, getMyWork, getPnl, loadSamples, money } from '../api'
 import { getInitiatives as getObjectives } from '../api'
 import { useEffect } from 'react'
 import { getInitiatives } from '../api'
@@ -532,7 +532,7 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
           Present
         </button>
         <button className="secondary"
-                onClick={() => window.open('/api/reports/board-pack?format=html', '_blank')}
+                onClick={() => window.open(exportUrl('/api/reports/board-pack?format=html'), '_blank')}
                 title="Opens a print-ready page — save as PDF from the print dialog">
           Export board pack (PDF)
         </button>

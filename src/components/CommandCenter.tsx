@@ -181,14 +181,25 @@ function GateActions({
                 toast('Declined.')
                 return
               }
+              if (decision === 'hold' && !comment.trim()) {
+                const why = window.prompt('Why hold this? (required — the backlog shows it)')
+                if (!why) { setBusy(null); return }
+                setComment(why)
+              }
               if (decision === 'advance' || decision === 'develop' || decision === 'hold') {
-                // reversible window: commit after 8s unless undone
+                // commit immediately; offer a server-backed undo
                 setBusy(decision)
-                const timer = window.setTimeout(fire, 8000)
-                toast(`${label} — applying in a few seconds`, () => {
-                  window.clearTimeout(timer)
-                  setBusy(null)
-                })
+                await fire()
+                if (decision !== 'develop') {
+                  toast(`${label} — done.`, async () => {
+                    await decide({ subject_type: 'idea', subject_id: ideaId,
+                                   decision: 'revert_last' as Parameters<typeof decide>[0]['decision'],
+                                   actor: actor || undefined }).catch(() => {})
+                    onDone()
+                  })
+                } else {
+                  toast('Business case drafted — waiting at executive review.')
+                }
                 return
               }
               setBusy(decision)
@@ -283,11 +294,15 @@ function IdeaGateCard({
         {idea.assessment?.recommendation === 'fast_track' && (
           <button className="chip" title="Triage recommends fast-tracking: runs every gate and drafts the business case in one step"
                   onClick={async () => {
-                    await decide({ subject_type: 'idea', subject_id: idea.id,
-                                   decision: 'fast_track' as Parameters<typeof decide>[0]['decision'],
-                                   actor: actor || undefined }).catch(() => {})
-                    toast('Fast-tracked — business case drafted, waiting at executive review.')
-                    onDone()
+                    try {
+                      await decide({ subject_type: 'idea', subject_id: idea.id,
+                                     decision: 'fast_track' as Parameters<typeof decide>[0]['decision'],
+                                     actor: actor || undefined })
+                      toast('Fast-tracked — business case drafted, waiting at executive review.')
+                      onDone()
+                    } catch (e) {
+                      toast(`Fast-track failed: ${e instanceof Error ? e.message : e}`)
+                    }
                   }}>⚡ Fast-track to business case</button>
         )}
         {idea.review_summary && idea.review_summary.count > 0 && (
@@ -737,9 +752,14 @@ export default function CommandCenter({ onChanged }: Props) {
                if (!id || i === 0) return
                const from = queue.idea_steps.findIndex((st) => st.ideas.some((x) => x.id === id))
                if (from !== i - 1) return  // only the next gate accepts a drop
-               await decide({ subject_type: 'idea', subject_id: id, decision: 'advance',
-                              actor: actor || undefined,
-                              comment: 'advanced by drag on the board' }).catch(() => {})
+               try {
+                 await decide({ subject_type: 'idea', subject_id: id, decision: 'advance',
+                                actor: actor || undefined,
+                                comment: 'advanced by drag on the board' })
+                 toast('Gate passed.')
+               } catch (e) {
+                 toast(`Could not pass the gate: ${e instanceof Error ? e.message : e}`)
+               }
                refresh()
              }}>
           <h3 className={`gate-head ${i > 0 ? 'spaced' : ''}`} id={`cc-step-${step.key}`}

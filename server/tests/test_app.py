@@ -2231,3 +2231,24 @@ def test_flow_optimizations(client):
     assert client.get("/api/datasets", headers=tok).json()["sources"]
     # perf endpoint live
     assert "queue" in client.get("/api/perf", headers=tok).json() or True
+
+
+def test_p0_journey_fixes(client):
+    client.post("/api/datasets/load-samples")
+    # exports work via ?token= once auth exists
+    tok = client.post("/api/auth/login", json={"name": "ada", "password": "pw"}).json()["token"]
+    assert client.get("/api/reports/board-pack?format=html").status_code == 401
+    assert client.get(f"/api/reports/board-pack?format=html&token={tok}").status_code == 200
+    auth = {"Authorization": f"Bearer {tok}"}
+    idea = client.post("/api/ideas", headers=auth, json={
+        "title": "Test revert", "description": "Reversible decisions build trust."}).json()
+    # advance then server-backed undo restores the prior gate
+    client.post("/api/command/decide", headers=auth, json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "qualify"})
+    r = client.post("/api/command/decide", headers=auth, json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "revert_last"})
+    assert r.status_code == 200 and r.json()["result"]["idea"]["status"] == "proposed"
+    # nothing revertible after a revert
+    assert client.post("/api/command/decide", headers=auth, json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "revert_last",
+    }).status_code == 400

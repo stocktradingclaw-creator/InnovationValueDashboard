@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { addReading, addSavings, implementCase, money, observeBinding } from '../api'
+import { addReading, addSavings, exportUrl, implementCase, money, observeBinding } from '../api'
 import type { BusinessCase } from '../types'
 
 function Evidence({ bc, onChanged }: { bc: BusinessCase; onChanged: () => void }) {
@@ -318,7 +318,7 @@ function ValueLedger() {
         <h3>Verified value ledger</h3>
         <div className="row">
           <span className="savings">{money(total)}/yr verified</span>
-          <a className="chip" href="/api/value-ledger?format=csv" download>Export CSV</a>
+          <a className="chip" href={exportUrl('/api/value-ledger?format=csv')} download>Export CSV</a>
         </div>
       </div>
       <p className="muted small">

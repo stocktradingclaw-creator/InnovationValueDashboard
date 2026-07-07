@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { toast } from '../api'
+import { exportUrl, toast } from '../api'
 
 type Section = 'overview' | 'campaigns' | 'assessment' | 'results' | 'quadrant' | 'roadmap'
 interface DimResult {
@@ -231,7 +231,7 @@ export default function Audit() {
                 await fetch(`/api/audit/campaigns/${cid}/roadmap/generate`, { method: 'POST' })
                 toast('Regenerated — accepted and dismissed items were preserved.'); load()
               }}>Regenerate</button>
-              <a className="chip" href={`/api/audit/campaigns/${cid}/roadmap?format=csv`} download>Export CSV</a>
+              <a className="chip" href={exportUrl(`/api/audit/campaigns/${cid}/roadmap?format=csv`)} download>Export CSV</a>
             </span></div>
           {(['now', 'next', 'later'] as const).map((h) => (
             <div key={h}>

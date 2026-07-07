@@ -471,19 +471,22 @@ function DemoStudio({ onDone }: { onDone: () => void }) {
           setSeeding(true)
           try {
             const r = await seedLifecycle()
-            setSeedMsg(`Seeded ${r.ideas} ideas and ${r.cases} business cases across every phase.`)
+            setSeedMsg(`Seeded ${r.ideas ?? ''} ideas and ${r.cases ?? ''} business cases across every phase.`)
+            onDone()
           } catch (e) { setSeedMsg(e instanceof Error ? e.message : String(e)) }
           finally { setSeeding(false) }
         }}>{seeding ? 'Seeding…' : 'Seed full-lifecycle sample data'}</button>
         <button className="secondary" onClick={async () => {
           const res = await fetch('/api/demo/clear', { method: 'POST' })
           const d = await res.json()
-          setSeedMsg(res.ok ? d.note : 'Clear failed.')
+          setSeedMsg(res.ok ? d.note : d.detail ?? 'Clear failed.')
+          onDone()
         }}>Clear company/industry data</button>
         <button className="secondary" onClick={async () => {
-          if (!window.confirm('Clear ALL demo data? The hub will be empty until re-seeded.')) return
+          if (window.prompt('This wipes EVERYTHING — ideas, cases, ledger, audits. Type CLEAR to confirm.') !== 'CLEAR') return
           const res = await fetch('/api/demo/clear?all=true', { method: 'POST' })
           setSeedMsg(res.ok ? 'Everything cleared — the hub is empty.' : 'Clear failed.')
+          onDone()
         }}>Clear everything</button>
         {seedMsg && <span className="muted small">{seedMsg}</span>}
       </div>

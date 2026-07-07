@@ -1,5 +1,30 @@
 import type { BusinessCase, Opportunity, SourceStatus } from './types'
 
+// Wrap window.fetch once: any same-origin /api call gets the bearer token,
+// and 401s trigger the auth-required flow. Raw fetch() in components is then
+// safe by construction.
+const _rawFetch = window.fetch.bind(window)
+window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+  if (url.startsWith('/api')) {
+    const token = localStorage.getItem('ivd_token')
+    const headers = new Headers(init?.headers ?? (typeof input === 'object' && 'headers' in input ? (input as Request).headers : undefined))
+    if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`)
+    const res = await _rawFetch(input, { ...init, headers })
+    if (res.status === 401 && !url.startsWith('/api/auth')) {
+      window.dispatchEvent(new Event('ivd-auth-required'))
+    }
+    return res
+  }
+  return _rawFetch(input, init)
+}) as typeof window.fetch
+
+export function exportUrl(path: string): string {
+  const token = localStorage.getItem('ivd_token')
+  if (!token) return path
+  return path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token)
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = localStorage.getItem('ivd_token')
   const headers = new Headers(init?.headers)

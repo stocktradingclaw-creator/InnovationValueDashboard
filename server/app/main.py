@@ -78,6 +78,8 @@ async def _auth_middleware(request, call_next):
     token = (request.headers.get("authorization") or "")
     if token.lower().startswith("bearer "):
         user = db.session_user(token[7:])
+    elif request.query_params.get("token"):
+        user = db.session_user(request.query_params["token"])
     _CURRENT_USER.set(user)
     if (path.startswith("/api") and not path.startswith("/api/auth")
             and path != "/api/workspace/start"
@@ -894,7 +896,7 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
     if body.subject_type not in ("idea", "case"):
         raise HTTPException(400, "subject_type must be 'idea' or 'case'")
     valid = ("approve", "advance", "reject", "feedback", "experiment",
-             "qualify", "prioritize", "hold", "develop", "resume", "fast_track")
+             "qualify", "prioritize", "hold", "develop", "resume", "fast_track", "revert_last")
     if body.decision not in valid:
         raise HTTPException(400, f"decision must be one of {valid}")
     db.audit(f"decide.{body.decision}", _session_name() or body.actor,
@@ -924,6 +926,26 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
                 raise HTTPException(400, f"'prioritize' applies at the gate before development (status: {idea['status']})")
             decision = "advance"
 
+        if decision == "revert_last":
+            blocked = hub.check_role("reviewer", _session_name() or body.actor)
+            if blocked:
+                raise HTTPException(403, blocked)
+            events = db.events_for("idea", idea["id"])
+            last = events[-1] if events else None
+            if not last or last["action"] not in ("advance", "hold"):
+                raise HTTPException(400, "nothing revertible — only the immediately "
+                                         "preceding advance/hold can be undone")
+            if last["action"] == "hold":
+                target = keys[1] if len(keys) > 1 else keys[0]
+            else:
+                pos_r = _workflow_position(idea["status"])
+                if pos_r <= 0:
+                    raise HTTPException(400, "already at intake")
+                target = keys[pos_r - 1]
+            db.update_idea(idea["id"], target)
+            db.add_workflow_event("idea", idea["id"], "revert", body.actor,
+                                  f"undid {last['action']}")
+            return {"result": {"idea": db.get_idea(idea["id"])}}
         if decision == "fast_track":
             blocked = hub.check_role("reviewer", _session_name() or body.actor)
             if blocked:

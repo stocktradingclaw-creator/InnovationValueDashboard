@@ -648,11 +648,17 @@ function IdeateFunnel({ ideas, onChanged }: { ideas: import('../types').Idea[]; 
   const decide = async (id: string, decision: string) => {
     setBusy(id)
     try {
-      await fetch('/api/command/decide', { method: 'POST',
+      const r = await fetch('/api/command/decide', { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subject_type: 'idea', subject_id: id, decision,
           actor: localStorage.getItem('ivd_user') || undefined,
           comment: 'endorsed from the Ideate funnel' }) })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        toast(`Could not ${decision}: ${d.detail ?? r.statusText}. ` +
+          (r.status === 403 ? 'Sign in as a reviewer, or set who you are on the Approvals tab.' : ''))
+        return
+      }
       toast(decision === 'qualify' ? 'Pushed into the formal stage-gate process.' : 'Declined.')
       onChanged()
     } finally { setBusy(null) }
