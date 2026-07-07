@@ -807,7 +807,7 @@ export default function CommandCenter({ onChanged }: Props) {
             {openCase === c.id ? 'Hide business case' : '▤ Review business case & ROI model'}
           </button>
           {openCase === c.id && (<>
-            <CfoView caseId={c.id} />
+            <CfoView caseId={c.id} title={c.title} description={c.description} />
             <PlanView plan={c.roi_plan} />
           </>)}
           <RedTeam bc={c} onDone={refresh} />

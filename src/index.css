@@ -1869,3 +1869,6 @@ body.present .content { max-width: 1400px; padding: 2rem 3rem; }
 .pnl-dot-pos { fill: var(--info); }
 .pnl-dot-neg { fill: var(--danger-soft); }
 .pnl-label { fill: var(--muted); font-size: 10px; }
+
+.cfo-inputs label { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; min-width: 110px; }
+.cfo-inputs input { width: 100%; }

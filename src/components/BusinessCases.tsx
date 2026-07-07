@@ -65,14 +65,24 @@ function PnlChart({ fin }: { fin: Financials }) {
   )
 }
 
-export function CfoView({ caseId }: { caseId: string }) {
+export function CfoView({ caseId, title, description }: { caseId: string; title?: string; description?: string }) {
   const [fin, setFin] = useState<Financials | null>(null)
   const [horizon, setHorizon] = useState(3)
   const [rate, setRate] = useState(0.10)
+  const [benefitIn, setBenefitIn] = useState('')
+  const [costIn, setCostIn] = useState('')
+  const [rampIn, setRampIn] = useState('60')
+  const [runIn, setRunIn] = useState('15')
   useEffect(() => {
-    fetch(`/api/business-cases/${caseId}/financials?horizon_years=${horizon}&discount_rate=${rate}`)
+    const q = new URLSearchParams({
+      horizon_years: String(horizon), discount_rate: String(rate),
+      ramp: String(Number(rampIn || 60) / 100), run_rate_pct: String(Number(runIn || 15) / 100),
+    })
+    if (benefitIn) q.set('benefit_override', benefitIn)
+    if (costIn) q.set('cost_override', costIn)
+    fetch(`/api/business-cases/${caseId}/financials?${q}`)
       .then((r) => r.json()).then(setFin).catch(() => {})
-  }, [caseId, horizon, rate])
+  }, [caseId, horizon, rate, benefitIn, costIn, rampIn, runIn])
   if (!fin) return null
   return (
     <div className="plan">
@@ -89,6 +99,26 @@ export function CfoView({ caseId }: { caseId: string }) {
             {[0.08, 0.10, 0.12, 0.15].map((r) => <option key={r} value={r}>{Math.round(r * 100)}% discount</option>)}
           </select>
         </div>
+      </div>
+      <div className="row cfo-inputs">
+        <label className="small">Benefit $/yr
+          <input type="text" inputMode="numeric" placeholder={String(Math.round(fin.annual_benefit))}
+                 value={benefitIn} onChange={(e) => setBenefitIn(e.target.value.replace(/[^0-9]/g, ''))} /></label>
+        <label className="small">Impl. cost $
+          <input type="text" inputMode="numeric" placeholder={String(Math.round(fin.implementation_cost))}
+                 value={costIn} onChange={(e) => setCostIn(e.target.value.replace(/[^0-9]/g, ''))} /></label>
+        <label className="small">Y1 ramp %
+          <input type="text" inputMode="numeric" value={rampIn}
+                 onChange={(e) => setRampIn(e.target.value.replace(/[^0-9]/g, ''))} /></label>
+        <label className="small">Run cost %/yr
+          <input type="text" inputMode="numeric" value={runIn}
+                 onChange={(e) => setRunIn(e.target.value.replace(/[^0-9]/g, ''))} /></label>
+        <button type="button" className="secondary" onClick={async () => {
+          const r = await assistDescription({ title: title ?? 'business case', description }).catch(() => null)
+          const est = r?.fields?.estimated_annual_benefit
+          if (est) { setBenefitIn(String(Math.round(est))); toast(`AI set benefit from detected data (~$${Math.round(est / 1000)}k/yr).`) }
+          else toast('AI found no grounded benefit for this one — model with your own inputs.')
+        }}>✦ AI-suggest inputs</button>
       </div>
       <div className="metrics-row">
         <div className="metric"><span className="muted small">ROI ({horizon}yr)</span>

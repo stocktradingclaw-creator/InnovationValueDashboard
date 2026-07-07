@@ -1997,7 +1997,11 @@ def metric_deltas() -> Dict[str, Any]:
 
 @app.get("/api/business-cases/{case_id}/financials")
 def case_financials(case_id: str, horizon_years: int = Query(3, ge=1, le=7),
-                    discount_rate: float = Query(0.10, ge=0.0, le=0.5)) -> Dict[str, Any]:
+                    discount_rate: float = Query(0.10, ge=0.0, le=0.5),
+                    benefit_override: Optional[float] = Query(None, ge=0),
+                    cost_override: Optional[float] = Query(None, ge=0),
+                    ramp: float = Query(0.6, ge=0.0, le=1.0),
+                    run_rate_pct: float = Query(0.15, ge=0.0, le=1.0)) -> Dict[str, Any]:
     """CFO-grade financial model for one case, grounded in customer data:
     benefits come from the matched opportunity detected in their own systems
     (calibration-discounted), verified actuals override forecasts once
@@ -2025,21 +2029,28 @@ def case_financials(case_id: str, horizon_years: int = Query(3, ge=1, le=7),
         assumptions.append("Benefit is submitter-estimated — no matched customer data; "
                            "treat as low confidence until bindings observe actuals.")
 
+    if benefit_override is not None:
+        annual_benefit = benefit_override
+        grounding, assumptions = [], ["Annual benefit set by the approver as a modeling input."]
     funding = case.get("funding") or {}
-    implementation_cost = funding.get("planned") or case.get("estimated_cost") or annual_benefit * 0.3
+    implementation_cost = (cost_override if cost_override is not None else
+                           funding.get("planned") or case.get("estimated_cost")
+                           or annual_benefit * 0.3)
+    if cost_override is not None:
+        assumptions.append("Implementation cost set by the approver as a modeling input.")
     if funding.get("planned"):
         grounding.append("Implementation cost equals planned funding tranches — the amounts "
                          "governance actually committed.")
     else:
         assumptions.append("Implementation cost estimated (no tranches planned yet); "
                            "default heuristic 30% of first-year benefit when unstated.")
-    run_rate = implementation_cost * 0.15
-    assumptions.append("Ongoing run cost assumed at 15% of implementation cost per year.")
-    assumptions.append("Year-1 benefit ramps at 60% (partial-year adoption); full run-rate after.")
+    run_rate = implementation_cost * run_rate_pct
+    assumptions.append(f"Ongoing run cost at {run_rate_pct:.0%} of implementation cost per year.")
+    assumptions.append(f"Year-1 benefit ramps at {ramp:.0%} (partial-year adoption); full run-rate after.")
 
     cash_flows, cumulative, payback_months = [], -implementation_cost, None
     for year in range(1, horizon_years + 1):
-        benefit = annual_benefit * (0.6 if year == 1 else 1.0)
+        benefit = annual_benefit * (ramp if year == 1 else 1.0)
         net = benefit - run_rate
         cash_flows.append({"year": year, "benefit": round(benefit, 2),
                            "cost": round(run_rate, 2), "net": round(net, 2)})
