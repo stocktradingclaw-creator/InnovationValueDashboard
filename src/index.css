@@ -1850,3 +1850,13 @@ body.present .content { max-width: 1400px; padding: 2rem 3rem; }
 .value-flow svg:hover .seg { opacity: 0.45; }
 .value-flow svg .seg:hover, .value-flow svg .seg-hot { opacity: 1; }
 .flow-caption { margin: 0.3rem 0 0; min-height: 2.2em; }
+
+.approval-chain { margin: 0.4rem 0 0.8rem; }
+.chain-step { display: flex; gap: 0.6rem; align-items: baseline; padding: 0.22rem 0; }
+.chain-marker { width: 18px; text-align: center; flex-shrink: 0; }
+.chain-done .chain-marker { color: var(--accent); }
+.chain-current { background: var(--surface-2); border-radius: 8px; }
+.chain-current .chain-marker { color: var(--info); }
+.chain-pending { opacity: 0.55; }
+.chain-ended .chain-marker { color: var(--danger-soft); }
+.pending-action { border-left: 3px solid var(--info); padding-left: 0.7rem; margin: 0.4rem 0 0.7rem; }
