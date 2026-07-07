@@ -35,10 +35,45 @@ def _session_name() -> Optional[str]:
     return user["name"] if user else None
 
 
+from collections import defaultdict as _dd, deque as _dq
+import time as _time
+
+_PERF: Dict[str, Any] = _dd(lambda: _dq(maxlen=300))
+_PERF_KEYS = {"/api/integrations/capture": "capture", "/api/command/decide": "decide",
+              "/api/command/queue": "queue", "/api/value-ledger": "ledger"}
+
+
+@app.get("/api/bootstrap")
+def bootstrap() -> Dict[str, Any]:
+    """Everything the shell needs for first paint, in one round trip."""
+    ds = db.dataset_meta()
+    return {
+        "me": {"auth_required": bool(db.list_users()), "user": _CURRENT_USER.get(),
+               "workspace": db.meta_get("workspace_name")},
+        "demo": {"demo": demo.status(), "seeded": bool(db.meta_get("seeded_lifecycle"))},
+        "has_data": bool(ds),
+        "ideas": db.list_ideas(),
+        "context": {"company": db.meta_get("context_company") or "",
+                    "industry": db.meta_get("context_industry") or ""},
+    }
+
+
+@app.get("/api/perf")
+def perf_stats() -> Dict[str, Any]:
+    out = {}
+    for k, xs in _PERF.items():
+        v = sorted(xs)
+        if v:
+            out[k] = {"n": len(v), "p50_ms": round(v[len(v) // 2], 1),
+                      "p95_ms": round(v[max(int(len(v) * 0.95) - 1, 0)], 1)}
+    return out
+
+
 @app.middleware("http")
 async def _auth_middleware(request, call_next):
     from fastapi.responses import JSONResponse
     path = request.url.path
+    _t0 = _time.perf_counter()
     user = None
     token = (request.headers.get("authorization") or "")
     if token.lower().startswith("bearer "):
@@ -48,7 +83,10 @@ async def _auth_middleware(request, call_next):
             and path != "/api/workspace/start"
             and user is None and db.list_users()):
         return JSONResponse({"detail": "Sign in required"}, status_code=401)
-    return await call_next(request)
+    resp = await call_next(request)
+    if path in _PERF_KEYS:
+        _PERF[_PERF_KEYS[path]].append((_time.perf_counter() - _t0) * 1000)
+    return resp
 
 
 class StartRequest(BaseModel):
@@ -56,6 +94,7 @@ class StartRequest(BaseModel):
     company: str
     email: str
     password: str
+    with_samples: bool = False
 
 
 @app.post("/api/workspace/start")
@@ -73,6 +112,8 @@ def start_workspace(body: StartRequest) -> Dict[str, Any]:
     db.meta_set("workspace_name", body.company.strip())
     db.meta_set("workspace_owner_email", body.email.strip())
     user = db.create_user(body.name.strip().lower(), "admin", body.password)
+    if body.with_samples:
+        load_samples()
     db.audit("workspace.start", user["name"], detail=body.company.strip())
     return {"token": db.create_session(user["name"]), "user": user,
             "workspace": body.company.strip()}
@@ -459,9 +500,19 @@ class IdeaRequest(BaseModel):
     initiative_ids: Optional[List[str]] = None
 
 
+_OPPS_CACHE: Dict[str, Any] = {}
+
+
 def _prioritized_opps() -> List[Dict[str, Any]]:
+    import os as _os
+    key = (_os.environ.get("IVD_DB_PATH", ""), db.meta_get("datasets_version") or "0")
+    hit = _OPPS_CACHE.get("k") == key and (_time.perf_counter() - _OPPS_CACHE.get("t", 0)) < 60
+    if hit:
+        return _OPPS_CACHE["v"]
     weights = hub.get_scoring_config()["opportunity_weights"]
-    return prioritization.prioritize(_analyze(), weights, calibration.factors())["opportunities"]
+    v = prioritization.prioritize(_analyze(), weights, calibration.factors())["opportunities"]
+    _OPPS_CACHE.update({"k": key, "t": _time.perf_counter(), "v": v})
+    return v
 
 
 def _ingest_idea(body: IdeaRequest, source: str,
@@ -808,9 +859,11 @@ def command_queue() -> Dict[str, Any]:
     ideas = db.list_ideas()
     cases = db.list_business_cases()
 
+    review_map = db.review_summaries_bulk()
     def _with_checklist(items):
         return [{**i, "gate_checklist": hub.gate_checklist(i),
-                 "review_summary": db.review_summary(i["id"])} for i in items]
+                 "review_summary": review_map.get(i["id"], {"count": 0, "average": None})}
+                for i in items]
 
     steps = hub.get_workflow()
     return {
@@ -826,10 +879,7 @@ def command_queue() -> Dict[str, Any]:
         "cases_pending_approval": [c for c in cases if c["stage"] in ("draft", "proposed")],
         "cases_in_experiment": [c for c in cases if c["stage"] == "experiment"],
         "cases_in_motion": [
-            {**c, "approved_by": next((e["actor"] for e in reversed(db.events_for("case", c["id"]))
-                                       if e["action"] == "approve"), None),
-             "approved_at": next((e["created_at"][:10] for e in reversed(db.events_for("case", c["id"]))
-                                  if e["action"] == "approve"), None)}
+            {**c, **db.approvals_bulk().get(c["id"], {"approved_by": None, "approved_at": None})}
             for c in cases if c["stage"] in ("approved", "in_delivery")],
         "history": db.workflow_events(30),
         "governance": hub.get_governance(),
@@ -844,7 +894,7 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
     if body.subject_type not in ("idea", "case"):
         raise HTTPException(400, "subject_type must be 'idea' or 'case'")
     valid = ("approve", "advance", "reject", "feedback", "experiment",
-             "qualify", "prioritize", "hold", "develop", "resume")
+             "qualify", "prioritize", "hold", "develop", "resume", "fast_track")
     if body.decision not in valid:
         raise HTTPException(400, f"decision must be one of {valid}")
     db.audit(f"decide.{body.decision}", _session_name() or body.actor,
@@ -874,6 +924,22 @@ def command_decide(body: DecisionRequest) -> Dict[str, Any]:
                 raise HTTPException(400, f"'prioritize' applies at the gate before development (status: {idea['status']})")
             decision = "advance"
 
+        if decision == "fast_track":
+            blocked = hub.check_role("reviewer", _session_name() or body.actor)
+            if blocked:
+                raise HTTPException(403, blocked)
+            if idea["status"] not in keys:
+                raise HTTPException(400, f"cannot fast-track from '{idea['status']}'")
+            result = None
+            while True:
+                fresh = db.get_idea(idea["id"])
+                pos2 = _workflow_position(fresh["status"])
+                nxt = "develop" if pos2 == len(keys) - 1 else "advance"
+                result = command_decide(DecisionRequest(
+                    subject_type="idea", subject_id=idea["id"], decision=nxt,
+                    actor=body.actor, comment=body.comment or "fast-tracked"))
+                if nxt == "develop":
+                    return result
         if decision == "resume":
             if idea["status"] != "backlog":
                 raise HTTPException(400, "only backlog ideas can be resumed")
@@ -2744,6 +2810,27 @@ def value_ledger(format: str = Query("json")) -> Any:
     """The Verified Value Ledger: every verified dollar traceable to a frozen
     baseline, a data source, and observation dates. This is the audit trail
     self-reported dashboards cannot produce."""
+    from datetime import datetime as _dt, timezone as _tz
+    refreshed = 0
+    for c in db.list_business_cases():
+        for b in c.get("metric_bindings", []):
+            obs = b.get("observations", [])
+            last = obs[-1]["observed_at"] if obs else None
+            stale = True
+            if last:
+                try:
+                    t = _dt.fromisoformat(last.replace("Z", "+00:00"))
+                    if t.tzinfo is None:
+                        t = t.replace(tzinfo=_tz.utc)
+                    stale = (_dt.now(_tz.utc) - t).days > 7
+                except ValueError:
+                    pass
+            if stale and refreshed < 10:
+                try:
+                    observe_binding(c["id"], b["id"])
+                    refreshed += 1
+                except Exception:
+                    pass
     rows = []
     for c in db.list_business_cases():
         for b in c.get("metric_bindings", []):

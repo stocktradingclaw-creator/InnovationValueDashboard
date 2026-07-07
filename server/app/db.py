@@ -317,6 +317,11 @@ def _json_safe(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 # ------------------------------------------------------------------ datasets
 
 def save_dataset(source_type: str, rows: List[Dict[str, Any]], origin: str) -> None:
+    meta_set("datasets_version", _now())
+    return _save_dataset_inner(source_type, rows, origin)
+
+
+def _save_dataset_inner(source_type: str, rows: List[Dict[str, Any]], origin: str) -> None:
     with _conn() as conn:
         conn.execute(
             "INSERT INTO datasets (source_type, rows_json, row_count, origin, updated_at) "
@@ -871,15 +876,19 @@ def notify(recipient: Optional[str], subject_type: str, subject_id: str, message
         )
     url = meta_get("notify_webhook")
     if url:
-        try:
-            import json as _json
-            import urllib.request
-            req = urllib.request.Request(
-                url, data=_json.dumps({"text": f"[Innovation Hub] {message}"}).encode(),
-                headers={"Content-Type": "application/json"})
-            urllib.request.urlopen(req, timeout=2)
-        except Exception:
-            pass  # notifications must never break the workflow
+        import threading
+
+        def _post():
+            try:
+                import json as _json
+                import urllib.request
+                req = urllib.request.Request(
+                    url, data=_json.dumps({"text": f"[Innovation Hub] {message}"}).encode(),
+                    headers={"Content-Type": "application/json"})
+                urllib.request.urlopen(req, timeout=2)
+            except Exception:
+                pass  # notifications must never break the workflow
+        threading.Thread(target=_post, daemon=True).start()
 
 
 
@@ -1368,3 +1377,22 @@ def latest_studio_run(kind: str) -> Optional[Dict[str, Any]]:
         return None
     return {"topic": row["topic"], "horizon": row["horizon"],
             "created_at": row["created_at"], **json.loads(row["output"])}
+
+
+def review_summaries_bulk() -> Dict[str, Dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute("SELECT idea_id, scores FROM reviews").fetchall()
+    agg: Dict[str, list] = {}
+    for r in rows:
+        sc = json.loads(r["scores"])
+        agg.setdefault(r["idea_id"], []).append(sum(sc.values()) / max(len(sc), 1))
+    return {k: {"count": len(v), "average": round(sum(v) / len(v), 1)} for k, v in agg.items()}
+
+
+def approvals_bulk() -> Dict[str, Dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT subject_id, actor, created_at FROM workflow_events "
+            "WHERE subject_type='case' AND action='approve' ORDER BY id").fetchall()
+    return {r["subject_id"]: {"approved_by": r["actor"],
+                              "approved_at": r["created_at"][:10]} for r in rows}

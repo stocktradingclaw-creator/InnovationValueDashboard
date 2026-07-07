@@ -145,6 +145,7 @@ function StartScreen({ onDone, onCancel }: { onDone: (u: AuthUser) => void; onCa
   const [company, setCompany] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [withSamples, setWithSamples] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   return (
@@ -169,7 +170,7 @@ function StartScreen({ onDone, onCancel }: { onDone: (u: AuthUser) => void; onCa
           try {
             const res = await fetch('/api/workspace/start', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name, company, email, password }),
+              body: JSON.stringify({ name, company, email, password, with_samples: withSamples }),
             })
             const d = await res.json()
             if (!res.ok) throw new Error(d.detail ?? 'could not start workspace')
@@ -179,6 +180,11 @@ function StartScreen({ onDone, onCancel }: { onDone: (u: AuthUser) => void; onCa
           } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
           finally { setBusy(false) }
         }}>{busy ? 'Creating…' : 'Create workspace — free'}</button>
+        <label className="small row" style={{ justifyContent: 'center' }}>
+          <input type="checkbox" style={{ width: 'auto', minHeight: 'auto' }}
+                 checked={withSamples} onChange={(e) => setWithSamples(e.target.checked)} />
+          Start with sample data connected (recommended — you can clear it anytime)
+        </label>
         <button className="secondary" onClick={onCancel}>Keep exploring the demo</button>
         {error && <p className="error">{error}</p>}
       </div>

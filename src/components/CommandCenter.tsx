@@ -280,6 +280,16 @@ function IdeaGateCard({
         ))}
       </div>
       <div className="row">
+        {idea.assessment?.recommendation === 'fast_track' && (
+          <button className="chip" title="Triage recommends fast-tracking: runs every gate and drafts the business case in one step"
+                  onClick={async () => {
+                    await decide({ subject_type: 'idea', subject_id: idea.id,
+                                   decision: 'fast_track' as Parameters<typeof decide>[0]['decision'],
+                                   actor: actor || undefined }).catch(() => {})
+                    toast('Fast-tracked — business case drafted, waiting at executive review.')
+                    onDone()
+                  }}>⚡ Fast-track to business case</button>
+        )}
         {idea.review_summary && idea.review_summary.count > 0 && (
           <span className="pill act-approve">
             {idea.review_summary.count} review(s) · avg {idea.review_summary.average}/5

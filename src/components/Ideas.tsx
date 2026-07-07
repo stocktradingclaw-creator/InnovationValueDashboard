@@ -242,8 +242,11 @@ function SubmitForm({ challenges, initiatives, categories, onChanged }: { challe
         </ul>
       )}
       <div className="row">
-        <button type="button" disabled={!title.trim() || !description.trim()}
-                onClick={() => setStep(2)}>Next: who is it for →</button>
+        <button type="button" className="secondary" disabled={!title.trim() || !description.trim()}
+                onClick={() => setStep(2)}>Enrich: who is it for →</button>
+        <button disabled={busy || !title.trim() || !description.trim()} onClick={submit}>
+          {busy ? 'Triaging…' : 'Submit now'}
+        </button>
         {(!title.trim() || !description.trim()) && (
           <span className="muted small">Add a title and description to continue.</span>
         )}
@@ -281,7 +284,10 @@ function SubmitForm({ challenges, initiatives, categories, onChanged }: { challe
       </div>
       <div className="row">
         <button type="button" className="secondary" onClick={() => setStep(1)}>← Back</button>
-        <button type="button" onClick={() => setStep(3)}>Next: value &amp; alignment →</button>
+        <button type="button" className="secondary" onClick={() => setStep(3)}>Enrich: value &amp; alignment →</button>
+        <button disabled={busy || !title.trim() || !description.trim()} onClick={submit}>
+          {busy ? 'Triaging…' : 'Submit now'}
+        </button>
       </div>
       </>)}
       {step === 3 && (<>

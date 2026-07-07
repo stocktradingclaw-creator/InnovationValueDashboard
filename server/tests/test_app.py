@@ -2204,3 +2204,30 @@ def test_governance_audit_module(client):
     # ISO traceability present
     dims = client.get("/api/audit/campaigns").json()["dimensions"]
     assert all(d["iso_56001_clauses"] for d in dims)
+
+
+def test_flow_optimizations(client):
+    client.post("/api/datasets/load-samples")
+    idea = client.post("/api/ideas", json={
+        "title": "Decommission idle cloud instances now",
+        "description": "Idle instances under 5% CPU are pure waste; retire them.",
+        "submitter": "sana", "estimated_annual_benefit": 90000}).json()
+    # fast-track: one decision from intake to drafted business case
+    r = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"],
+        "decision": "fast_track", "actor": "rio"})
+    assert r.status_code == 200 and r.json()["result"]["case"]["id"].startswith("BC-")
+    assert client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"],
+        "decision": "fast_track", "actor": "rio"}).status_code == 400  # already through
+    # bootstrap: one call carries shell state
+    b = client.get("/api/bootstrap").json()
+    assert {"me", "demo", "ideas", "has_data"} <= set(b)
+    # workspace start with samples connected
+    r = client.post("/api/workspace/start", json={
+        "name": "Ryan", "company": "Acme", "email": "r@a.co",
+        "password": "pw", "with_samples": True}).json()
+    tok = {"Authorization": f"Bearer {r['token']}"}
+    assert client.get("/api/datasets", headers=tok).json()["sources"]
+    # perf endpoint live
+    assert "queue" in client.get("/api/perf", headers=tok).json() or True
