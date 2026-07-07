@@ -49,7 +49,7 @@ const BENEFIT_TYPES = [
   ['strategic', 'Strategic capability'],
 ]
 
-function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challenge[]; initiatives: Initiative[]; onChanged: () => void }) {
+function SubmitForm({ challenges, initiatives, categories, onChanged }: { challenges: Challenge[]; initiatives: Initiative[]; categories: string[]; onChanged: () => void }) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [submitter, setSubmitter] = useState(localStorage.getItem('ivd_user') ?? '')
@@ -256,7 +256,11 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
       </div>
       <div className="row">
         <input placeholder="Your name" value={submitter} onChange={(e) => setSubmitter(e.target.value)} />
-        <input placeholder="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} />
+        <input placeholder="Category — pick or type your own (optional)" value={category}
+               list="idea-categories" onChange={(e) => setCategory(e.target.value)} />
+        <datalist id="idea-categories">
+          {categories.map((c) => <option key={c} value={c} />)}
+        </datalist>
         <select value={benefit} onChange={(e) => setBenefit(e.target.value)}
                 aria-label="Estimated annual benefit range">
           <option value="">Est. annual benefit (optional)</option>
@@ -558,6 +562,12 @@ export default function Ideas({ ideas, onChanged }: Props) {
   const [challenges, setChallenges] = useState<Challenge[]>([])
   const [initiatives, setInitiatives] = useState<Initiative[]>([])
   const [initiativeFilter, setInitiativeFilter] = useState('all')
+  const categoryOptions = Array.from(new Set([
+    ...ideas.map((i) => i.category).filter((c): c is string => Boolean(c)),
+    'Service automation', 'Cloud efficiency', 'License optimization',
+    'Process automation', 'Customer experience', 'Data & reporting',
+    'Risk & compliance', 'Idle infrastructure', 'Revenue growth',
+  ])).sort()
   const [notifyName, setNotifyName] = useState('')
   const [notifications, setNotifications] = useState<Notification[] | null>(null)
 
@@ -625,7 +635,7 @@ export default function Ideas({ ideas, onChanged }: Props) {
         </div>
       ) : (
         <>
-      <SubmitForm challenges={challenges} initiatives={initiatives} onChanged={onChanged} />
+      <SubmitForm challenges={challenges} initiatives={initiatives} categories={categoryOptions} onChanged={onChanged} />
 
       <p className="muted small bulk-link">
         Have a whole backlog?{' '}
