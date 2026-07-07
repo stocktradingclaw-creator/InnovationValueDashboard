@@ -2276,3 +2276,136 @@ def test_revert_hold_restores_true_gate(client):
     r = client.post("/api/command/decide", json={
         "subject_type": "idea", "subject_id": idea["id"], "decision": "revert_last", "actor": "rio"})
     assert r.json()["result"]["idea"]["status"] == "prioritized"  # not the hardcoded 2nd gate
+
+
+def test_audit_anonymity_and_small_n_suppression(client):
+    # anonymous campaign: identity never stored with responses; completion still tracked
+    c = client.post("/api/audit/campaigns", json={
+        "name": "Anon pulse", "is_anonymous": True,
+        "invitations": [{"person": "zoe", "level": "practitioner", "org_unit": "Ops"},
+                        {"person": "raj", "level": "executive", "org_unit": "Ops"}]}).json()
+    qs = client.get("/api/audit/questions", params={"level": "practitioner"}).json()["questions"]
+    client.post(f"/api/audit/campaigns/{c['id']}/responses", json={
+        "level": "practitioner", "org_unit": "Ops", "respondent": "zoe",
+        "items": [{"question": q["id"], "score": 3, "is_na": False} for q in qs]})
+    from app import db as _db
+    with _db._conn() as conn:
+        row = conn.execute("SELECT respondent FROM audit_responses WHERE campaign_id=?",
+                           (c["id"],)).fetchone()
+        inv = conn.execute("SELECT status FROM audit_invitations WHERE campaign_id=? "
+                           "AND person='zoe'", (c["id"],)).fetchone()
+    assert row["respondent"] is None            # identity never stored
+    assert inv["status"] == "completed"          # completion tracked separately
+    # small-n suppression: 1 practitioner < MIN_SEGMENT_N -> suppressed, totals intact
+    r = client.get(f"/api/audit/campaigns/{c['id']}/results").json()
+    d1 = next(d for d in r["dimensions"] if d["id"] == "D1")
+    assert d1["by_level"]["practitioner"]["suppressed"] is True
+    assert d1["by_level"]["practitioner"]["score"] is None
+    assert d1["score"] is not None               # rolls into totals anyway
+
+
+def test_ai_key_settings_and_precedence(client):
+    g = client.get("/api/settings/ai").json()
+    assert g["source"] in ("none", "environment")
+    assert client.put("/api/settings/ai", json={"api_key": "not-a-key"}).status_code == 400
+    r = client.put("/api/settings/ai", json={"api_key": "sk-ant-test-workspace-key-000"}).json()
+    assert r["source"] == "workspace" and r["masked"].startswith("sk-ant-tes")
+    from app import hub as _hub
+    assert _hub._ai_key() == "sk-ant-test-workspace-key-000"  # workspace beats environment
+    client.put("/api/settings/ai", json={"api_key": ""})
+    assert client.get("/api/settings/ai").json()["source"] in ("none", "environment")
+
+
+def test_access_request_lifecycle(client):
+    client.post("/api/auth/login", json={"name": "ada", "password": "pw"})
+    client.post("/api/auth/request-access", json={"name": "newbie", "note": "ops analyst"})
+    tok = client.post("/api/auth/login", json={"name": "ada", "password": "pw"}).json()["token"]
+    auth = {"Authorization": f"Bearer {tok}"}
+    reqs = client.get("/api/auth/access-requests", headers=auth).json()["requests"]
+    assert any(r["name"] == "newbie" for r in reqs)
+    client.put("/api/users", headers=auth, json={"users": [
+        {"name": "ada", "role": "admin"},
+        {"name": "newbie", "role": "contributor", "password": "pw"}]})
+    reqs = client.get("/api/auth/access-requests", headers=auth).json()["requests"]
+    assert not any(r["name"] == "newbie" for r in reqs)  # auto-cleared once user exists
+
+
+def test_value_index_manual_override(client):
+    client.post("/api/datasets/load-samples")
+    assert client.put("/api/audit/value-index", json={"value": 140}).status_code == 400
+    client.put("/api/audit/value-index", json={"value": 72.5})
+    vi = client.get("/api/audit/value-index").json()
+    assert vi["source"] == "manual" and vi["value"] == 72.5  # manual sticks for the period
+
+
+def test_ledger_auto_remeasures_stale_bindings(client):
+    client.post("/api/demo/seed-lifecycle")
+    from app import db as _db
+    with _db._conn() as conn:
+        n = conn.execute("UPDATE metric_observations SET observed_at = '2026-01-01T00:00:00'"
+                         ).rowcount
+    assert n > 0
+    client.get("/api/value-ledger")
+    with _db._conn() as conn:
+        fresh = conn.execute("SELECT COUNT(*) c FROM metric_observations "
+                             "WHERE observed_at > '2026-07-01'").fetchone()["c"]
+    assert fresh > 0  # stale bindings re-observed server-side on read
+
+
+def test_capture_cache_invalidates_on_dataset_change(client):
+    client.post("/api/datasets/load-samples")
+    a = client.post("/api/ideas", json={
+        "title": "Decommission idle cloud instances please",
+        "description": "Idle under 5% CPU."}).json()
+    assert a["assessment"]["matched_opportunity"]  # matched against current data
+    client.post("/api/datasets/cloud", files={"file": (
+        "cloud.csv", b"resource_id,service,instance_type,region,monthly_cost,avg_cpu_pct,state\n"
+                     b"i-x,EC2,m5.large,us-east-1,100.00,90,running\n", "text/csv")})
+    b = client.post("/api/ideas", json={
+        "title": "Decommission idle cloud instances please again",
+        "description": "Idle under 5% CPU."}).json()
+    # cache invalidated by the upload: the old cloud-idle match cannot survive
+    old_id = (a["assessment"]["matched_opportunity"] or {}).get("id")
+    new_id = (b["assessment"].get("matched_opportunity") or {}).get("id")
+    assert new_id != old_id
+
+
+def test_revert_after_resume_replay(client):
+    client.post("/api/datasets/load-samples")
+    idea = client.post("/api/ideas", json={
+        "title": "Replay fidelity", "description": "resume then hold then undo."}).json()
+    for d in ("qualify", "hold"):
+        client.post("/api/command/decide", json={
+            "subject_type": "idea", "subject_id": idea["id"], "decision": d,
+            "actor": "rio", "comment": "x"})
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "resume", "actor": "rio"})
+    client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "hold",
+        "actor": "rio", "comment": "again"})
+    r = client.post("/api/command/decide", json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "revert_last",
+        "actor": "rio"})
+    assert r.json()["result"]["idea"]["status"] == "qualified"  # replay honors resume
+
+
+def test_all_exports_accept_token(client):
+    client.post("/api/demo/seed-lifecycle")
+    tok = client.post("/api/auth/login", json={"name": "ada", "password": "pw"}).json()["token"]
+    for path in ("/api/value-ledger?format=csv",
+                 "/api/audit/campaigns/1/roadmap?format=csv",
+                 "/api/reports/board-pack?format=html"):
+        assert client.get(path).status_code == 401
+        sep = "&" if "?" in path else "?"
+        assert client.get(f"{path}{sep}token={tok}").status_code == 200
+
+
+def test_strategy_context_drives_balance_verdicts(client):
+    client.post("/api/demo/seed-lifecycle")
+    client.put("/api/strategy-context", json={
+        "ambition": "x", "disruption_current": 3, "susceptibility": 3, "notes": "",
+        "target_onn": {"old": 0.05, "now": 0.05, "new": 0.9}})
+    t = client.get("/api/portfolio/telemetry").json()
+    row_new = next(b for b in t["balance"]["rows"] if b["horizon"] == "new")
+    assert row_new["target"] == 0.9
+    assert t["balance"]["drift_alert"] is True  # seeded portfolio can't hit a 90% 'new' target
