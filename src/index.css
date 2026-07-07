@@ -1924,3 +1924,5 @@ body.present .content { max-width: 1400px; padding: 2rem 3rem; }
   align-items: center; justify-content: center; }
 .tt-chip { border-radius: 50%; width: 22px; height: 22px; display: inline-flex;
   align-items: center; justify-content: center; padding: 0; background: var(--surface-2); }
+
+.context-bar { flex-wrap: nowrap; }

@@ -240,6 +240,39 @@ function InitiativeRollup() {
   )
 }
 
+export function ContextPicker({ compact }: { compact?: boolean }) {
+  const [company, setCompany] = useState('')
+  const [industry, setIndustry] = useState('')
+  const [industries, setIndustries] = useState<string[]>([])
+  const [saved, setSaved] = useState(false)
+  useEffect(() => {
+    fetch('/api/settings/context').then((r) => r.json())
+      .then((d) => { setCompany(d.company); setIndustry(d.industry); setIndustries(d.industries) })
+      .catch(() => {})
+  }, [])
+  const save = async () => {
+    await fetch('/api/settings/context', { method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ company, industry }) }).catch(() => {})
+    setSaved(true); window.setTimeout(() => setSaved(false), 2000)
+  }
+  return (
+    <div className={compact ? 'row context-bar' : 'card'}>
+      {!compact && <h3>Company &amp; industry context</h3>}
+      {!compact && <p className="muted small">Sets what this hub is analyzing — shown on the
+        Overview and used as the default subject across the Ideate studios.</p>}
+      <input placeholder="Company" value={company} style={compact ? { maxWidth: 160 } : undefined}
+             onChange={(e) => setCompany(e.target.value)} aria-label="Company context" />
+      <select value={industry} onChange={(e) => setIndustry(e.target.value)}
+              style={compact ? { maxWidth: 160 } : undefined} aria-label="Industry context">
+        <option value="">Industry…</option>
+        {industries.map((i) => <option key={i} value={i}>{i}</option>)}
+      </select>
+      <button className="secondary" onClick={save}>{saved ? '✓' : 'Set'}</button>
+    </div>
+  )
+}
+
 function MyWork({ onNavigate }: { onNavigate: (t: NavTab) => void }) {
   const [items, setItems] = useState<{ kind: string; id: string; title: string; tab: string; age_days: number; what: string }[] | null>(null)
   const who = localStorage.getItem('ivd_user')
@@ -465,6 +498,7 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
     <section className="exec">
       <div className="section-header">
         <p className="headline-sentence">{data.headline}</p>
+        <ContextPicker compact />
         <button className="secondary" title="Hide navigation and chrome for a steering meeting"
                 onClick={() => document.body.classList.toggle('present')}>
           Present

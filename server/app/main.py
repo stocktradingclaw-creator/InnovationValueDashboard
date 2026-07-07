@@ -2637,6 +2637,22 @@ def review_idea(idea_id: str, body: ReviewRequest) -> Dict[str, Any]:
             "reviews": db.reviews_for(idea_id)}
 
 
+@app.get("/api/settings/context")
+def get_context() -> Dict[str, Any]:
+    return {"company": db.meta_get("context_company") or "",
+            "industry": db.meta_get("context_industry") or "",
+            "industries": demo.INDUSTRIES}
+
+
+@app.put("/api/settings/context")
+def put_context(body: Dict[str, str]) -> Dict[str, Any]:
+    db.meta_set("context_company", (body.get("company") or "").strip())
+    db.meta_set("context_industry", (body.get("industry") or "").strip())
+    db.audit("settings.context", _session_name(),
+             detail=f"{body.get('company') or ''}/{body.get('industry') or ''}")
+    return get_context()
+
+
 @app.get("/api/settings/notifications")
 def get_notification_settings() -> Dict[str, Any]:
     return {"webhook": db.meta_get("notify_webhook") or ""}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { UserProfile } from '../api'
+import { ContextPicker } from './Dashboard'
 import {
    createInitiative, demoGenerate, demoRevert, 
   getDemoStatus, getInitiatives, getScoringConfig, getWorkflow, putGovernance,
@@ -518,7 +519,8 @@ export default function Settings({ onChanged }: { onChanged: () => void }) {
       <WorkflowEditor />
       <div className="dash-grid">
         <ScoringSettings />
-        <UserProfiles />
+        <ContextPicker />
+      <UserProfiles />
       <NotificationSettings />
       <RolesAccess />
       </div>
