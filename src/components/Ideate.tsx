@@ -155,6 +155,11 @@ const FUTURES_SAMPLE = {
         'Workflows reorganize around human-AI teams; spans of control widen',
         'Humans govern by exception — operations run autonomously against verified outcomes',
       ],
+      explains: [
+        'Simply put: software can now do a lot of the routine desk work people do today — reading, sorting, drafting, checking. We can already see this happening, so the near-term move is to adopt it deliberately instead of letting it arrive ad hoc.',
+        'Once machines handle the routine work, teams change shape: fewer people supervising more automated work. This is the knock-on effect — not about the tools anymore, but about how the organization is structured around them.',
+        'The end state: most operations run themselves, and people step in only when something unusual happens — like a pilot monitoring autopilot. Companies that practice this early will trust it; those that wait will fear it.',
+      ],
       narrative: 'The extrapolation is tooling; the second-order effect is organizational; the reimagined state is governance itself changing shape. Companies that rehearse exception-based governance now will not have to retrofit it later.',
       seed: 'Prototype exception-based governance: one process runs autonomously for 30 days, humans review only breaches',
     },
@@ -165,6 +170,11 @@ const FUTURES_SAMPLE = {
         'Buyers consolidate on partners who can prove impact from data',
         'Value migrates from products to guaranteed, measured outcomes',
       ],
+      explains: [
+        'Simply put: budgets are tight, so buyers are cutting tools that only show activity (dashboards, reports) and keeping ones that show results. You can see this in renewal conversations today.',
+        'The knock-on effect: buyers stop spreading spend across many vendors and concentrate on the few who can prove impact with real data — proof becomes the buying criterion, not features.',
+        'The end state: companies stop selling products and start selling guaranteed outcomes — you pay for the result, verified by data, not for the software. Whoever can prove results owns the market.',
+      ],
       narrative: 'Near-term budget pressure looks defensive, but its second-order effect is a market that pays for evidence. The reimagined enterprise sells outcomes with a ledger behind them.',
       seed: 'Pick one offering and restate its contract as a measured-outcome guarantee',
     },
@@ -174,6 +184,11 @@ const FUTURES_SAMPLE = {
         'Regulation catches up to automated decision-making',
         'Auditability becomes a market requirement, not a compliance chore',
         'Trust infrastructure — provable, tamper-evident value — becomes the moat',
+      ],
+      explains: [
+        'Simply put: governments are writing rules about decisions made by software — who is accountable, what must be explainable. This is already in motion.',
+        'The knock-on effect: being able to show HOW a decision was made stops being paperwork and becomes something customers demand before they buy — like security certifications today.',
+        'The end state: the companies allowed to automate the most will be the ones with the best audit trails. Provable trust becomes the competitive moat, not the algorithm.',
       ],
       narrative: 'What starts as compliance cost compounds into advantage: the firms with audit-grade decision trails will be the only ones allowed to automate aggressively.',
       seed: 'Inventory our automated decisions and rank them by audit-readiness',
@@ -188,8 +203,8 @@ const HORIZON_HEADS: [string, string, string][] = [
 ]
 
 function FuturesMap() {
-  const [sel, setSel] = useState<string | null>(null)
-  const chain = FUTURES_SAMPLE.chains.find((c) => c.key === sel)
+  const [sel, setSel] = useState<{ key: string; col: number } | null>(null)
+  const chain = FUTURES_SAMPLE.chains.find((c) => c.key === sel?.key)
   return (
     <div className="card">
       <div className="card-header">
@@ -204,8 +219,8 @@ function FuturesMap() {
             </div>
             {FUTURES_SAMPLE.chains.map((c) => (
               <button key={c.key} type="button"
-                      className={`fmap-node ${sel === c.key ? 'fmap-hot' : sel ? 'fmap-dim' : ''}`}
-                      onClick={() => setSel(sel === c.key ? null : c.key)}
+                      className={`fmap-node ${sel?.key === c.key ? (sel.col === col ? 'fmap-hot' : 'fmap-warm') : sel ? 'fmap-dim' : ''}`}
+                      onClick={() => setSel(sel?.key === c.key && sel.col === col ? null : { key: c.key, col })}
                       title={c.label}>
                 <span className="small">{c.nodes[col]}</span>
                 {col < 2 && <span className="fmap-arrow" aria-hidden="true">➜</span>}
@@ -215,9 +230,11 @@ function FuturesMap() {
         ))}
       </div>
       <p className="small fmap-caption" aria-live="polite">
-        {chain ? (
+        {chain && sel ? (
           <>
-            <strong>{chain.label}:</strong> {chain.narrative}{' '}
+            <strong>{HORIZON_HEADS[sel.col][1]} · {chain.label}:</strong>{' '}
+            {(chain as unknown as { explains: string[] }).explains[sel.col]}{' '}
+            {sel.col < 2 && <em className="muted">Next in the chain: "{chain.nodes[sel.col + 1]}". </em>}
             <button type="button" className="chip"
                     onClick={() => seedIdea(chain.seed, 'ideate-futures')}>
               + capture: {chain.seed.slice(0, 60)}…

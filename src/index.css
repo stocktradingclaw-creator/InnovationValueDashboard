@@ -1908,3 +1908,5 @@ body.present .content { max-width: 1400px; padding: 2rem 3rem; }
   .fmap { grid-template-columns: 1fr; }
   .fmap-arrow { display: none; }
 }
+
+.fmap-warm { border-color: var(--info); opacity: 0.85; }
