@@ -2409,3 +2409,31 @@ def test_strategy_context_drives_balance_verdicts(client):
     row_new = next(b for b in t["balance"]["rows"] if b["horizon"] == "new")
     assert row_new["target"] == 0.9
     assert t["balance"]["drift_alert"] is True  # seeded portfolio can't hit a 90% 'new' target
+
+
+def test_steward_round2_guards(client):
+    # last-admin guard
+    tok = client.post("/api/auth/login", json={"name": "ada", "password": "pw"}).json()["token"]
+    auth = {"Authorization": f"Bearer {tok}"}
+    assert client.put("/api/users", headers=auth, json={"users": [
+        {"name": "cara", "role": "contributor", "password": "pw"}]}).status_code == 400
+    assert client.put("/api/users", headers=auth, json={"users": [
+        {"name": "ada", "role": "admin"},
+        {"name": "cara", "role": "contributor", "password": "pw"}]}).status_code == 200
+
+    # workflow-gate removal migrates stranded ideas instead of hiding them
+    client.post("/api/datasets/load-samples")
+    wf = client.get("/api/workflow", headers=auth).json()["steps"]
+    assert len(wf) >= 3
+    idea = client.post("/api/ideas", headers=auth, json={
+        "title": "Stranded gate survivor", "description": "must not vanish."}).json()
+    client.post("/api/command/decide", headers=auth, json={
+        "subject_type": "idea", "subject_id": idea["id"], "decision": "qualify"})
+    mid_key = wf[1]["key"]
+    client.put("/api/workflow", headers=auth,
+               json={"steps": [wf[0], *wf[2:]]})  # remove the middle gate
+    moved = next(i for i in client.get("/api/ideas", headers=auth).json()["ideas"]
+                 if i["id"] == idea["id"])
+    assert moved["status"] != mid_key and moved["status"] == wf[0]["key"]
+    q = client.get("/api/command/queue", headers=auth).json()
+    assert any(x["id"] == idea["id"] for st in q["idea_steps"] for x in st["ideas"])

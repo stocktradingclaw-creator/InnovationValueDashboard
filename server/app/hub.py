@@ -1511,6 +1511,7 @@ def get_workflow() -> List[Dict[str, Any]]:
 
 def save_workflow(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     import json, re
+    old_keys = workflow_keys()
     if not isinstance(steps, list) or not 1 <= len(steps) <= 8:
         raise ConfigError("workflow must have 1-8 steps")
     cleaned = []
@@ -1539,6 +1540,21 @@ def save_workflow(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "criteria": [c.strip()[:120] for c in criteria if c.strip()],
         })
     db.meta_set("workflow_steps", json.dumps(cleaned))
+    # migrate ideas stranded at removed gates to the nearest surviving earlier
+    # gate (by the OLD ordering), so nothing vanishes from the queues while
+    # cost-of-delay keeps billing for it
+    new_keys = [c["key"] for c in cleaned]
+    removed = [k for k in old_keys if k not in new_keys]
+    if removed:
+        for idea in db.list_ideas():
+            if idea["status"] in removed:
+                idx = old_keys.index(idea["status"])
+                target = next((k for k in reversed(old_keys[:idx]) if k in new_keys),
+                              new_keys[0])
+                db.update_idea(idea["id"], target)
+                db.add_workflow_event("idea", idea["id"], "migrate", None,
+                                      f"gate '{idea['status']}' removed from workflow")
+
     return cleaned
 
 

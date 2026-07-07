@@ -39,9 +39,9 @@ interface Telemetry {
   digital_core: { score: number | null; weak_dimensions: string[]; scaling_at_risk: { id: string; title: string }[] }
 }
 
-export function TelemetryPanels() {
+export function TelemetryPanels({ refreshKey = 0 }: { refreshKey?: number }) {
   const [t, setT] = useState<Telemetry | null>(null)
-  useEffect(() => { fetch('/api/portfolio/telemetry').then((r) => r.json()).then(setT).catch(() => {}) }, [])
+  useEffect(() => { fetch('/api/portfolio/telemetry').then((r) => r.json()).then(setT).catch(() => {}) }, [refreshKey])
   if (!t) return null
   const ONN_LABEL: Record<string, string> = { old: 'Old — transform the core', now: 'Now — grow current business', new: 'New — scale future bets' }
   const FUNNEL_ORDER = ['idea', 'validated', 'pilot', 'scaling', 'scaled']
@@ -145,7 +145,7 @@ export function TelemetryPanels() {
   )
 }
 
-function AdvisoryPanel() {
+function AdvisoryPanel({ onExecuted }: { onExecuted?: () => void }) {
   const [a, setA] = useState<Advisory | null>(null)
   const [execBusy, setExecBusy] = useState<string | null>(null)
   const [execResult, setExecResult] = useState<Record<string, string>>({})
@@ -197,7 +197,7 @@ function AdvisoryPanel() {
                   const d = await res.json()
                   if (!res.ok) throw new Error(d.detail ?? 'execution failed')
                   setExecResult((x) => ({ ...x, [r.key!]: d.done }))
-                  reload()
+                  reload(); onExecuted?.()
                 } catch (e) {
                   setExecResult((x) => ({ ...x, [r.key!]: e instanceof Error ? e.message : String(e) }))
                 } finally { setExecBusy(null) }
@@ -262,6 +262,7 @@ export default function Portfolio({ report, hasPortfolio, onChanged }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [telemetryKey, setTelemetryKey] = useState(0)
 
   const upload = async (file: File) => {
     setBusy(true)
@@ -269,6 +270,7 @@ export default function Portfolio({ report, hasPortfolio, onChanged }: Props) {
     try {
       await uploadDataset('portfolio', file)
       await getPortfolioDiagnostic()
+      setTelemetryKey((k) => k + 1)
       onChanged()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -284,8 +286,8 @@ export default function Portfolio({ report, hasPortfolio, onChanged }: Props) {
         <div>
           <h2>Portfolio advisory</h2>
           <p className="muted">
-            The management window on your innovation portfolio: balance against the 70/20/10
-            target, position vs industry peers, recommended actions, simulated futures — and a
+            The management window on your innovation portfolio: balance against your strategy-context
+            targets, position vs industry peers, recommended actions, simulated futures — and a
             diagnostic for external PMO exports below.
           </p>
         </div>
@@ -303,8 +305,8 @@ export default function Portfolio({ report, hasPortfolio, onChanged }: Props) {
         </div>
       </div>
       {error && <p className="error">{error}</p>}
-      <TelemetryPanels />
-      <AdvisoryPanel />
+      <TelemetryPanels refreshKey={telemetryKey} />
+      <AdvisoryPanel onExecuted={() => setTelemetryKey((k) => k + 1)} />
       <Simulator />
       <h3 className="spaced">Diagnose an external portfolio (PMO export)</h3>
 

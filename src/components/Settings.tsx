@@ -249,7 +249,11 @@ function UserProfiles() {
                  placeholder={u.has_password ? 'password set — type to replace' : 'set password'}
                  value={u.password ?? ''}
                  onChange={(e) => edit(i, { password: e.target.value })} />
-          <button className="secondary" onClick={() => setUsers(users.filter((_, j) => j !== i))}>Remove</button>
+          <button className="secondary" onClick={() => {
+            if (u.name === localStorage.getItem('ivd_user') &&
+                !window.confirm('Remove YOURSELF? Your session ends when you save.')) return
+            setUsers(users.filter((_, j) => j !== i))
+          }}>Remove</button>
         </div>
       ))}
       <div className="row">

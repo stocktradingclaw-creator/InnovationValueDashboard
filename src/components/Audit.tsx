@@ -164,7 +164,12 @@ export default function Audit() {
                 items: qs.map((q) => ({ question: q.id,
                   score: answers[q.id] === 'na' ? 0 : answers[q.id],
                   is_na: answers[q.id] === 'na' })) }) })
-            toast(r.ok ? 'Assessment submitted — thank you.' : 'Submit failed.')
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}))
+              toast(`Submit failed: ${d.detail ?? r.statusText} — your answers are preserved.`)
+              return
+            }
+            toast('Assessment submitted — thank you.')
             setAnswers({}); load()
           }}>Submit assessment ({Object.keys(answers).length}/{qs.length} answered)</button>
         </div>

@@ -37,6 +37,8 @@ function DecisionButtons({
   const [error, setError] = useState<string | null>(null)
 
   const act = async (decision: 'approve' | 'reject' | 'feedback' | 'experiment') => {
+    if (decision === 'reject' &&
+        !window.confirm('Reject this business case? This ends a funded initiative.')) return
     setBusy(decision)
     setError(null)
     try {

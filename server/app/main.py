@@ -814,6 +814,9 @@ def put_users(body: Dict[str, Any], authorization: Optional[str] = Header(None),
         if key in seen:
             raise HTTPException(400, f"duplicate user '{key}'")
         seen.add(key)
+    if db.list_users() and not any(u.get("role") == "admin" for u in users):
+        raise HTTPException(400, "at least one admin must remain — this save would lock "
+                                 "everyone out or silently open the workspace")
     return {"users": db.replace_users(users), "roles": hub.ROLES,
             "capabilities": hub.ROLE_CAPABILITIES}
 
