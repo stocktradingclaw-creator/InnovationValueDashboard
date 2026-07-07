@@ -259,6 +259,11 @@ export interface AssistResult {
   draft: string
   suggestions: string[]
   generated_by: 'claude' | 'template'
+  fields?: {
+    beneficiary: string | null; pain_point: string | null
+    estimated_annual_benefit: number | null; benefit_type: string | null
+    category: string | null
+  }
 }
 
 export function assistDescription(body: { title: string; description?: string }) {

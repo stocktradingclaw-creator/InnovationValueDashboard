@@ -24,6 +24,23 @@ const BENEFIT_GLYPHS: Record<string, [string, string]> = {
   strategic: ['♟', 'g-strat'],
 }
 
+const BENEFIT_RANGES: [string, string][] = [
+  ['5000', 'Under $10k / yr'],
+  ['30000', '$10k – $50k / yr'],
+  ['75000', '$50k – $100k / yr'],
+  ['175000', '$100k – $250k / yr'],
+  ['500000', '$250k – $1M / yr'],
+  ['1500000', 'Over $1M / yr'],
+]
+
+const nearestRange = (v: number) => {
+  let best = BENEFIT_RANGES[0][0]
+  for (const [val] of BENEFIT_RANGES) {
+    if (Math.abs(Number(val) - v) < Math.abs(Number(best) - v)) best = val
+  }
+  return best
+}
+
 const BENEFIT_TYPES = [
   ['cost_reduction', 'Cost reduction'],
   ['revenue_growth', 'Revenue growth'],
@@ -90,6 +107,27 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
   if (title && !beneficiary) prompts.push('Who is this for? Ideas anchored to a named beneficiary score higher on desirability.')
   if (title && !painPoint) prompts.push('What human pain does this solve? Describing the problem people feel is the strongest signal reviewers look for.')
 
+  const fillFromAI = async (which: 2 | 3) => {
+    let f = assist?.fields
+    if (!f) {
+      const r = await assistDescription({ title, description: description || undefined }).catch(() => null)
+      if (r) { setAssist(r); f = r.fields }
+    }
+    if (!f) { toast('Could not derive suggestions — add more to the title.'); return }
+    if (which === 2) {
+      if (!beneficiary && f.beneficiary) setBeneficiary(f.beneficiary)
+      if (!painPoint && f.pain_point) setPainPoint(f.pain_point)
+      if (!category && f.category) setCategory(f.category)
+      toast('Filled from the AI draft — edit anything that reads wrong.')
+    } else {
+      if (!benefit && f.estimated_annual_benefit) setBenefit(nearestRange(f.estimated_annual_benefit))
+      if (!benefitType && f.benefit_type) setBenefitType(f.benefit_type)
+      toast(f.estimated_annual_benefit
+        ? `Benefit range set from detected data (~$${Math.round(f.estimated_annual_benefit / 1000)}k/yr).`
+        : 'Set what the AI could; add a benefit range if you can.')
+    }
+  }
+
   const submit = async () => {
     setBusy(true)
     setError(null)
@@ -98,7 +136,7 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
       const created = await submitIdea({
         title,
         description,
-        submitter: submitter || undefined,
+        submitter: submitter || localStorage.getItem('ivd_user') || undefined,
         category: category || undefined,
         estimated_annual_benefit: benefit ? Number(benefit) : null,
         benefit_type: benefitType || undefined,
@@ -213,9 +251,17 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
       </>)}
       {step === 2 && (<>
       <div className="row">
+        <button type="button" className="secondary" disabled={!title.trim()}
+                onClick={() => fillFromAI(2)}>✦ Draft with AI — fill who it's for</button>
+      </div>
+      <div className="row">
         <input placeholder="Your name" value={submitter} onChange={(e) => setSubmitter(e.target.value)} />
         <input placeholder="Category (optional)" value={category} onChange={(e) => setCategory(e.target.value)} />
-        <input type="number" placeholder="Est. annual benefit $ (optional)" value={benefit} onChange={(e) => setBenefit(e.target.value)} />
+        <select value={benefit} onChange={(e) => setBenefit(e.target.value)}
+                aria-label="Estimated annual benefit range">
+          <option value="">Est. annual benefit (optional)</option>
+          {BENEFIT_RANGES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select>
       </div>
       <div className="row">
         <input
@@ -235,6 +281,10 @@ function SubmitForm({ challenges, initiatives, onChanged }: { challenges: Challe
       </div>
       </>)}
       {step === 3 && (<>
+      <div className="row">
+        <button type="button" className="secondary" disabled={!title.trim()}
+                onClick={() => fillFromAI(3)}>✦ Draft with AI — fill value &amp; alignment</button>
+      </div>
       <div className="row">
         <select value={benefitType} onChange={(e) => setBenefitType(e.target.value)}>
           <option value="">Benefit type (hub will default to cost reduction)</option>

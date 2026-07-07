@@ -1845,3 +1845,8 @@ body.present .mobile-search, body.present .banner-error { display: none; }
 body.present .content { max-width: 1400px; padding: 2rem 3rem; }
 
 .revise-box { margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.4rem; }
+
+.seg { cursor: pointer; transition: opacity 0.12s ease; }
+.value-flow svg:hover .seg { opacity: 0.45; }
+.value-flow svg .seg:hover, .value-flow svg .seg-hot { opacity: 1; }
+.flow-caption { margin: 0.3rem 0 0; min-height: 2.2em; }

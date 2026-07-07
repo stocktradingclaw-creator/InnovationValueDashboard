@@ -494,6 +494,31 @@ def _template_draft(title: str, opportunities: Optional[List[Dict[str, Any]]]) -
             "annual estimate so triage can prioritize it.")
 
 
+def _assist_fields(title: str, opportunities: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    """Structured intake suggestions for the wizard's later steps, from the
+    same grounding the draft uses."""
+    idea_tokens = _tokens(title)
+    best = None
+    for opp in opportunities or []:
+        overlap = len(idea_tokens & _tokens(f"{opp['title']} {opp['category']} {opp['description']}"))
+        if overlap >= 2 and (best is None or overlap > best[0]):
+            best = (overlap, opp)
+    if best:
+        opp = best[1]
+        return {"beneficiary": f"The teams behind '{opp['category']}' operations",
+                "pain_point": opp["description"].split(".")[0],
+                "estimated_annual_benefit": opp.get("estimated_annual_savings"),
+                "benefit_type": "cost_reduction", "category": opp.get("category")}
+    low = title.lower()
+    for keywords, problem, who, outcome in _DOMAIN_DRAFTS:
+        if any(k in low for k in keywords):
+            return {"beneficiary": who.capitalize(), "pain_point": problem.capitalize(),
+                    "estimated_annual_benefit": None, "benefit_type": "cost_reduction",
+                    "category": None}
+    return {"beneficiary": None, "pain_point": None, "estimated_annual_benefit": None,
+            "benefit_type": None, "category": None}
+
+
 def assist_idea_description(title: str, description: str = "",
                             opportunities: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Draft a description from the title, or review a submitter's own text and
@@ -526,11 +551,13 @@ def assist_idea_description(title: str, description: str = "",
     if not os.environ.get("ANTHROPIC_API_KEY"):
         if mode == "generate":
             return {"mode": mode, "draft": _template_draft(title, opportunities),
+                    "fields": _assist_fields(title, opportunities),
                     "generated_by": "template",
                     "suggestions": ["Drafted from the hub's detected-opportunity data and "
                                     "domain templates — verify the specifics and adjust "
                                     "numbers before submitting."]}
         return {"mode": mode, "draft": description, "generated_by": "template",
+                "fields": _assist_fields(title, opportunities),
                 "suggestions": _heuristic_suggestions(description)
                 or ["Reads well — covers the problem, beneficiary, and a measurable outcome."]}
 
@@ -567,7 +594,8 @@ def assist_idea_description(title: str, description: str = "",
             output_format=DescriptionAssist,
         )
         result = response.parsed_output.model_dump()
-        return {"mode": mode, "generated_by": "claude", **result}
+        return {"mode": mode, "generated_by": "claude",
+                "fields": _assist_fields(title, opportunities), **result}
     except Exception as exc:
         base = {"mode": mode, "generated_by": "template",
                 "suggestions": [f"AI assist unavailable ({type(exc).__name__}); "

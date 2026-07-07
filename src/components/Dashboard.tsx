@@ -127,7 +127,8 @@ function ValueOverTime({ months, breakEven }: { months: TimelineMonth[]; breakEv
   )
 }
 
-function ValueFlow({ f }: { f: DashboardData['funnel'] }) {
+function ValueFlow({ f, onNavigate }: { f: DashboardData['funnel']; onNavigate: (t: NavTab) => void }) {
+  const [seg, setSeg] = useState<string | null>(null)
   const W = 640, H = 190, NW = 14, PAD = 26
   const total = Math.max(f.identified_annual_savings, 1)
   const h = (v: number) => Math.max((v / total) * (H - PAD * 2), v > 0 ? 3 : 0)
@@ -140,26 +141,56 @@ function ValueFlow({ f }: { f: DashboardData['funnel'] }) {
     const c = (xa + xb) / 2
     return `M${xa},${ya} C${c},${ya} ${c},${yb} ${xb},${yb} L${xb},${yb + hb} C${c},${yb + hb} ${c},${ya + ha} ${xa},${ya + ha} Z`
   }
+  const committedPct = f.identified_annual_savings > 0
+    ? Math.round((f.committed_annual_savings / f.identified_annual_savings) * 100) : 0
+  const verifiedPct = f.committed_annual_savings > 0
+    ? Math.round((f.measured_annual_savings / f.committed_annual_savings) * 100) : 0
+  const CAPTIONS: Record<string, string> = {
+    identified: `${money(f.identified_annual_savings)}/yr of opportunity detected in the customer's own data — click to see what the engine found.`,
+    committed: `${committedPct}% of identified value has a business case behind it; ${money(f.identified_annual_savings - f.committed_annual_savings)}/yr is still uncommitted — click to review cases.`,
+    verified: `${verifiedPct}% of committed value is verified against frozen baselines; the rest awaits evidence — click to open the ledger.`,
+    leak1: `${money(Math.max(f.identified_annual_savings - f.committed_annual_savings, 0))}/yr detected but not yet committed to a case — the biggest lever on this chart.`,
+    leak2: `${money(Math.max(f.committed_annual_savings - f.measured_annual_savings, 0))}/yr committed but not yet verified — implementation or measurement pending.`,
+  }
   return (
     <div className="value-flow">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Value flowing from identified to committed to verified">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img"
+           aria-label="Value flowing from identified to committed to verified">
         {idH > comH && (
-          <path d={ribbon(x1 + NW, y0 + comH, idH - comH, x2, y0 + comH, Math.max((idH - comH) * 0.2, 2))} className="flow-faded" />
+          <path d={ribbon(x1 + NW, y0 + comH, idH - comH, x2, y0 + comH, Math.max((idH - comH) * 0.2, 2))}
+                className={`flow-faded seg ${seg === 'leak1' ? 'seg-hot' : ''}`}
+                onMouseEnter={() => setSeg('leak1')} onMouseLeave={() => setSeg(null)} />
         )}
-        <path d={ribbon(x1 + NW, y0, idH, x2, y0, Math.max(comH, 2))} className="flow-committed" />
+        <path d={ribbon(x1 + NW, y0, idH, x2, y0, Math.max(comH, 2))}
+              className={`flow-committed seg ${seg === 'committed' ? 'seg-hot' : ''}`}
+              onMouseEnter={() => setSeg('committed')} onMouseLeave={() => setSeg(null)} />
         {comH > verH && (
-          <path d={ribbon(x2 + NW, y0 + verH, comH - verH, x3, y0 + verH, Math.max((comH - verH) * 0.25, 2))} className="flow-pending" />
+          <path d={ribbon(x2 + NW, y0 + verH, comH - verH, x3, y0 + verH, Math.max((comH - verH) * 0.25, 2))}
+                className={`flow-pending seg ${seg === 'leak2' ? 'seg-hot' : ''}`}
+                onMouseEnter={() => setSeg('leak2')} onMouseLeave={() => setSeg(null)} />
         )}
-        <path d={ribbon(x2 + NW, y0, Math.max(comH, 2), x3, y0, Math.max(verH, 2))} className="flow-verified" />
-        <rect x={x1} y={y0} width={NW} height={idH} className="node-identified" rx={4} />
-        <rect x={x2} y={y0} width={NW} height={Math.max(comH, 3)} className="node-committed" rx={4} />
-        <rect x={x3} y={y0} width={NW} height={Math.max(verH, 3)} className="node-verified" rx={4} />
+        <path d={ribbon(x2 + NW, y0, Math.max(comH, 2), x3, y0, Math.max(verH, 2))}
+              className={`flow-verified seg ${seg === 'verified' ? 'seg-hot' : ''}`}
+              onMouseEnter={() => setSeg('verified')} onMouseLeave={() => setSeg(null)} />
+        <rect x={x1} y={y0} width={NW} height={idH} className="node-identified seg" rx={4}
+              role="button" tabIndex={0} onClick={() => onNavigate('opportunities')}
+              onMouseEnter={() => setSeg('identified')} onMouseLeave={() => setSeg(null)} />
+        <rect x={x2} y={y0} width={NW} height={Math.max(comH, 3)} className="node-committed seg" rx={4}
+              role="button" tabIndex={0} onClick={() => onNavigate('cases')}
+              onMouseEnter={() => setSeg('committed')} onMouseLeave={() => setSeg(null)} />
+        <rect x={x3} y={y0} width={NW} height={Math.max(verH, 3)} className="node-verified seg" rx={4}
+              role="button" tabIndex={0} onClick={() => onNavigate('tracking')}
+              onMouseEnter={() => setSeg('verified')} onMouseLeave={() => setSeg(null)} />
       </svg>
       <div className="flow-labels">
         <span><strong>{money(f.identified_annual_savings)}</strong><em>identified from data</em></span>
         <span><strong>{money(f.committed_annual_savings)}</strong><em>committed to cases</em></span>
         <span className="flow-verified-label"><strong>{money(f.measured_annual_savings)}</strong><em>verified from evidence</em></span>
       </div>
+      <p className="small flow-caption" aria-live="polite">
+        {seg ? CAPTIONS[seg]
+          : `${committedPct}% of detected value is committed; ${verifiedPct}% of that is verified. Hover a flow for detail; click a bar to drill in.`}
+      </p>
     </div>
   )
 }
@@ -594,7 +625,7 @@ export default function Dashboard({ data, onNavigate, onChanged }: Props) {
             How identified opportunity converts to verified value — each stage is a harder
             standard of proof.
           </p>
-          <ValueFlow f={f} />
+          <ValueFlow f={f} onNavigate={onNavigate} />
           <p className="muted small">
             {f.identified_annual_savings > 0 && f.measured_annual_savings > 0
               ? `${Math.round((f.measured_annual_savings / f.identified_annual_savings) * 100)}% of identified value is now verified.`
