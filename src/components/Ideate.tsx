@@ -415,8 +415,14 @@ function CompetitiveReport() {
   const [rep, setRep] = useState<CompReport | null>(null)
   const [saved, setSaved] = useState<{ id: number; topic: string; created_at: string }[]>([])
   useEffect(() => {
-    fetch('/api/ideate/competitive-reports').then((r) => r.json()).then((d) => setSaved(d.reports)).catch(() => {})
-  }, [rep])
+    fetch('/api/ideate/competitive-reports').then((r) => r.json()).then(async (d) => {
+      setSaved(d.reports)
+      if (!rep && d.reports.length > 0) {
+        const latest = await (await fetch(`/api/ideate/competitive-reports/${d.reports[0].id}`)).json()
+        setRep(latest); setForm((f) => ({ ...f, product: d.reports[0].topic }))
+      }
+    }).catch(() => {})
+  }, [])
   const generate = async () => {
     setBusy(true); setRep(null)
     const stages = ['Researching competitors…', 'Scoring the comparison matrix…', 'Mapping positioning & white space…', 'Writing recommendations…']

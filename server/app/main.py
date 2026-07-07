@@ -2644,13 +2644,41 @@ def get_context() -> Dict[str, Any]:
             "industries": demo.INDUSTRIES}
 
 
+def _apply_context(subject: str) -> Dict[str, int]:
+    """Regenerate every studio artifact around the chosen company/industry so
+    all tabs immediately speak about it."""
+    done = 0
+    for kind, hz in (("futures", "7-15y"), ("maturity", "3-7y"),
+                     ("ten_types", "3-7y"), ("competitive", "3-7y")):
+        try:
+            db.save_studio_run(kind, subject, hz, hub.ideate_studio(kind, subject, hz))
+            done += 1
+        except Exception:
+            pass
+    try:
+        report = hub.competitive_report({"product": subject})
+        db.save_studio_run("competitive_report", subject, None, report)
+        done += 1
+    except Exception:
+        pass
+    try:
+        db.save_studio_run("tentypes_concepts", subject, None, hub.tentypes_concepts(subject))
+        done += 1
+    except Exception:
+        pass
+    return {"artifacts": done}
+
+
 @app.put("/api/settings/context")
 def put_context(body: Dict[str, str]) -> Dict[str, Any]:
-    db.meta_set("context_company", (body.get("company") or "").strip())
-    db.meta_set("context_industry", (body.get("industry") or "").strip())
-    db.audit("settings.context", _session_name(),
-             detail=f"{body.get('company') or ''}/{body.get('industry') or ''}")
-    return get_context()
+    company = (body.get("company") or "").strip()
+    industry = (body.get("industry") or "").strip()
+    db.meta_set("context_company", company)
+    db.meta_set("context_industry", industry)
+    db.audit("settings.context", _session_name(), detail=f"{company}/{industry}")
+    subject = company or industry
+    populated = _apply_context(subject) if subject else {"artifacts": 0}
+    return {**get_context(), **populated}
 
 
 @app.get("/api/settings/notifications")
@@ -3098,13 +3126,16 @@ def seed_lifecycle(force: bool = Query(False)) -> Dict[str, Any]:
             except Exception:
                 pass
     # ideate studios: a sample run per capability so every tab lands populated
+    ctx = db.meta_get("context_company") or db.meta_get("context_industry")
     for kind, topic, hz in [
-        ("futures", "Autonomous field operations", "7-15y"),
-        ("competitive", "ServiceNow expanding into our category", "3-7y"),
-        ("maturity", "AI-driven operations", "3-7y"),
-        ("ten_types", "Field service", "3-7y"),
+        ("futures", ctx or "Autonomous field operations", "7-15y"),
+        ("competitive", ctx or "ServiceNow expanding into our category", "3-7y"),
+        ("maturity", ctx or "AI-driven operations", "3-7y"),
+        ("ten_types", ctx or "Field service", "3-7y"),
     ]:
         db.save_studio_run(kind, topic, hz, hub.ideate_studio(kind, topic, hz))
+    if ctx:
+        _apply_context(ctx)
     mural_ingest(MuralIngestRequest(
         text="Predictive parts stocking from telemetry\n"
              "One-tap warranty claims for technicians\n"

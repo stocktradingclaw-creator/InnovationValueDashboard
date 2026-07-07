@@ -250,11 +250,18 @@ export function ContextPicker({ compact }: { compact?: boolean }) {
       .then((d) => { setCompany(d.company); setIndustry(d.industry); setIndustries(d.industries) })
       .catch(() => {})
   }, [])
+  const [busy, setBusy] = useState(false)
   const save = async () => {
-    await fetch('/api/settings/context', { method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ company, industry }) }).catch(() => {})
-    setSaved(true); window.setTimeout(() => setSaved(false), 2000)
+    setBusy(true)
+    try {
+      const r = await fetch('/api/settings/context', { method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company, industry }) })
+      const d = await r.json().catch(() => ({ artifacts: 0 }))
+      setSaved(true); window.setTimeout(() => setSaved(false), 2500)
+      const { toast } = await import('../api')
+      toast(`Context set to ${company || industry} — ${d.artifacts ?? 0} studio artifact(s) regenerated across the tabs.`)
+    } finally { setBusy(false) }
   }
   return (
     <div className={compact ? 'row context-bar' : 'card'}>
@@ -268,7 +275,7 @@ export function ContextPicker({ compact }: { compact?: boolean }) {
         <option value="">Industry…</option>
         {industries.map((i) => <option key={i} value={i}>{i}</option>)}
       </select>
-      <button className="secondary" onClick={save}>{saved ? '✓' : 'Set'}</button>
+      <button className="secondary" disabled={busy} onClick={save}>{busy ? 'Populating…' : saved ? '✓' : 'Set'}</button>
     </div>
   )
 }

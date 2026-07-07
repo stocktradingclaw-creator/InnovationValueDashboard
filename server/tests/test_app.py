@@ -2096,3 +2096,15 @@ def test_competitive_report_and_tentypes_concepts(client):
                     json={"kind": "ten_types", "topic": "field service"}).json()
     assert all(len(x["types_combined"]) >= 3 for x in c["concepts"])
     assert c["recommended"] and c["experiments"][0]["kill_metric"]
+
+
+def test_context_populates_all_tabs(client):
+    r = client.put("/api/settings/context", json={"company": "AbbVie"}).json()
+    assert r["artifacts"] >= 5
+    for kind in ("futures", "maturity", "ten_types", "competitive"):
+        run = client.get("/api/ideate/studio/latest", params={"kind": kind}).json()["run"]
+        assert run["topic"] == "AbbVie"
+    reports = client.get("/api/ideate/competitive-reports").json()["reports"]
+    assert reports[0]["topic"] == "AbbVie"
+    assert any(c["topic"] == "AbbVie" for c in
+               client.get("/api/ideate/watchlist").json()["watchlist"])
