@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { searchAll, getMe, login, logout, demoRevert, getBusinessCases, getDashboard, getDatasets, getDemoStatus, getIdeas, getOpportunities, getPortfolioDiagnostic } from './api'
+import Audit from './components/Audit'
 import BusinessCases from './components/BusinessCases'
 import Campaigns from './components/Campaigns'
 import CommandCenter from './components/CommandCenter'
@@ -27,7 +28,7 @@ import type {
 
 type Tab =
   | 'overview' | 'ideas' | 'command' | 'pipeline' | 'sources'
-  | 'opportunities' | 'cases' | 'tracking' | 'portfolio' | 'settings' | 'mine' | 'campaigns' | 'ideate-futures' | 'ideate-competitive' | 'ideate-maturity' | 'ideate-workshops' | 'ideate-tentypes' | 'ideate-funnel'
+  | 'opportunities' | 'cases' | 'tracking' | 'portfolio' | 'settings' | 'mine' | 'campaigns' | 'ideate-futures' | 'ideate-competitive' | 'ideate-maturity' | 'ideate-workshops' | 'ideate-tentypes' | 'ideate-funnel' | 'governance-audit'
 
 const ICONS: Record<string, string> = {
   overview: 'M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10',
@@ -37,6 +38,7 @@ const ICONS: Record<string, string> = {
   'ideate-competitive': 'M6 3l12 12M18 3L6 15M4 21l4-1 1-4M20 21l-4-1-1-4',
   'ideate-maturity': 'M4 20V10M9 20V6M14 20v-8M19 20V4',
   'ideate-workshops': 'M4 5h16v11H4zM8 21h8M12 16v5',
+  'governance-audit': 'M9 12l2 2 4-5M12 3l7 4v5c0 4.4-3 8.4-7 9-4-.6-7-4.6-7-9V7l7-4z',
   'ideate-funnel': 'M4 4h16l-6 8v6l-4 2v-8L4 4z',
   'ideate-tentypes': 'M12 3a9 9 0 11-9 9M12 7v5l3 3',
   ideate: 'M12 3a6 6 0 00-4 10c.8.8 1 1.4 1 2h6c0-.6.2-1.2 1-2a6 6 0 00-4-10zM9 18h6M10 21h4',
@@ -408,6 +410,9 @@ export default function App() {
       ['tracking', '✓', 'ROI Tracking'],
       ['portfolio', '▦', 'Portfolio'],
     ]],
+    ['Governance', [
+      ['governance-audit', '§', 'Mgmt Audit'],
+    ]],
     ['Configure', [
       ['sources', '⛁', 'Data Sources'],
       ['settings', '⚙', 'Hub Settings'],
@@ -539,6 +544,7 @@ export default function App() {
         {tab === 'ideas' && <Ideas ideas={ideas} onChanged={refresh} />}
         {tab === 'command' && <CommandCenter onChanged={refresh} />}
         {tab === 'campaigns' && <Campaigns ideas={ideas} onChanged={refresh} />}
+        {tab === 'governance-audit' && <Audit />}
         {tab === 'ideate-maturity' && <Maturity />}
         {tab !== 'ideate-maturity' && tab.startsWith('ideate-') && (
           <Ideate view={tab.slice(7) as import('./components/Ideate').IdeateView} onChanged={refresh} ideas={ideas} />

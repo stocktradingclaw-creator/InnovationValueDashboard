@@ -2163,3 +2163,44 @@ def test_portfolio_telemetry_features_a_to_g(client):
     # G: board pack carries the additions
     pack = client.get("/api/reports/board-pack").text
     assert "Portfolio balance" in pack and "Trapped value" in pack
+
+
+def test_governance_audit_module(client):
+    client.post("/api/demo/seed-lifecycle")
+    # level curation: 16 practitioner, 26 management, 21 executive
+    assert len(client.get("/api/audit/questions", params={"level": "practitioner"}).json()["questions"]) == 16
+    assert len(client.get("/api/audit/questions", params={"level": "management"}).json()["questions"]) == 26
+    assert len(client.get("/api/audit/questions", params={"level": "executive"}).json()["questions"]) == 21
+
+    camps = client.get("/api/audit/campaigns").json()["campaigns"]
+    cid = camps[0]["id"]
+    r = client.get(f"/api/audit/campaigns/{cid}/results").json()
+    # scoring: composite 0-100 with band; NA exclusion covered by engine rule
+    assert 0 <= r["composite"] <= 100 and r["band"]
+    # perception gap seeded on culture: flagged with the divergent pair
+    assert any(g["dimension"] == "D5" for g in r["flagged_gaps"])
+    # roadmap: below-readiness dims triggered; R-GAP interpolated; dedup on regen
+    items = client.get(f"/api/audit/campaigns/{cid}/roadmap").json()["items"]
+    assert any(i["template_id"] == "R-GAP" and "diverge" in i["description"] for i in items)
+    n1 = len(items)
+    client.post(f"/api/audit/campaigns/{cid}/roadmap/generate")
+    assert len(client.get(f"/api/audit/campaigns/{cid}/roadmap").json()["items"]) == n1
+    # priority ordering descending
+    ps = [i["priority"] for i in items]
+    assert ps == sorted(ps, reverse=True)
+    # editable + CSV export
+    client.patch(f"/api/audit/roadmap/{items[0]['id']}", json={"status": "accepted", "owner": "maria"})
+    csv = client.get(f"/api/audit/campaigns/{cid}/roadmap", params={"format": "csv"})
+    assert csv.headers["content-type"].startswith("text/csv")
+    # quadrant with configurable thresholds; value index computed from real metrics
+    q = client.get("/api/audit/quadrant").json()
+    assert q["points"] and q["maturity_threshold"] == 80 and q["labels"]["tr"] == "Compounding"
+    vi = client.get("/api/audit/value-index").json()
+    assert vi["source"] in ("computed", "manual") and 0 <= vi["value"] <= 100
+    # level curation enforced on submit
+    bad = client.post(f"/api/audit/campaigns/{cid}/responses", json={
+        "level": "practitioner", "items": [{"question": "D1.Q2", "score": 3}]})
+    assert bad.status_code == 400
+    # ISO traceability present
+    dims = client.get("/api/audit/campaigns").json()["dimensions"]
+    assert all(d["iso_56001_clauses"] for d in dims)

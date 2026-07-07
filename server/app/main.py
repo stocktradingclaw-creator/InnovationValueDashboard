@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from . import maturity as maturity_mod
 from . import telemetry
+from . import audit
 from . import (
     calibration, connectors, db, demo, hub, metrics, opportunities,
     portfolio, prioritization, roi, timeline,
@@ -2380,6 +2381,108 @@ def tentypes_concepts(body: StudioRequest) -> Dict[str, Any]:
 
 # ---------------------------------------------- maturity assessment module
 
+# ------------------------------- Governance: Innovation Management Audit
+
+@app.get("/api/audit/campaigns")
+def audit_campaigns() -> Dict[str, Any]:
+    return {"campaigns": audit.campaigns(), "dimensions": audit.dimensions()}
+
+
+@app.post("/api/audit/campaigns")
+def audit_create_campaign(body: Dict[str, Any], authorization: Optional[str] = Header(None),
+                          actor: Optional[str] = Query(None)) -> Dict[str, Any]:
+    _require_admin(authorization, actor)
+    if not (body.get("name") or "").strip():
+        raise HTTPException(400, "campaign name required")
+    c = audit.create_campaign(body["name"].strip(), bool(body.get("is_anonymous")))
+    for i in body.get("invitations") or []:
+        audit.invite(c["id"], i.get("person"), i.get("level", "practitioner"),
+                     i.get("org_unit", ""))
+    db.audit("audit.campaign", _session_name() or actor, str(c["id"]), c["name"])
+    return c
+
+
+@app.get("/api/audit/questions")
+def audit_questions(level: str = Query(...)) -> Dict[str, Any]:
+    if level not in audit.LEVELS:
+        raise HTTPException(400, f"level must be one of {audit.LEVELS}")
+    return {"level": level, "rubric": audit.seed.GLOBAL_RUBRIC,
+            "questions": audit.questions_for(level)}
+
+
+@app.post("/api/audit/campaigns/{campaign_id}/responses")
+def audit_submit(campaign_id: int, body: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        audit.submit(campaign_id, body.get("level", "practitioner"),
+                     body.get("org_unit", ""), body.get("respondent"),
+                     body.get("items") or [])
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"submitted": True}
+
+
+@app.get("/api/audit/campaigns/{campaign_id}/results")
+def audit_results(campaign_id: int) -> Dict[str, Any]:
+    return audit.results(campaign_id)
+
+
+@app.post("/api/audit/campaigns/{campaign_id}/roadmap/generate")
+def audit_generate(campaign_id: int) -> Dict[str, Any]:
+    return {"items": audit.generate_roadmap(campaign_id)}
+
+
+@app.get("/api/audit/campaigns/{campaign_id}/roadmap")
+def audit_roadmap(campaign_id: int, format: str = Query("json")) -> Any:
+    items = audit.roadmap(campaign_id)
+    if format == "csv":
+        from fastapi.responses import PlainTextResponse
+        cols = ["id", "dimension", "title", "horizon", "status", "priority", "owner",
+                "due_date", "kpi"]
+        lines = [",".join(cols)] + [
+            ",".join(f'"{str(i.get(c) or "")}"' for c in cols) for i in items]
+        return PlainTextResponse("\n".join(lines), media_type="text/csv",
+                                 headers={"Content-Disposition":
+                                          "attachment; filename=audit-roadmap.csv"})
+    return {"items": items}
+
+
+@app.patch("/api/audit/roadmap/{item_id}")
+def audit_patch_item(item_id: int, body: Dict[str, Any]) -> Dict[str, Any]:
+    audit.update_roadmap_item(item_id, body)
+    return {"ok": True}
+
+
+@app.get("/api/audit/value-index")
+def audit_value_index() -> Dict[str, Any]:
+    return audit.value_index()
+
+
+@app.put("/api/audit/value-index")
+def audit_manual_index(body: Dict[str, float], authorization: Optional[str] = Header(None),
+                       actor: Optional[str] = Query(None)) -> Dict[str, Any]:
+    _require_admin(authorization, actor)
+    v = float(body.get("value", -1))
+    if not (0 <= v <= 100):
+        raise HTTPException(400, "index must be 0-100")
+    return audit.set_manual_value_index(v)
+
+
+@app.get("/api/audit/quadrant")
+def audit_quadrant() -> Dict[str, Any]:
+    camps = audit.campaigns()
+    points = []
+    for c in camps:
+        r = audit.results(c["id"])
+        if r["composite"] is not None:
+            points.append({"campaign": c["name"], "maturity": r["composite"],
+                           "value": audit.value_index()["value"]})
+    cfg = audit.config()
+    return {"points": points, "maturity_threshold": cfg["readiness"],
+            "value_threshold": cfg["value_threshold"],
+            "labels": {"bl": "Stalled", "br": "Trapped Value",
+                       "tl": "Fragile Wins", "tr": "Compounding"}}
+
+
 @app.get("/api/portfolio/telemetry")
 def portfolio_telemetry() -> Dict[str, Any]:
     telemetry.ensure_digital_dims()
@@ -3317,6 +3420,7 @@ def seed_lifecycle(force: bool = Query(False)) -> Dict[str, Any]:
         session_name="Q3 design sprint", facilitator="maria"))
     telemetry.ensure_digital_dims()
     maturity_mod.seed_demo()
+    audit.seed_demo()
     ws2 = maturity_mod.waves()
     if ws2:
         for k, sc in [("cloud", 3), ("data", 2), ("aiml", 2), ("engineering", 3), ("archdebt", 2)]:
