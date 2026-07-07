@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useEffect } from 'react'
 import { assistDescription, money, submitBusinessCase, toast } from '../api'
 import type { BusinessCase, Opportunity, ROIPlan } from '../types'
 
@@ -6,6 +7,72 @@ interface Props {
   cases: BusinessCase[]
   opportunities: Opportunity[]
   onChanged: () => void
+}
+
+interface Financials {
+  annual_benefit: number; implementation_cost: number; tcv: number; total_cost: number
+  npv: number; roi_pct: number | null; payback_months: number | null
+  cash_flows: { year: number; benefit: number; cost: number; net: number }[]
+  data_grounding: string[]; assumptions: string[]; benefit_basis: string
+}
+
+function CfoView({ caseId }: { caseId: string }) {
+  const [fin, setFin] = useState<Financials | null>(null)
+  const [horizon, setHorizon] = useState(3)
+  const [rate, setRate] = useState(0.10)
+  useEffect(() => {
+    fetch(`/api/business-cases/${caseId}/financials?horizon_years=${horizon}&discount_rate=${rate}`)
+      .then((r) => r.json()).then(setFin).catch(() => {})
+  }, [caseId, horizon, rate])
+  if (!fin) return null
+  return (
+    <div className="plan">
+      <div className="card-header">
+        <h4>CFO view — quantified from {fin.benefit_basis === 'verified' ? 'VERIFIED actuals'
+          : fin.benefit_basis === 'detected_opportunity' ? "the customer's own data" : 'submitter estimates'}</h4>
+        <div className="row">
+          <select value={horizon} onChange={(e) => setHorizon(Number(e.target.value))}
+                  aria-label="Horizon">
+            {[1, 3, 5, 7].map((y) => <option key={y} value={y}>{y}-year horizon</option>)}
+          </select>
+          <select value={rate} onChange={(e) => setRate(Number(e.target.value))}
+                  aria-label="Discount rate">
+            {[0.08, 0.10, 0.12, 0.15].map((r) => <option key={r} value={r}>{Math.round(r * 100)}% discount</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="metrics-row">
+        <div className="metric"><span className="muted small">ROI ({horizon}yr)</span>
+          <strong className={fin.roi_pct != null && fin.roi_pct >= 0 ? 'pos' : 'neg'}>
+            {fin.roi_pct != null ? `${fin.roi_pct}%` : '—'}</strong></div>
+        <div className="metric"><span className="muted small">NPV @ {Math.round(rate * 100)}%</span>
+          <strong className={fin.npv >= 0 ? 'pos' : 'neg'}>{money(fin.npv)}</strong></div>
+        <div className="metric"><span className="muted small">TCV ({horizon}yr benefits)</span>
+          <strong>{money(fin.tcv)}</strong></div>
+        <div className="metric"><span className="muted small">Payback</span>
+          <strong>{fin.payback_months != null ? `${fin.payback_months} mo` : '—'}</strong></div>
+        <div className="metric"><span className="muted small">Total cost ({horizon}yr)</span>
+          <strong>{money(fin.total_cost)}</strong></div>
+      </div>
+      <table className="kpi-table">
+        <thead><tr><th>Year</th><th className="num">Benefit</th><th className="num">Cost</th><th className="num">Net</th></tr></thead>
+        <tbody>
+          {fin.cash_flows.map((cf) => (
+            <tr key={cf.year}><td>Y{cf.year}</td>
+              <td className="num">{money(cf.benefit)}</td>
+              <td className="num">{money(cf.cost)}</td>
+              <td className="num savings">{money(cf.net)}</td></tr>
+          ))}
+        </tbody>
+      </table>
+      {fin.data_grounding.length > 0 && (
+        <ul className="small">{fin.data_grounding.map((g) => <li key={g}>✓ {g}</li>)}</ul>
+      )}
+      {fin.assumptions.length > 0 && (
+        <ul className="muted small">{fin.assumptions.map((a) => <li key={a}>• {a}</li>)}</ul>
+      )}
+    </div>
+  )
 }
 
 function PlanView({ plan }: { plan: ROIPlan }) {
@@ -216,7 +283,7 @@ export default function BusinessCases({ cases, opportunities, onChanged }: Props
             </p>
           )}
           {c.note && <p className="muted small">{c.note}</p>}
-          {expanded === c.id && <PlanView plan={c.roi_plan} />}
+          {expanded === c.id && <><CfoView caseId={c.id} /><PlanView plan={c.roi_plan} /></>}
         </div>
       ))}
     </section>

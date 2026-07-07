@@ -1965,3 +1965,27 @@ def test_negative_e2e_loops_close(client):
                       json={"description": "zombie edit"}).status_code == 400  # declined is final
     assert client.put("/api/ideas/IDEA-nope/revise",
                       json={"description": "x"}).status_code == 404
+
+
+def test_cfo_grade_financials(client):
+    client.post("/api/demo/seed-lifecycle")
+    cases = client.get("/api/business-cases").json()["business_cases"]
+    linked = next(c for c in cases if c.get("linked_opportunity"))
+    f = client.get(f"/api/business-cases/{linked['id']}/financials").json()
+    # model coherence
+    assert f["tcv"] > 0 and f["npv"] < f["tcv"]
+    assert f["roi_pct"] is not None
+    assert len(f["cash_flows"]) == 3
+    assert f["benefit_basis"] in ("verified", "detected_opportunity")
+    assert f["data_grounding"]  # every number traceable to its source
+    # discount rate and horizon are levers, not decoration
+    f5 = client.get(f"/api/business-cases/{linked['id']}/financials",
+                    params={"horizon_years": 5, "discount_rate": 0.15}).json()
+    assert f5["tcv"] > f["tcv"]
+    # verified actuals override forecasts
+    live = next((c for c in cases
+                 if sum((b.get("annualized_delta") or 0) for b in c["metric_bindings"]) > 0), None)
+    if live:
+        fl = client.get(f"/api/business-cases/{live['id']}/financials").json()
+        assert fl["benefit_basis"] == "verified"
+    assert client.get("/api/business-cases/BC-nope/financials").status_code == 404

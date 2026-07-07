@@ -1995,6 +1995,85 @@ def metric_deltas() -> Dict[str, Any]:
     }
 
 
+@app.get("/api/business-cases/{case_id}/financials")
+def case_financials(case_id: str, horizon_years: int = Query(3, ge=1, le=7),
+                    discount_rate: float = Query(0.10, ge=0.0, le=0.5)) -> Dict[str, Any]:
+    """CFO-grade financial model for one case, grounded in customer data:
+    benefits come from the matched opportunity detected in their own systems
+    (calibration-discounted), verified actuals override forecasts once
+    observed, and every assumption is listed with its source."""
+    case = db.get_business_case(case_id)
+    if case is None:
+        raise HTTPException(404, f"Business case '{case_id}' not found")
+    factors = calibration.factors()
+    grounding, assumptions = [], []
+
+    opp = case.get("linked_opportunity")
+    verified = sum((b.get("annualized_delta") or 0) for b in case.get("metric_bindings", []))
+    if verified > 0:
+        annual_benefit = verified
+        grounding.append("Annual benefit uses VERIFIED value re-observed from source data "
+                         "(frozen-baseline metric bindings) — not a forecast.")
+    elif opp:
+        f = factors.get(opp.get("category", ""), 0.7)
+        annual_benefit = (opp.get("estimated_annual_savings") or 0) * f
+        grounding.append(f"Annual benefit derived from opportunity {opp.get('id')} detected "
+                         f"in the customer's own data, discounted by the learned realization "
+                         f"factor {f:.2f} for '{opp.get('category')}'.")
+    else:
+        annual_benefit = case.get("estimated_annual_benefit") or 0
+        assumptions.append("Benefit is submitter-estimated — no matched customer data; "
+                           "treat as low confidence until bindings observe actuals.")
+
+    funding = case.get("funding") or {}
+    implementation_cost = funding.get("planned") or case.get("estimated_cost") or annual_benefit * 0.3
+    if funding.get("planned"):
+        grounding.append("Implementation cost equals planned funding tranches — the amounts "
+                         "governance actually committed.")
+    else:
+        assumptions.append("Implementation cost estimated (no tranches planned yet); "
+                           "default heuristic 30% of first-year benefit when unstated.")
+    run_rate = implementation_cost * 0.15
+    assumptions.append("Ongoing run cost assumed at 15% of implementation cost per year.")
+    assumptions.append("Year-1 benefit ramps at 60% (partial-year adoption); full run-rate after.")
+
+    cash_flows, cumulative, payback_months = [], -implementation_cost, None
+    for year in range(1, horizon_years + 1):
+        benefit = annual_benefit * (0.6 if year == 1 else 1.0)
+        net = benefit - run_rate
+        cash_flows.append({"year": year, "benefit": round(benefit, 2),
+                           "cost": round(run_rate, 2), "net": round(net, 2)})
+        if payback_months is None and net > 0:
+            prev = cumulative
+            cumulative += net
+            if cumulative >= 0:
+                payback_months = round((year - 1 + (-prev / net)) * 12, 1)
+        else:
+            cumulative += net
+    tcv = sum(cf["benefit"] for cf in cash_flows)
+    total_cost = implementation_cost + run_rate * horizon_years
+    npv = -implementation_cost + sum(
+        cf["net"] / ((1 + discount_rate) ** cf["year"]) for cf in cash_flows)
+    roi_pct = ((tcv - total_cost) / total_cost * 100) if total_cost > 0 else None
+    return {
+        "case_id": case_id,
+        "horizon_years": horizon_years,
+        "discount_rate": discount_rate,
+        "annual_benefit": round(annual_benefit, 2),
+        "implementation_cost": round(implementation_cost, 2),
+        "tcv": round(tcv, 2),
+        "total_cost": round(total_cost, 2),
+        "npv": round(npv, 2),
+        "roi_pct": round(roi_pct, 1) if roi_pct is not None else None,
+        "payback_months": payback_months,
+        "cash_flows": [{**cf} for cf in cash_flows],
+        "data_grounding": grounding,
+        "assumptions": assumptions,
+        "benefit_basis": ("verified" if verified > 0 else
+                          "detected_opportunity" if opp else "submitter_estimate"),
+    }
+
+
 @app.get("/api/value-ledger")
 def value_ledger(format: str = Query("json")) -> Any:
     """The Verified Value Ledger: every verified dollar traceable to a frozen
