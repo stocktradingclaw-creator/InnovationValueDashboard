@@ -2466,3 +2466,75 @@ def test_round3_guards(client):
         "target_onn": {"old": 0.1, "now": 0.6, "new": 0.3}})
     from app import hub as _hub
     assert _hub.HORIZON_TARGETS_LIVE() == {"h1": 0.6, "h2": 0.1, "h3": 0.3}
+
+
+# ------------------------------------------------------------- MVP workflow
+
+def test_mvp_workflow_full_walk(client):
+    case = client.post("/api/business-cases", json={
+        "title": "Invoice matching MVP",
+        "description": "Automate three-way matching for the manual 40%.",
+        "estimated_cost": 50000}).json()
+    cid = case["id"]
+
+    # scaffold: all five stages pending, financial grounding attached
+    plan = client.get(f"/api/mvp/{cid}").json()
+    assert plan["stage_order"] == ["design", "build", "test", "deploy", "validate"]
+    assert all(s["status"] == "pending" for s in plan["stages"].values())
+    assert plan["case"]["benefit_basis"] in (
+        "verified", "detected_opportunity", "submitter_estimate")
+
+    # honest gates: no advancing without a plan, no advancing without an artifact
+    r = client.post(f"/api/mvp/{cid}/advance", json={"stage": "design"})
+    assert r.status_code == 409 and "generate the design stage" in r.json()["detail"].lower()
+
+    # generate + advance each stage in order; template path is honestly labeled
+    for stage in ("design", "build", "test", "deploy", "validate"):
+        g = client.post(f"/api/mvp/{cid}/generate", json={"stage": stage}).json()
+        art = g["artifact"]
+        assert art["generated_by"] == "template"
+        assert art["sections"] and art["checklist"] and art["ai_leverage"]
+        # skipping ahead is refused with the current stage named
+        if stage != "validate":
+            skip = client.post(f"/api/mvp/{cid}/advance", json={"stage": "validate"})
+            assert skip.status_code == 409 and stage in skip.json()["detail"]
+        a = client.post(f"/api/mvp/{cid}/advance",
+                        json={"stage": stage, "note": f"{stage} signed off"}).json()
+        assert a["completed"] == stage
+
+    # done: validate completion warns when no metric bindings observe the case
+    assert a["done"] is True
+    assert "metric bindings" in a["advice"]
+    done_plan = client.get(f"/api/mvp/{cid}").json()
+    assert all(s["status"] == "complete" for s in done_plan["stages"].values())
+
+    # worklist rolls up progress
+    row = next(r for r in client.get("/api/mvp").json()["cases"] if r["case_id"] == cid)
+    assert row["mvp_started"] and row["mvp_done"] == 5
+
+    # unknown case / unknown stage stay honest
+    assert client.get("/api/mvp/CASE-nope").status_code == 404
+    assert client.post(f"/api/mvp/{cid}/generate",
+                       json={"stage": "ship_it"}).status_code == 400
+
+
+def test_mvp_stage_packs_ground_in_case_financials(client):
+    case = client.post("/api/business-cases", json={
+        "title": "Cloud right-sizing MVP",
+        "description": "Right-size over-provisioned VMs with weekly review."}).json()
+    g = client.post(f"/api/mvp/{case['id']}/generate", json={"stage": "design"}).json()
+    # design pack quotes the case's own benefit figure, not a generic number
+    fin = client.get(f"/api/business-cases/{case['id']}/financials").json()
+    assert f"${fin['annual_benefit']:,.0f}" in g["artifact"]["summary"]
+    # validate pack routes realized value through bindings, never assertion
+    v = client.post(f"/api/mvp/{case['id']}/generate", json={"stage": "validate"}).json()
+    assert any("binding" in s["detail"].lower() for s in v["artifact"]["sections"])
+
+
+def test_mvp_seed_and_clear(client):
+    client.post("/api/demo/seed-lifecycle?force=true")
+    rows = client.get("/api/mvp").json()["cases"]
+    seeded = [r for r in rows if r["mvp_started"]]
+    assert seeded and seeded[0]["mvp_current_stage"] == "build"
+    client.post("/api/demo/clear?all=true")
+    assert not any(r["mvp_started"] for r in client.get("/api/mvp").json()["cases"])

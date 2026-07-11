@@ -1186,6 +1186,205 @@ def ideate_studio(kind: str, topic: str, horizon: str = "3-7y",
     raise ValueError(f"unknown studio kind '{kind}'")
 
 
+# --------------------------------------------------------------- MVP workflow
+
+MVP_STAGES = ["design", "build", "test", "deploy", "validate"]
+
+MVP_STAGE_META = {
+    "design": {"label": "Design", "goal": "Define the smallest product that proves the value claim",
+               "ai_role": "AI drafts the PRD, user stories, and scope cuts from the business case"},
+    "build": {"label": "Build", "goal": "Assemble the MVP with the leanest viable architecture",
+              "ai_role": "AI proposes the architecture, build-vs-buy calls, and pair-programs the implementation"},
+    "test": {"label": "Test", "goal": "Prove the MVP works for real users before exposure",
+             "ai_role": "AI generates the test plan, edge cases, and UAT scripts from the user stories"},
+    "deploy": {"label": "Deploy", "goal": "Ship safely with a rollback path and staged exposure",
+               "ai_role": "AI writes the runbook, rollout gates, and comms from the deploy plan"},
+    "validate": {"label": "Validate", "goal": "Measure real outcomes against the business case and decide the go-to-market",
+                 "ai_role": "AI advises on GTM positioning and reads the evidence for a pivot/persevere call"},
+}
+
+
+def _mvp_case_grounding(case: Dict[str, Any], fin: Dict[str, Any]) -> str:
+    money = lambda v: f"${v:,.0f}" if isinstance(v, (int, float)) else "unstated"  # noqa: E731
+    return (f"Business case: {case.get('title')}\n"
+            f"Description: {(case.get('description') or '')[:600]}\n"
+            f"Annual benefit: {money(fin.get('annual_benefit'))}; "
+            f"implementation cost: {money(fin.get('implementation_cost'))}; "
+            f"NPV: {money(fin.get('npv'))}; ROI: {fin.get('roi_pct')}%; "
+            f"payback: {fin.get('payback_months')} months.\n"
+            f"Stage: {case.get('stage')}; category: "
+            f"{(case.get('linked_opportunity') or {}).get('category') or 'uncategorized'}.")
+
+
+def mvp_stage_pack(case: Dict[str, Any], fin: Dict[str, Any], stage: str,
+                   force_template: bool = False) -> Dict[str, Any]:
+    """One MVP workflow stage artifact (design/build/test/deploy/validate):
+    AI-drafted from the case's own financial grounding when a key is set,
+    honest labeled template otherwise."""
+    if stage not in MVP_STAGES:
+        raise ValueError(f"unknown MVP stage '{stage}'")
+    if _ai_key() and not force_template:
+        try:
+            import anthropic
+            from pydantic import BaseModel
+            from typing import List as TList
+
+            class StagePack(BaseModel):
+                summary: str
+                sections: TList[Dict[str, str]]
+                checklist: TList[str]
+                ai_leverage: TList[str]
+
+            briefs = {
+                "design": "Draft the MVP DESIGN pack: problem statement, target user, MVP scope "
+                          "(explicitly in vs out), 5-8 user stories with acceptance criteria, the "
+                          "riskiest assumption to test, and success metrics traceable to the stated "
+                          "annual benefit.",
+                "build": "Draft the MVP BUILD pack: leanest viable architecture, build-vs-buy calls, "
+                         "a 2-3 sprint plan, the smallest team that can ship it, and tooling choices.",
+                "test": "Draft the MVP TEST pack: test strategy, acceptance test list per user story, "
+                        "edge cases and failure modes, a UAT script for 3-5 pilot users, and exit "
+                        "criteria for go/no-go.",
+                "deploy": "Draft the MVP DEPLOY pack: environment plan, staged rollout with exposure "
+                          "gates, feature flags, rollback procedure, and a stakeholder comms plan.",
+                "validate": "Draft the MVP VALIDATE pack: instrumentation plan tying usage to the "
+                            "business-case benefit, leading vs lagging indicators, go-to-market advice "
+                            "(positioning, first customers, pricing posture, channels), and explicit "
+                            "pivot/persevere/kill criteria with thresholds.",
+            }
+            r = anthropic.Anthropic(api_key=_ai_key()).messages.parse(
+                model="claude-opus-4-8", max_tokens=16000, thinking={"type": "adaptive"},
+                messages=[{"role": "user", "content":
+                           f"{_mvp_case_grounding(case, fin)}\n\n{briefs[stage]}\n"
+                           "sections: [{title, detail}] — 4-7 sections, concrete and specific to THIS "
+                           "case, no generic filler. checklist: 5-8 actionable done-criteria. "
+                           "ai_leverage: 3-5 specific ways the team should use AI in this stage."}],
+                output_format=StagePack)
+            out = r.parsed_output.model_dump()
+            out["generated_by"] = "claude"
+            out["stage"] = stage
+            out["meta"] = MVP_STAGE_META[stage]
+            return out
+        except Exception:
+            pass
+    title = case.get("title") or "the MVP"
+    benefit = fin.get("annual_benefit") or 0
+    meta = MVP_STAGE_META[stage]
+    packs: Dict[str, Dict[str, Any]] = {
+        "design": {
+            "summary": f"Design the smallest version of '{title}' that can prove "
+                       f"${benefit:,.0f}/yr is real — cut everything that doesn't test that claim.",
+            "sections": [
+                {"title": "Problem statement", "detail": (case.get("description") or "")[:300] or
+                 "State the pain in one sentence a user would recognize."},
+                {"title": "MVP scope — in", "detail": "The one workflow that produces the measurable "
+                 "benefit; a single user role; manual fallbacks everywhere else."},
+                {"title": "MVP scope — out", "detail": "Integrations, admin tooling, scale hardening, "
+                 "and every second persona. Deferring these is the point of an MVP."},
+                {"title": "Riskiest assumption", "detail": "Users will change their current behavior "
+                 "to capture the benefit. Design the MVP so week one confirms or kills this."},
+                {"title": "Success metrics", "detail": f"Pick 1-2 metrics that ladder directly to the "
+                 f"${benefit:,.0f}/yr claim; baseline them BEFORE build so validation is honest."},
+            ],
+            "checklist": ["Problem statement signed by the sponsor", "Scope in/out list frozen",
+                          "5+ user stories with acceptance criteria", "Riskiest assumption named",
+                          "Success metrics baselined pre-build"],
+        },
+        "build": {
+            "summary": f"Build '{title}' with the leanest stack that survives a pilot — "
+                       "optimize for iteration speed, not permanence.",
+            "sections": [
+                {"title": "Architecture", "detail": "One service, one datastore, boring technology. "
+                 "Every architectural flourish delays the validation date."},
+                {"title": "Build vs buy", "detail": "Buy or reuse anything that isn't the "
+                 "differentiating workflow; build only what tests the value claim."},
+                {"title": "Sprint plan", "detail": "Sprint 1: walking skeleton end-to-end. Sprint 2: "
+                 "the benefit-producing workflow. Sprint 3: instrumentation and pilot hardening."},
+                {"title": "Team", "detail": "Smallest team that can ship: one product owner, 1-2 "
+                 "builders, part-time design. Add people after validation, not before."},
+            ],
+            "checklist": ["Walking skeleton demo-able", "Core workflow functional end-to-end",
+                          "Instrumentation events firing", "No unbought undifferentiated components",
+                          "Pilot environment provisioned"],
+        },
+        "test": {
+            "summary": f"Prove '{title}' works for the pilot group before anyone else sees it — "
+                       "test the workflow, not just the code.",
+            "sections": [
+                {"title": "Test strategy", "detail": "Automated checks on the benefit-producing path; "
+                 "manual exploratory passes on everything else. Coverage follows risk, not vanity."},
+                {"title": "Acceptance tests", "detail": "One acceptance test per user story from the "
+                 "design pack; a story without a passing test is not done."},
+                {"title": "Edge cases", "detail": "Empty states, bad input, permission boundaries, and "
+                 "the first-day experience of a user who received no training."},
+                {"title": "UAT script", "detail": "3-5 pilot users complete the core workflow "
+                 "unassisted while you watch; every stumble is a finding."},
+            ],
+            "checklist": ["Acceptance test per story passing", "Edge-case list executed",
+                          "UAT run with 3+ real users", "Findings triaged fix/defer",
+                          "Go/no-go exit criteria met"],
+        },
+        "deploy": {
+            "summary": f"Ship '{title}' in stages with a tested way back — exposure is earned, "
+                       "not defaulted.",
+            "sections": [
+                {"title": "Rollout stages", "detail": "Pilot group first, then a bounded cohort, then "
+                 "general availability — each gate requires the previous stage's metrics to hold."},
+                {"title": "Feature flags", "detail": "The benefit-producing workflow ships behind a "
+                 "flag so rollback is a toggle, not a redeploy."},
+                {"title": "Rollback", "detail": "Rehearse the rollback before go-live. If reverting "
+                 "takes longer than an hour, the rollout plan is not ready."},
+                {"title": "Comms", "detail": "Tell pilot users what changes, what to do when stuck, "
+                 "and how their feedback reaches the team same-day."},
+            ],
+            "checklist": ["Pilot cohort named", "Flags wired on core workflow",
+                          "Rollback rehearsed", "Support/comms channel live",
+                          "Exposure gates defined with metrics"],
+        },
+        "validate": {
+            "summary": f"Measure '{title}' against the ${benefit:,.0f}/yr claim and make the "
+                       "pivot/persevere call with evidence, not enthusiasm.",
+            "sections": [
+                {"title": "Instrumentation", "detail": "Bind the success metrics to source data (ROI "
+                 "Tracking metric bindings) so realized value is observed, never asserted."},
+                {"title": "Leading indicators", "detail": "Adoption and repeat usage in weeks 1-4 "
+                 "predict whether the annual benefit will materialize; watch these first."},
+                {"title": "Go-to-market", "detail": "Position around the verified outcome, not the "
+                 "feature list. First customers are the pilot's loudest advocates; price against "
+                 "the measured benefit, not cost-plus."},
+                {"title": "Pivot / persevere / kill", "detail": "Set thresholds now: persevere if "
+                 "leading indicators track to plan, pivot if users engage but value doesn't follow, "
+                 "kill if adoption stalls after two corrective iterations."},
+            ],
+            "checklist": ["Metric bindings observing actuals", "4-week leading-indicator read done",
+                          "GTM positioning drafted from evidence", "Pivot/persevere thresholds set",
+                          "Decision logged with the sponsor"],
+        },
+    }
+    pack = packs[stage]
+    pack["ai_leverage"] = {
+        "design": ["Generate the PRD and user stories from the business case, then edit — don't start blank",
+                   "Ask AI to argue AGAINST each scope item; cut what survives weakly",
+                   "Draft interview scripts for validating the riskiest assumption"],
+        "build": ["AI pair-programming for the walking skeleton and boilerplate",
+                  "Generate the architecture decision records with trade-offs stated",
+                  "Have AI review each PR for scope creep against the design pack"],
+        "test": ["Generate acceptance tests directly from the user stories",
+                 "Ask AI to enumerate edge cases a hostile first-time user would hit",
+                 "Draft the UAT script and synthesize the findings into fix/defer"],
+        "deploy": ["Generate the runbook and rollback procedure, then rehearse them",
+                   "Draft stage-gate criteria and the pilot comms pack",
+                   "Have AI review deploy configs for single points of failure"],
+        "validate": ["Analyze pilot usage data for adoption patterns and drop-off points",
+                     "Draft GTM positioning from the measured (not claimed) outcomes",
+                     "Stress-test the pivot/persevere call: ask AI to argue the opposite case"],
+    }[stage]
+    pack["generated_by"] = "template"
+    pack["stage"] = stage
+    pack["meta"] = meta
+    return pack
+
+
 def ai_evaluate_idea(idea: Dict[str, Any],
                      opportunities: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Deeper AI validation of one idea: measurability check, categorization,

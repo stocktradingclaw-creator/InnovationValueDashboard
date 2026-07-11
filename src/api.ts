@@ -235,6 +235,61 @@ export function submitBusinessCase(body: {
   return request<BusinessCase>('/api/business-cases', json(body))
 }
 
+export interface MvpArtifact {
+  summary: string
+  sections: { title: string; detail: string }[]
+  checklist: string[]
+  ai_leverage: string[]
+  generated_by: 'claude' | 'template'
+}
+
+export interface MvpStageState {
+  status: 'pending' | 'in_progress' | 'complete'
+  artifact: MvpArtifact | null
+  note: string | null
+  completed_at: string | null
+  completed_by: string | null
+}
+
+export interface MvpPlan {
+  case_id: string
+  current_stage: string
+  stages: Record<string, MvpStageState>
+  updated_at: string | null
+  stage_order: string[]
+  stage_meta: Record<string, { label: string; goal: string; ai_role: string }>
+  case: {
+    id: string; title: string; stage: string; annual_benefit: number
+    npv: number; roi_pct: number | null; payback_months: number | null
+    benefit_basis: string
+  }
+}
+
+export interface MvpOverviewRow {
+  case_id: string; title: string; stage: string; status: string
+  benefit: number | null; mvp_started: boolean
+  mvp_current_stage: string | null; mvp_done: number; mvp_total: number
+}
+
+export function getMvpOverview() {
+  return request<{ stages: string[]; stage_meta: Record<string, { label: string; goal: string; ai_role: string }>; cases: MvpOverviewRow[] }>(
+    '/api/mvp')
+}
+
+export function getMvpPlan(caseId: string) {
+  return request<MvpPlan>(`/api/mvp/${caseId}`)
+}
+
+export function generateMvpStage(caseId: string, stage: string) {
+  return request<{ stage: string; artifact: MvpArtifact; plan: MvpPlan }>(
+    `/api/mvp/${caseId}/generate`, json({ stage }))
+}
+
+export function advanceMvpStage(caseId: string, stage: string, note?: string) {
+  return request<{ completed: string; plan: MvpPlan; done?: boolean; advice?: string }>(
+    `/api/mvp/${caseId}/advance`, json({ stage, note }))
+}
+
 export function getBusinessCases() {
   return request<{ business_cases: BusinessCase[] }>('/api/business-cases')
 }

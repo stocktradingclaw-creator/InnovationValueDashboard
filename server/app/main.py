@@ -2153,7 +2153,10 @@ def case_financials(case_id: str, horizon_years: int = Query(3, ge=1, le=7),
                          f"in the customer's own data, discounted by the learned realization "
                          f"factor {f:.2f} for '{opp.get('category')}'.")
     else:
-        annual_benefit = case.get("estimated_annual_benefit") or 0
+        # idea-promoted cases carry the submitter's claim on the idea record
+        annual_benefit = (case.get("estimated_annual_benefit") or next(
+            (i.get("estimated_annual_benefit") for i in db.list_ideas()
+             if i.get("promoted_case_id") == case_id), None) or 0)
         assumptions.append("Benefit is submitter-estimated — no matched customer data; "
                            "treat as low confidence until bindings observe actuals.")
 
@@ -2211,6 +2214,125 @@ def case_financials(case_id: str, horizon_years: int = Query(3, ge=1, le=7),
         "benefit_basis": ("verified" if verified > 0 else
                           "detected_opportunity" if opp else "submitter_estimate"),
     }
+
+
+# ------------------------------------------------------------- MVP workflow
+
+
+def _mvp_scaffold() -> Dict[str, Any]:
+    return {s: {"status": "pending", "artifact": None, "note": None,
+                "completed_at": None, "completed_by": None}
+            for s in hub.MVP_STAGES}
+
+
+def _mvp_financials(case_id: str) -> Dict[str, Any]:
+    # direct call must not inherit FastAPI Query() sentinel defaults
+    return case_financials(case_id, horizon_years=3, discount_rate=0.10,
+                           benefit_override=None, cost_override=None,
+                           ramp=0.6, run_rate_pct=0.15)
+
+
+@app.get("/api/mvp")
+def mvp_overview() -> Dict[str, Any]:
+    """Every case with its MVP plan status — the MVP Studio worklist."""
+    plans = db.list_mvp_plans()
+    rows = []
+    for c in db.list_business_cases():
+        p = plans.get(c["id"])
+        done = sum(1 for s in (p or {}).get("stages", {}).values()
+                   if s.get("status") == "complete")
+        rows.append({"case_id": c["id"], "title": c["title"], "stage": c["stage"],
+                     "status": c["status"],
+                     "benefit": (c.get("estimated_annual_benefit")
+                                 or (c.get("linked_opportunity") or {}).get("estimated_annual_savings")),
+                     "mvp_started": p is not None,
+                     "mvp_current_stage": (p or {}).get("current_stage"),
+                     "mvp_done": done, "mvp_total": len(hub.MVP_STAGES)})
+    rows.sort(key=lambda r: (not r["mvp_started"], r["stage"] == "closed"))
+    return {"stages": hub.MVP_STAGES, "stage_meta": hub.MVP_STAGE_META, "cases": rows}
+
+
+@app.get("/api/mvp/{case_id}")
+def mvp_plan(case_id: str) -> Dict[str, Any]:
+    case = db.get_business_case(case_id)
+    if case is None:
+        raise HTTPException(404, f"Business case '{case_id}' not found")
+    plan = db.get_mvp_plan(case_id) or {
+        "case_id": case_id, "current_stage": "design",
+        "stages": _mvp_scaffold(), "updated_at": None}
+    fin = _mvp_financials(case_id)
+    return {**plan, "stage_order": hub.MVP_STAGES, "stage_meta": hub.MVP_STAGE_META,
+            "case": {"id": case_id, "title": case["title"], "stage": case["stage"],
+                     "annual_benefit": fin["annual_benefit"], "npv": fin["npv"],
+                     "roi_pct": fin["roi_pct"], "payback_months": fin["payback_months"],
+                     "benefit_basis": fin["benefit_basis"]}}
+
+
+class MvpGenerate(BaseModel):
+    stage: str
+
+
+@app.post("/api/mvp/{case_id}/generate")
+def mvp_generate(case_id: str, body: MvpGenerate) -> Dict[str, Any]:
+    """AI-draft one stage's artifact (PRD, build plan, test pack, runbook, or
+    GTM/validation pack) grounded in the case's own financial model."""
+    case = db.get_business_case(case_id)
+    if case is None:
+        raise HTTPException(404, f"Business case '{case_id}' not found")
+    if body.stage not in hub.MVP_STAGES:
+        raise HTTPException(400, f"stage must be one of {'|'.join(hub.MVP_STAGES)}")
+    plan = db.get_mvp_plan(case_id) or {"current_stage": "design", "stages": _mvp_scaffold()}
+    artifact = hub.mvp_stage_pack(case, _mvp_financials(case_id), body.stage)
+    st = plan["stages"].setdefault(body.stage, {"status": "pending"})
+    st["artifact"] = artifact
+    if st.get("status") == "pending":
+        st["status"] = "in_progress"
+    db.save_mvp_plan(case_id, plan["current_stage"], plan["stages"])
+    db.audit("mvp.generate", _session_name(), case_id, body.stage)
+    return {"stage": body.stage, "artifact": artifact,
+            "plan": db.get_mvp_plan(case_id)}
+
+
+class MvpAdvance(BaseModel):
+    stage: str
+    note: Optional[str] = None
+
+
+@app.post("/api/mvp/{case_id}/advance")
+def mvp_advance(case_id: str, body: MvpAdvance) -> Dict[str, Any]:
+    """Mark the current MVP stage complete and move to the next. Honest gate:
+    a stage needs its artifact before it can be completed, and stages complete
+    in order — no skipping to Deploy without a test pack."""
+    case = db.get_business_case(case_id)
+    if case is None:
+        raise HTTPException(404, f"Business case '{case_id}' not found")
+    plan = db.get_mvp_plan(case_id)
+    if plan is None:
+        raise HTTPException(409, "No MVP plan yet — generate the Design stage first")
+    if body.stage not in hub.MVP_STAGES:
+        raise HTTPException(400, f"stage must be one of {'|'.join(hub.MVP_STAGES)}")
+    if body.stage != plan["current_stage"]:
+        raise HTTPException(409, f"Stages complete in order — current stage is "
+                                 f"'{plan['current_stage']}', not '{body.stage}'")
+    st = plan["stages"].get(body.stage) or {}
+    if not st.get("artifact"):
+        raise HTTPException(409, f"Generate or draft the {body.stage} pack before "
+                                 "marking the stage complete")
+    st.update({"status": "complete", "note": body.note or st.get("note"),
+               "completed_at": db._now(), "completed_by": _session_name()})
+    plan["stages"][body.stage] = st
+    idx = hub.MVP_STAGES.index(body.stage)
+    nxt = hub.MVP_STAGES[idx + 1] if idx + 1 < len(hub.MVP_STAGES) else body.stage
+    db.save_mvp_plan(case_id, nxt, plan["stages"])
+    db.audit("mvp.advance", _session_name(), case_id, f"{body.stage} complete")
+    out: Dict[str, Any] = {"completed": body.stage, "plan": db.get_mvp_plan(case_id)}
+    if body.stage == "validate":
+        out["done"] = True
+        if not case.get("metric_bindings"):
+            out["advice"] = ("MVP workflow complete, but no metric bindings observe this "
+                             "case yet — bind success metrics in ROI Tracking so realized "
+                             "value is verified, not asserted.")
+    return out
 
 
 # Industry reference ranges for innovation portfolio management. External,
@@ -2434,7 +2556,7 @@ def demo_clear(authorization: Optional[str] = Header(None),
     db.restore_state({"_format": 1, **{t: [] for t in (
         "ideas", "business_cases", "datasets", "strategic_initiatives",
         "challenges", "notifications", "workflow_events", "studio_runs",
-        "learning_citations", "metric_snapshots")}})
+        "learning_citations", "metric_snapshots", "mvp_plans")}})
     db.meta_set("seeded_lifecycle", "")
     db.meta_set("demo_cleared", "1")
     db.audit("demo.clear", _session_name() or actor)
@@ -3495,6 +3617,19 @@ def seed_lifecycle(force: bool = Query(False)) -> Dict[str, Any]:
                      (days(60), delivering["id"]))
         conn.execute("UPDATE business_cases SET submitted_at = ? WHERE id = ?",
                      (days(50), approved["id"]))
+
+    # MVP workflow mid-flight: design complete, build drafted and in progress
+    mvp_case = db.get_business_case(delivering["id"])
+    mvp_fin = _mvp_financials(delivering["id"])
+    mvp_stages = _mvp_scaffold()
+    mvp_stages["design"].update({
+        "status": "complete", "completed_at": days(20), "completed_by": "priya",
+        "note": "Scope frozen: email-to-ERP order path only; portal orders deferred",
+        "artifact": hub.mvp_stage_pack(mvp_case, mvp_fin, "design", force_template=True)})
+    mvp_stages["build"].update({
+        "status": "in_progress",
+        "artifact": hub.mvp_stage_pack(mvp_case, mvp_fin, "build", force_template=True)})
+    db.save_mvp_plan(delivering["id"], "build", mvp_stages)
 
     live = approved_case("Decommission idle cloud instances — wave 1",
                          "Instances idle below 5% CPU around the clock; wave 1 "

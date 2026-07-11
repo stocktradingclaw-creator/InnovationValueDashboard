@@ -10,6 +10,7 @@ import Ideas from './components/Ideas'
 import Ideate from './components/Ideate'
 import Opportunities from './components/Opportunities'
 import Maturity from './components/Maturity'
+import MvpStudio from './components/MvpStudio'
 import MySubmissions from './components/MySubmissions'
 import PipelineView from './components/PipelineView'
 import Settings from './components/Settings'
@@ -28,7 +29,7 @@ import type {
 
 type Tab =
   | 'overview' | 'ideas' | 'command' | 'pipeline' | 'sources'
-  | 'opportunities' | 'cases' | 'tracking' | 'portfolio' | 'settings' | 'mine' | 'campaigns' | 'ideate-futures' | 'ideate-competitive' | 'ideate-maturity' | 'ideate-workshops' | 'ideate-tentypes' | 'ideate-funnel' | 'governance-audit'
+  | 'opportunities' | 'cases' | 'mvp' | 'tracking' | 'portfolio' | 'settings' | 'mine' | 'campaigns' | 'ideate-futures' | 'ideate-competitive' | 'ideate-maturity' | 'ideate-workshops' | 'ideate-tentypes' | 'ideate-funnel' | 'governance-audit'
 
 const ICONS: Record<string, string> = {
   overview: 'M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10',
@@ -47,6 +48,7 @@ const ICONS: Record<string, string> = {
   opportunities: 'M12 3a9 9 0 109 9M12 8a4 4 0 104 4M12 12h.01',
   cases: 'M4 5h16v14H4zM4 10h16M9 5v14',
   tracking: 'M4 17l5-5 4 3 7-8M16 7h4v4',
+  mvp: 'M12 2c3 2 4.5 5.5 3.5 10l2.5 3.5-3.5-1a6 6 0 01-5 0l-3.5 1L8.5 12C7.5 7.5 9 4 12 2zM12 8h.01M10 19l-1 3M14 19l1 3',
   portfolio: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
   sources: 'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6',
   settings: 'M12 8a4 4 0 100 8 4 4 0 000-8zM19 12l2 1-1 3-2.3-.3a7 7 0 01-1.6 1.6L16 20h-3l-.3-2.3a7 7 0 01-1.6-1.6L8 17l-1-3 2-1-2-1 1-3 2.3.3a7 7 0 011.6-1.6L13 4h3l.3 2.3a7 7 0 011.6 1.6L20 8l1 3z',
@@ -420,6 +422,7 @@ export default function App() {
     ]],
     ['Value', [
       ['cases', '▤', 'Business Cases'],
+      ['mvp', '🚀', 'MVP Studio'],
       ['tracking', '✓', 'ROI Tracking'],
       ['portfolio', '▦', 'Portfolio'],
     ]],
@@ -580,6 +583,7 @@ export default function App() {
         {tab === 'cases' && (
           <BusinessCases cases={cases} opportunities={opportunities} onChanged={refresh} />
         )}
+        {tab === 'mvp' && <MvpStudio />}
         {tab === 'tracking' && <Tracking cases={cases} onChanged={refresh} />}
         {tab === 'portfolio' && (
           <Portfolio

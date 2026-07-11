@@ -228,6 +228,12 @@ CREATE TABLE IF NOT EXISTS funding_tranches (
     released_at TEXT,
     released_by TEXT
 );
+CREATE TABLE IF NOT EXISTS mvp_plans (
+    case_id       TEXT PRIMARY KEY REFERENCES business_cases(id),
+    current_stage TEXT NOT NULL DEFAULT 'design',
+    stages_json   TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
 """
 
 # Innovation lifecycle stages, in order. `status` (proposed/implemented) is kept
@@ -1377,6 +1383,34 @@ def latest_studio_run(kind: str) -> Optional[Dict[str, Any]]:
         return None
     return {"topic": row["topic"], "horizon": row["horizon"],
             "created_at": row["created_at"], **json.loads(row["output"])}
+
+
+def get_mvp_plan(case_id: str) -> Optional[Dict[str, Any]]:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM mvp_plans WHERE case_id = ?", (case_id,)).fetchone()
+    if row is None:
+        return None
+    return {"case_id": row["case_id"], "current_stage": row["current_stage"],
+            "stages": json.loads(row["stages_json"]), "updated_at": row["updated_at"]}
+
+
+def save_mvp_plan(case_id: str, current_stage: str, stages: Dict[str, Any]) -> None:
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO mvp_plans (case_id, current_stage, stages_json, updated_at) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(case_id) DO UPDATE SET current_stage=excluded.current_stage, "
+            "stages_json=excluded.stages_json, updated_at=excluded.updated_at",
+            (case_id, current_stage, json.dumps(stages), _now()))
+
+
+def list_mvp_plans() -> Dict[str, Dict[str, Any]]:
+    with _conn() as conn:
+        rows = conn.execute("SELECT * FROM mvp_plans").fetchall()
+    return {r["case_id"]: {"current_stage": r["current_stage"],
+                           "stages": json.loads(r["stages_json"]),
+                           "updated_at": r["updated_at"]} for r in rows}
 
 
 def review_summaries_bulk() -> Dict[str, Dict[str, Any]]:

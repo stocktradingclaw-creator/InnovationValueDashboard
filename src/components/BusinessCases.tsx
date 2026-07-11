@@ -363,7 +363,18 @@ export default function BusinessCases({ cases, opportunities, onChanged }: Props
             </p>
           )}
           {c.note && <p className="muted small">{c.note}</p>}
-          {expanded === c.id && <><CfoView caseId={c.id} /><PlanView plan={c.roi_plan} /></>}
+          {expanded === c.id && (
+            <>
+              <CfoView caseId={c.id} />
+              <PlanView plan={c.roi_plan} />
+              <button className="secondary" onClick={() => {
+                localStorage.setItem('ivd_mvp_case', c.id)
+                window.dispatchEvent(new CustomEvent('ivd-nav', { detail: 'mvp' }))
+              }}>
+                🚀 Plan the MVP — Design → Build → Test → Deploy → Validate
+              </button>
+            </>
+          )}
         </div>
       ))}
     </section>
